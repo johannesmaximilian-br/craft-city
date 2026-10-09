@@ -4,9 +4,14 @@ extends RefCounted
 ##
 ##   --demo                 Teststadt bauen (DemoCity)
 ##   --cam=x,z,dist         Kamera auf Tile x,z mit Abstand dist
-##   --overlay[=1..3]       Ansicht: 1 Verkehr, 2 Verschmutzung, 3 Bodenwert
+##   --overlay[=1..5]       Ansicht: 1 Verkehr, 2 Verschmutzung, 3 Bodenwert, 4 Kriminalität, 5 Zufriedenheit
+##   --popup=view|happy     Ansicht-Liste bzw. Zufriedenheits-Karte aufklappen
 ##   --menu / --flyout      Menü bzw. Strom-Werkzeuggruppe öffnen
-##   --selftest --dragtest --lanetest --traffictest --pickcheck   Tests (DevTests)
+##   --selftest --dragtest --lanetest --traffictest --pickcheck --firetest --bustest --happytest --cheattest --greentest --venuetest --zonetest --taxtest
+##   --venues               Theater + Stadion in die Demo-Stadt setzen (Screenshots)
+##   --villas               kleine Villensiedlung setzen (Screenshot)   Tests (DevTests)
+##   --ignite=x,z[,sek]     Gebäude nahe x,z anzünden, Brand sek vorspulen
+##   --ruin=x,z             Gebäude nahe x,z sofort abbrennen (Brandruine)
 ##   --screenshot=pfad      nach 90 Frames Bild speichern und beenden
 ##   --quit                 nach den Tests beenden (ohne Screenshot)
 
@@ -37,8 +42,30 @@ static func run(game: Node) -> void:
 	for arg in OS.get_cmdline_user_args():
 		if arg.begins_with("--overlay"):
 			for k in (int(arg.get_slice("=", 1)) if "=" in arg else 1):
-				game.hud.overlay_toggled.emit()
+				game.hud._toggle_overlay()
 
+	var ruin := value("--ruin")
+	if ruin != "":
+		# --ruin=x,z: Gebäude nahe x,z sofort abbrennen lassen (Brandruine ansehen)
+		var v := ruin.split_floats(",")
+		var dept: FireDept = game.fire_dept
+		var i := _nearest_building(game.map, Vector2(v[0], v[1]))
+		game.map.burning[i] = 1
+		game.map.notify_changed(Rect2i(i % game.map.size, i / game.map.size, 1, 1), false)
+		dept._burn_down(dept.fires[i])
+		game.hud.focus_requested.emit(Vector2i(i % game.map.size, i / game.map.size))
+	var ignite := value("--ignite")
+	if ignite != "":
+		# --ignite=x,z[,sek]: Gebäude anzünden (Tile x,z oder nächstes Gebäude daneben), Brand sek vorspulen
+		var v := ignite.split_floats(",")
+		var map: CityMap = game.map
+		var best := _nearest_building(map, Vector2(v[0], v[1]))
+		map.burning[best] = 1
+		map.notify_changed(Rect2i(best % map.size, best / map.size, 1, 1), false)
+		if v.size() > 2:
+			for k in int(v[2] * 10.0):
+				game.fire_dept.advance(0.1)
+		game.hud.focus_requested.emit(Vector2i(best % map.size, best / map.size))
 	if value("--gfx") != "":
 		# Grafikstufe nur für diesen Lauf (0 Niedrig, 1 Mittel, 2 Hoch), nicht gespeichert
 		GraphicsSettings.current = int(value("--gfx")) as GraphicsSettings.Preset
@@ -47,6 +74,26 @@ static func run(game: Node) -> void:
 		DevTests.traffictest()
 	if has("--servicetest"):
 		DevTests.servicetest(game)
+	if has("--zonetest"):
+		DevTests.zonetest()
+	if has("--taxtest"):
+		DevTests.taxtest(game)
+	if has("--venuetest"):
+		DevTests.venuetest(game)
+	if has("--villas"):
+		DevTests.place_villas(game)
+	if has("--venues"):
+		DevTests.place_venues(game)
+	if has("--greentest"):
+		DevTests.greentest(game)
+	if has("--cheattest"):
+		DevTests.cheattest(game)
+	if has("--happytest"):
+		DevTests.happytest(game)
+	if has("--bustest"):
+		DevTests.bustest(game)
+	if has("--firetest"):
+		DevTests.firetest(game)
 	if has("--widetest"):
 		DevTests.widetest()
 	if has("--selftest"):
@@ -74,6 +121,9 @@ static func run(game: Node) -> void:
 	if has("--flyout"):
 		await game.get_tree().process_frame
 		game.hud._on_group_pressed(4)
+	if value("--popup") != "":
+		await game.get_tree().process_frame
+		game.hud._toggle_popup(value("--popup"))
 	if has("--menu"):
 		game.hud.toggle_menu()
 
@@ -85,3 +135,12 @@ static func run(game: Node) -> void:
 		game.get_tree().quit()
 	elif has("--quit") or has("--pickcheck"):
 		game.get_tree().quit()
+
+
+static func _nearest_building(map: CityMap, p: Vector2) -> int:
+	var best := -1
+	for i in map.size * map.size:
+		if map.level[i] > 0 and map.zone[i] != Config.Zone.NONE and map.burning[i] == 0 and (best < 0 or
+				Vector2(i % map.size, i / map.size).distance_to(p) < Vector2(best % map.size, best / map.size).distance_to(p)):
+			best = i
+	return best

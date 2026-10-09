@@ -8,6 +8,7 @@ var lib: BlockLibrary
 var renderer: WorldRenderer
 var cam: CityCamera
 var tools: ToolController
+var fire_dept: FireDept
 var hud: Hud
 var environment: Environment
 var sun: DirectionalLight3D
@@ -55,6 +56,15 @@ func _ready() -> void:
 	add_child(markers)
 	markers.setup(map, sim, lib)
 
+	fire_dept = FireDept.new()
+	fire_dept.name = "FireDept"
+	add_child(fire_dept)
+	fire_dept.setup(map, sim)
+	var fire_fx := FireFx.new()
+	fire_fx.name = "FireFx"
+	add_child(fire_fx)
+	fire_fx.setup(map, fire_dept, lib)
+
 	var traffic := Traffic.new()
 	traffic.name = "Traffic"
 	add_child(traffic)
@@ -72,14 +82,16 @@ func _ready() -> void:
 
 	hud = Hud.new()
 	add_child(hud)
-	hud.setup(sim, tools, map, icons)
+	hud.setup(sim, tools, map, icons, fire_dept)
+	hud.focus_requested.connect(func(t: Vector2i): cam.focus_tile(t, map.h(t.x, t.y)))
 	sim.stats_changed.connect(func(): renderer.sim_speed = sim.speed)
 
 	var overlay := TrafficOverlay.new()
 	overlay.name = "TrafficOverlay"
 	add_child(overlay)
 	overlay.setup(map, sim)
-	hud.overlay_toggled.connect(func(): hud.set_overlay_mode(overlay.cycle()))
+	hud.overlay_selected.connect(func(m: int): hud.set_overlay_mode(m, overlay.set_mode(m)))
+	hud.set_overlay_mode(0, "", true)
 	# Dienst-Werkzeug in der Hand -> Versorgungsansicht dieses Dienstes
 	tools.tool_changed.connect(func(t):
 		var sp: int = tools._special_for_tool()
@@ -99,6 +111,7 @@ func _ready() -> void:
 	tools.applied.connect(_on_tool_applied)
 	tools.message.connect(func(_t): Audio.sfx("error", 0.02))
 	sim.message.connect(func(_t): Audio.sfx("notify", 0.0))
+	fire_dept.alert.connect(func(_t, _p): Audio.sfx("notify", 0.0))
 
 	DevTools.run(self)
 

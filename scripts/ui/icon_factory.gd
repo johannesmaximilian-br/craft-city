@@ -26,6 +26,7 @@ const VOXELS := {
 	"pause": ["XX.XX", "XX.XX", "XX.XX", "XX.XX", "XX.XX", "XX.XX"],
 	"play": ["X...", "XX..", "XXX.", "XXXX", "XXX.", "XX..", "X..."],
 	"fast": ["X..X..", "XX.XX.", "XXXXXX", "XX.XX.", "X..X.."],
+	"stats": ["....X", "....X", "..X.X", "..X.X", "X.X.X", "X.X.X", "XXXXX"],
 	"fastest": ["X..X..X..", "XX.XX.XX.", "XXXXXXXXX", "XX.XX.XX.", "X..X..X.."],
 }
 
@@ -33,6 +34,7 @@ const SERVICE_ICONS := {
 	"police": Config.Special.POLICE, "fire": Config.Special.FIRE, "school": Config.Special.SCHOOL,
 	"hospital": Config.Special.HOSPITAL, "library": Config.Special.LIBRARY,
 	"cinema": Config.Special.CINEMA, "townhall": Config.Special.TOWNHALL,
+	"theater": Config.Special.THEATER, "stadium": Config.Special.STADIUM,
 }
 
 var lib: BlockLibrary
@@ -94,7 +96,7 @@ func _content(icon_name: String) -> Node3D:
 		"coal":
 			_ground(b, 6)
 			StructureGenerator.coal(b, Vector3(0, 1, 0))
-		"police", "fire", "school", "hospital", "library", "cinema", "townhall":
+		"police", "fire", "school", "hospital", "library", "cinema", "townhall", "theater", "stadium":
 			var sp: int = SERVICE_ICONS[icon_name]
 			var s: int = Config.SPECIALS[sp]["size"] * Config.TILE_BLOCKS
 			_ground(b, s)

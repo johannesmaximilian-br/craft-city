@@ -18,6 +18,7 @@ var _cars: Array[Car] = []
 var _buses: Array[Car] = []
 var _bus_mmi: MultiMeshInstance3D
 var _stop_tiles: Array[Vector2i] = []
+var _stop_groups: Array = []                # je Straßennetz mit >= 2 Haltestellen: Array[Vector2i]
 var _rng := RandomNumberGenerator.new()
 
 const BUS_COLOR := Color("ffc21a")
@@ -35,6 +36,7 @@ class Car:
 	var lane := 0           # Hauptstraße: 0 = innere (Mittellinie), 1 = äußere Spur
 	var fresh := true
 	var is_bus := false
+	var group := -1         # Bus: Index in _stop_groups (eigenes Straßennetz)
 
 
 func setup(city_map: CityMap, simulation: Simulation, lib: BlockLibrary) -> void:
@@ -67,11 +69,39 @@ func _on_map_changed(_rect: Rect2i) -> void:
 				_road_tiles.append(p)
 				if map.transit[map.idx(x, z)] == Config.Transit.BUS_STOP:
 					_stop_tiles.append(p)
+	_group_stops()
 	_rebuild_weights()
-	# Fahrzeuge auf entfernten Straßen neu setzen
-	for car in _cars + _buses:
+	# Busse neu verteilen (Netze können sich geändert haben), Autos auf entfernten Straßen neu setzen
+	_buses.clear()
+	for car in _cars:
 		if not map.roads_connected(car.from.x, car.from.y, car.to.x, car.to.y):
 			_spawn(car)
+
+
+## Haltestellen nach zusammenhängendem Straßennetz gruppieren: Busse fahren nur innerhalb
+## eines Netzes, also braucht jedes Netz (z.B. Vorstadt nur per Bahn angebunden) eigene Busse.
+func _group_stops() -> void:
+	_stop_groups.clear()
+	var comp := {}
+	for stop in _stop_tiles:
+		if comp.has(stop):
+			continue
+		var id := _stop_groups.size()
+		var members: Array[Vector2i] = []
+		var queue: Array[Vector2i] = [stop]
+		comp[stop] = id
+		var head := 0
+		while head < queue.size():
+			var p := queue[head]
+			head += 1
+			if map.transit[map.idx(p.x, p.y)] == Config.Transit.BUS_STOP:
+				members.append(p)
+			for nb in _neighbors(p):
+				if not comp.has(nb):
+					comp[nb] = id
+					queue.append(nb)
+		_stop_groups.append(members)
+	_stop_groups = _stop_groups.filter(func(g: Array) -> bool: return g.size() >= 2)
 
 
 ## Viel befahrene Straßen bekommen mehr Autos.
@@ -107,18 +137,30 @@ func _neighbors(p: Vector2i) -> Array[Vector2i]:
 	return out
 
 
-func target_buses() -> int:
-	# Linienbetrieb ab 2 Haltestellen, Fahrgäste verdichten den Takt
-	if _stop_tiles.size() < 2:
-		return 0
-	return mini(maxi(1, _stop_tiles.size() / 2) + int(sim.bus_riders / BUS_RIDERS_PER_BUS), MAX_BUSES)
+## Busse je Straßennetz: Linienbetrieb ab 2 Haltestellen (je 2 Haltestellen 1 Bus),
+## Fahrgäste verdichten den Takt (anteilig nach Haltestellen verteilt).
+func target_buses(group: int) -> int:
+	var stops: int = (_stop_groups[group] as Array).size()
+	var total := 0
+	for g: Array in _stop_groups:
+		total += g.size()
+	var extra := sim.bus_riders / BUS_RIDERS_PER_BUS * stops / maxf(total, 1.0)
+	return mini(maxi(1, stops / 2) + int(extra), MAX_BUSES)
+
+
+func target_buses_total() -> int:
+	var n := 0
+	for g in _stop_groups.size():
+		n += target_buses(g)
+	return mini(n, MAX_BUSES)
 
 
 func _spawn(car: Car) -> void:
 	if _road_tiles.is_empty():
 		return
-	if car.is_bus and not _stop_tiles.is_empty():
-		car.from = _stop_tiles[_rng.randi() % _stop_tiles.size()]
+	if car.is_bus and car.group >= 0:
+		var stops: Array = _stop_groups[car.group]
+		car.from = stops[_rng.randi() % stops.size()]
 	else:
 		var k := _spawn_cdf.bsearch(_rng.randf() * _spawn_cdf[_spawn_cdf.size() - 1])
 		car.from = _road_tiles[mini(k, _road_tiles.size() - 1)]
@@ -162,25 +204,50 @@ func _next(car: Car) -> Vector2i:
 func _process(delta: float) -> void:
 	# Anzahl schrittweise anpassen
 	var want := target_count() if not _road_tiles.is_empty() else 0
-	_adjust(_cars, want, false)
-	_adjust(_buses, target_buses(), true)
+	_adjust_cars(want)
+	_adjust_buses()
 
 	var step: float = SPEED * SIM_SPEED_FACTOR[sim.speed] * delta / B
 	_move_all(_cars, multimesh, step, delta)
 	_move_all(_buses, _bus_mmi.multimesh, step * 0.85, delta)
 
 
-func _adjust(list: Array[Car], want: int, bus: bool) -> void:
-	for k in mini(4, absi(want - list.size())):
-		if list.size() < want:
+func _adjust_cars(want: int) -> void:
+	for k in mini(4, absi(want - _cars.size())):
+		if _cars.size() < want:
 			var car := Car.new()
-			car.is_bus = bus
-			car.lane = 1 if bus else _rng.randi() % 2     # Busse rechts außen
-			car.color = BUS_COLOR if bus else COLORS[_rng.randi() % COLORS.size()]
+			car.lane = _rng.randi() % 2
+			car.color = COLORS[_rng.randi() % COLORS.size()]
 			_spawn(car)
-			list.append(car)
+			_cars.append(car)
 		else:
-			list.pop_back()
+			_cars.pop_back()
+
+
+func _adjust_buses() -> void:
+	var count := PackedInt32Array()
+	count.resize(_stop_groups.size())
+	for b in _buses:
+		count[b.group] += 1
+	var budget := MAX_BUSES - _buses.size()
+	for g in _stop_groups.size():
+		var want := target_buses(g)
+		if count[g] > want:
+			for k in range(_buses.size() - 1, -1, -1):
+				if _buses[k].group == g and count[g] > want:
+					_buses.remove_at(k)
+					count[g] -= 1
+		for k in mini(4, want - count[g]):
+			if budget <= 0:
+				return
+			var bus := Car.new()
+			bus.is_bus = true
+			bus.lane = 1                # Busse rechts außen
+			bus.color = BUS_COLOR
+			bus.group = g
+			_spawn(bus)
+			_buses.append(bus)
+			budget -= 1
 
 
 func _move_all(list: Array[Car], mm: MultiMesh, step: float, delta: float) -> void:

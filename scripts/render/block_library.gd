@@ -219,6 +219,19 @@ func bus_mesh() -> ArrayMesh:
 	})
 
 
+## Löschzug: rot mit weißem Streifen, Leiter auf dem Dach, Front = +X.
+## Blaulicht ist ein eigenes Mesh (FireFx lässt es blinken).
+func fire_truck_mesh() -> ArrayMesh:
+	return _vehicle_mesh({
+		"body": [[Vector3(0, 0.42, 0), Vector3(1.9, 0.6, 0.72)]],
+		"glass": [[Vector3(0.68, 0.6, 0), Vector3(0.4, 0.26, 0.75)]],
+		"stripe": [[Vector3(-0.1, 0.36, 0), Vector3(1.7, 0.1, 0.75)]],
+		"roof": [[Vector3(-0.2, 0.78, 0), Vector3(1.3, 0.08, 0.2)],
+			[Vector3(-0.2, 0.82, 0.18), Vector3(1.3, 0.05, 0.05)], [Vector3(-0.2, 0.82, -0.18), Vector3(1.3, 0.05, 0.05)]],
+		"tire": _wheels(0.6, 0.34, 0.3),
+	})
+
+
 ## Zug-Waggon (Lok = gleiches Modell, andere Instanzfarbe), Front = +X.
 func wagon_mesh() -> ArrayMesh:
 	return _vehicle_mesh({
@@ -245,7 +258,8 @@ func _vehicle_mesh(parts: Dictionary) -> ArrayMesh:
 	var body_mat := flat_material(Color.WHITE)
 	body_mat.vertex_color_use_as_albedo = true
 	var mats := {"body": body_mat, "glass": flat_material(Color("9fd3ee")),
-		"tire": flat_material(Color("2b2d33")), "roof": flat_material(Color("4a4d55"))}
+		"tire": flat_material(Color("2b2d33")), "roof": flat_material(Color("4a4d55")),
+		"stripe": flat_material(Color("f4f2ec"))}
 	var mesh := ArrayMesh.new()
 	for key: String in parts:
 		var st := SurfaceTool.new()

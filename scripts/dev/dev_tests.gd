@@ -282,6 +282,7 @@ static func servicetest(game: Node) -> void:
 	report.call("Start")
 	for variant: String in ["ohne Dienste", "mit Diensten"]:
 		SaveManager.load_slot("servicetest", map, sim)
+		_remove_specials(map, sim, "")      # Demo-Stadt hat schon Dienste
 		sim.fires_total = 0
 		if variant == "mit Diensten":
 			sim.money += 20000
@@ -289,9 +290,21 @@ static func servicetest(game: Node) -> void:
 					ToolController.Tool.SCHOOL, ToolController.Tool.HOSPITAL]:
 				_place_near_center(map, tools, t)
 		sim._rng.seed = 7
+		var dept: FireDept = game.fire_dept
+		dept._rng.seed = 7
+		var burned0 := dept.burned_total
+		var ext0 := dept.extinguished_total
+		var log_burn := func(text: String, _t: Vector2i) -> void:
+			if text.begins_with("Abgebrannt"):
+				print("servicetest   ", text)
+		dept.alert.connect(log_burn)
 		for m in 36:
 			sim.tick_month()
+			dept.advance(Simulation.SECONDS_PER_MONTH[1])
+		dept.alert.disconnect(log_burn)
 		report.call(variant)
+		print("servicetest %-22s Brände: %d abgebrannt, %d gelöscht" % ["", dept.burned_total - burned0,
+			dept.extinguished_total - ext0])
 	# Ausbau: Polizei per erneutem Klick auf Stufe 3, danach weiterer Klick wird abgelehnt
 	for i in map.size * map.size:
 		if map.anchor[i] == i and map.special[i] == Config.Special.POLICE:
@@ -307,6 +320,408 @@ static func servicetest(game: Node) -> void:
 			break
 	tools.set_tool(ToolController.Tool.INSPECT)
 	DirAccess.remove_absolute(SaveManager.path("servicetest"))
+
+
+## Brand nahe der Feuerwache wird gelöscht, Brand ohne Brandschutz brennt ab (Ruine, keine Neubebauung).
+static func firetest(game: Node) -> void:
+	var map: CityMap = game.map
+	var sim: Simulation = game.sim
+	var dept: FireDept = game.fire_dept
+	SaveManager.save("firetest", map, sim)
+	sim.speed = 0
+	var cov: PackedFloat32Array = sim.coverage["fire"]
+	var near := -1
+	var far := -1
+	var base_risk := 0.0
+	var risk := 0.0
+	for i in map.size * map.size:
+		if map.level[i] == 0 or map.zone[i] == Config.Zone.NONE or map.burning[i] > 0:
+			continue
+		var f := Config.FIRE_IND_FACTOR if map.zone[i] == Config.Zone.IND else 1.0
+		base_risk += Config.FIRE_RISK * f
+		risk += Config.FIRE_RISK * f * pow(1.0 - minf(cov[i], 1.0), 2.0)
+		if sim._src(i) >= 0 and (near < 0 or cov[i] > cov[near]):
+			near = i
+		if cov[i] <= 0.0 and sim._src(i) >= 0:
+			far = i
+	print("firetest Ausbrüche/Jahr erwartet: ohne Feuerwehr %.1f, mit %.1f" % [base_risk * 12.0, risk * 12.0])
+	# 1) Brand nahe der Wache
+	var lv_near := map.level[near]
+	map.burning[near] = 1
+	map.notify_changed(Rect2i(near % map.size, near / map.size, 1, 1), false)
+	var status := dept.status_text(near)
+	var t := _fire_until_out(dept, near)
+	print("firetest nah (Schutz %d%%): %s, %s nach %.1fs, Stufe %d -> %d, Zug zurück: %s" % [roundi(cov[near] * 100), status,
+		"gelöscht" if map.level[near] > 0 else "ABGEBRANNT", t, lv_near, map.level[near], dept.trucks.is_empty()])
+	# 2) ohne Feuerwehr: brennt ab, Ruine blockiert Neubau
+	_remove_specials(map, sim, "fire")
+	if far < 0:
+		far = near
+	map.burning[far] = 1
+	map.notify_changed(Rect2i(far % map.size, far / map.size, 1, 1), false)
+	status = dept.status_text(far)
+	var burned0 := dept.burned_total
+	t = _fire_until_out(dept, far)
+	sim.tick_month()
+	var spread := dept.burned_total - burned0 - 1 + dept.fires.size()
+	print("firetest ohne Wache: %s, %s nach %.1fs, Ruine %d Monate, Stufe nach 1 Monat %d, Ausbreitung %d" % [
+		status, "abgebrannt" if map.ruin[far] > 0 else "NICHT ABGEBRANNT", t, map.ruin[far], map.level[far], spread])
+	SaveManager.load_slot("firetest", map, sim)
+	DirAccess.remove_absolute(SaveManager.path("firetest"))
+	_fire_industry_only()
+
+
+## Reines Industriegebiet (0 Einwohner) mit Feuerwache direkt daneben: brennt trotzdem ab und zu, Wache löscht.
+static func _fire_industry_only() -> void:
+	var m := CityMap.new()
+	m.height.fill(6)
+	var s := Simulation.new()
+	s.map = m
+	s.powered.resize(m.size * m.size)
+	for z in range(10, 20):
+		m.road[m.idx(9, z)] = 1
+		for x in range(10, 13):
+			m.zone[m.idx(x, z)] = Config.Zone.IND
+			m.level[m.idx(x, z)] = 2
+	var st := m.idx(8, 14)
+	m.special[st] = Config.Special.FIRE
+	m.anchor[st] = st
+	m.slevel[st] = 1
+	m.notify_changed(Rect2i(0, 0, m.size, m.size))
+	s.refresh()
+	var dept := FireDept.new()
+	dept.setup(m, s)
+	s._rng.seed = 3
+	dept._rng.seed = 3
+	var statuses := {}
+	dept.alert.connect(func(text: String, _t: Vector2i) -> void:
+		var key := text.get_slice(" - ", 1)
+		statuses[key] = int(statuses.get(key, 0)) + 1)
+	for k in 120:       # nur Brand-Etappe: ohne Strom würde die Industrie sonst verfallen
+		s._fires()
+		dept.advance(Simulation.SECONDS_PER_MONTH[1])
+	print("firetest   Meldungen: %s" % statuses)
+	print("firetest Industrie ohne Einwohner (30 Gebäude, Wache daneben, Auslastung %d%%): 10 Jahre -> %d Ausbrüche, %d gelöscht, %d abgebrannt" % [
+		roundi(float(s.service_load.get(st, 0.0)) * 100), s.fires_total, dept.extinguished_total, dept.burned_total])
+	dept.free()
+	s.free()
+
+
+static func _fire_until_out(dept: FireDept, i: int) -> float:
+	var t := 0.0
+	while dept.fires.has(i) and t < 30.0:
+		dept.advance(0.1)
+		t += 0.1
+	for k in 100:        # Rückfahrt abwarten
+		dept.advance(0.1)
+	return t
+
+
+## Sonderbauten einer Dienst-Kategorie entfernen ("" = alle Dienste).
+static func _remove_specials(map: CityMap, sim: Simulation, service: String) -> void:
+	for i in map.size * map.size:
+		var a := map.anchor[i]
+		if a < 0:
+			continue
+		var def: Dictionary = Config.SPECIALS[map.special[a]]
+		if def.has("service") and (service == "" or def["service"] == service):
+			if i != a:
+				map.special[i] = Config.Special.NONE
+				map.anchor[i] = -1
+	for i in map.size * map.size:
+		if map.anchor[i] == i and Config.SPECIALS[map.special[i]].has("service") \
+				and (service == "" or Config.SPECIALS[map.special[i]]["service"] == service):
+			map.special[i] = Config.Special.NONE
+			map.anchor[i] = -1
+			map.slevel[i] = 0
+	map.notify_changed(Rect2i(0, 0, map.size, map.size))
+	sim.refresh()
+
+
+## Vorstadt nur per Bahn angebunden (eigenes Straßennetz) mit 4 Haltestellen -> bekommt eigene Busse.
+static func bustest(game: Node) -> void:
+	var map: CityMap = game.map
+	var traffic: Traffic = game.get_node("Traffic")
+	SaveManager.save("bustest", map, game.sim)
+	var x0 := 2
+	var z0 := 54
+	for z in range(z0, z0 + 8):
+		for x in range(x0, x0 + 8):
+			var i := map.idx(x, z)
+			map.height[i] = 6
+			map.zone[i] = Config.Zone.NONE
+			map.special[i] = Config.Special.NONE
+			map.anchor[i] = -1
+			map.rail[i] = 0
+			map.transit[i] = 0
+			map.road[i] = 1 if x == x0 or z == z0 or x == x0 + 7 or z == z0 + 7 else 0
+	for p: Vector2i in [Vector2i(x0, z0 + 3), Vector2i(x0 + 7, z0 + 3), Vector2i(x0 + 3, z0), Vector2i(x0 + 3, z0 + 7)]:
+		map.transit[map.idx(p.x, p.y)] = Config.Transit.BUS_STOP
+	map.notify_changed(Rect2i(x0 - 1, z0 - 1, 10, 10))
+	for k in 20:
+		traffic._adjust_buses()
+	var per_group := PackedInt32Array()
+	per_group.resize(traffic._stop_groups.size())
+	var suburb := -1
+	for b in traffic._buses:
+		per_group[b.group] += 1
+	for g in traffic._stop_groups.size():
+		var first: Vector2i = traffic._stop_groups[g][0]
+		if first.x >= x0 and first.x < x0 + 8 and first.y >= z0:
+			suburb = g
+	print("bustest Netze mit Haltestellen: %d, Busse je Netz %s, Vorstadt-Netz %d hat %d Busse" % [
+		traffic._stop_groups.size(), per_group, suburb, per_group[suburb] if suburb >= 0 else 0])
+	SaveManager.load_slot("bustest", map, game.sim)
+	DirAccess.remove_absolute(SaveManager.path("bustest"))
+
+
+## Zufriedenheit: Aufschlüsselung + Warnung bei starkem Abfall (Steuer hoch bzw. Polizei weg).
+static func happytest(game: Node) -> void:
+	var map: CityMap = game.map
+	var sim: Simulation = game.sim
+	SaveManager.save("happytest", map, sim)
+	var msgs: Array[String] = []
+	var log_msg := func(t: String) -> void:
+		if t.begins_with("Zufriedenheit"):
+			msgs.append(t)
+	sim.message.connect(log_msg)
+	var total := Config.HAPPY_BASE
+	for k: String in sim.happy_parts:
+		total += float(sim.happy_parts[k])
+	print("happytest Stadt %d%%, Summe der Teile %d%%, schlechtester Teil: %s" % [
+		roundi(sim.city_happiness * 100), roundi(total * 100), sim.happiness_report()[0]])
+	for scenario: String in ["Steuer 20%", "Polizei abgerissen"]:
+		SaveManager.load_slot("happytest", map, sim)
+		for m in 3:
+			sim.tick_month()
+		msgs.clear()
+		if scenario == "Steuer 20%":
+			sim.tax[Config.Zone.RES] = 0.2
+		else:
+			_remove_specials(map, sim, "police")
+		for m in 3:
+			sim.tick_month()
+		print("happytest %-20s -> %d%%, Meldungen: %s" % [scenario, roundi(sim.city_happiness * 100), msgs])
+	sim.message.disconnect(log_msg)
+	SaveManager.load_slot("happytest", map, sim)
+	DirAccess.remove_absolute(SaveManager.path("happytest"))
+
+
+## Geld-Cheat über echtes Tastenereignis (Strg+Shift+G); ohne Modifier wählt G weiter das Terrain-Werkzeug.
+static func cheattest(game: Node) -> void:
+	var sim: Simulation = game.sim
+	var before := sim.money
+	var e := InputEventKey.new()
+	e.keycode = KEY_G
+	e.pressed = true
+	e.ctrl_pressed = true
+	e.shift_pressed = true
+	game.hud._unhandled_key_input(e)
+	var after := sim.money
+	e.ctrl_pressed = false
+	e.shift_pressed = false
+	game.hud._unhandled_key_input(e)
+	print("cheattest Geld %d -> %d (+%d), G ohne Modifier -> Werkzeug %s" % [before, after, after - before,
+		ToolController.TOOLS[game.tools.tool]["name"]])
+	game.tools.set_tool(ToolController.Tool.INSPECT)
+
+
+## Grüngürtel: Verschmutzung am Wohnhaus ohne / mit Baumreihe / mit Parks; Terraforming reißt Straße ab.
+static func greentest(game: Node) -> void:
+	var m := CityMap.new()
+	m.height.fill(6)
+	var s := Simulation.new()
+	s.map = m
+	s.powered.resize(m.size * m.size)
+	# Industrie (Stufe 3) bei x 10..12, Wohnhaus bei x 16, dazwischen Platz für Grün (x 13..15)
+	for z in range(10, 13):
+		for x in range(10, 13):
+			m.zone[m.idx(x, z)] = Config.Zone.IND
+			m.level[m.idx(x, z)] = 3
+	var home := m.idx(16, 11)
+	m.zone[home] = Config.Zone.RES
+	m.level[home] = 1
+	var measure := func(label: String) -> void:
+		m.notify_changed(Rect2i(0, 0, m.size, m.size))
+		s.refresh()
+		print("greentest %-18s Verschmutzung am Wohnhaus %.2f (Filter %d%%), Bodenwert %d%%, Park-Zufriedenheit +%d" % [label,
+			s.pollution[home], roundi(s.green_filter[home] * 100), roundi(s.land_value[home] * 100),
+			roundi(minf(s.parks_near[home] * Config.HAPPY_PARK, Config.HAPPY_PARK_MAX) * 100)])
+	measure.call("ohne Grün")
+	for z in range(8, 15):
+		for x in range(14, 16):
+			m.feature[m.idx(x, z)] = Config.Feature.TREE
+	measure.call("Baumgürtel 2 breit")
+	for z in range(8, 15):
+		for x in range(14, 16):
+			m.feature[m.idx(x, z)] = Config.Feature.PARK
+	measure.call("Parkgürtel 2 breit")
+	s.free()
+	# Terraforming auf Straße/Gleis/Park reißt ab
+	var map: CityMap = game.map
+	var tools: ToolController = game.tools
+	var road := -1
+	for i in map.size * map.size:
+		if map.road[i] != 0 and map.rail[i] == 0 and map.height[i] < Config.MAX_HEIGHT:
+			road = i
+			break
+	tools.set_tool(ToolController.Tool.RAISE)
+	var t := Vector2i(road % map.size, road / map.size)
+	tools.hover = t
+	var cost := tools.tile_cost(t)
+	tools._apply([t] as Array[Vector2i])
+	print("greentest Terrain anheben auf Straße %s: Kosten $%d, Straße danach %d (0 = abgerissen)" % [t, cost, map.road[road]])
+	tools.set_tool(ToolController.Tool.INSPECT)
+
+
+## Theater + Stadion in die Demo-Stadt setzen (Freischaltung per Einwohnerzahl wird übergangen).
+static func place_venues(game: Node) -> void:
+	var sim: Simulation = game.sim
+	sim.money += 40000
+	for t: ToolController.Tool in [ToolController.Tool.STADIUM, ToolController.Tool.THEATER]:
+		sim.population = 6000          # Bauen ruft refresh() -> Einwohnerzahl wieder echt
+		_place_near_center(game.map, game.tools, t)
+	game.tools.set_tool(ToolController.Tool.INSPECT)
+	sim.refresh()
+
+
+## Stadion/Theater: Kundschaft fürs Gewerbe, Verkehr am Veranstaltungstag, Bus/Bahn entlastet.
+static func venuetest(game: Node) -> void:
+	var map: CityMap = game.map
+	var sim: Simulation = game.sim
+	SaveManager.save("venuetest", map, sim)
+	var com_before := sim.demand_com
+	place_venues(game)
+	var vs := sim.venues()
+	print("venuetest platziert: %s" % [Array(vs).map(func(a: int) -> String: return "%s bei %d,%d" % [
+		Config.SPECIALS[map.special[a]]["name"], a % map.size, a / map.size])])
+	for a in vs:
+		var name: String = Config.SPECIALS[map.special[a]]["name"]
+		var jams := []
+		for m in 3:
+			sim.month = m
+			sim.refresh()
+			jams.append("%s %d%%" % ["Event" if sim.venue_has_event(a) else "-", roundi(float(sim.venue_jam.get(a, 0.0)) * 100)])
+		# Kundschaft am nächsten Gewerbe-Tile
+		var best := -1
+		for i in map.size * map.size:
+			if map.zone[i] == Config.Zone.COM and (best < 0 or absi(i % map.size - a % map.size) + absi(i / map.size - a / map.size)
+					< absi(best % map.size - a % map.size) + absi(best / map.size - a / map.size)):
+				best = i
+		print("venuetest %-8s Besucher %d, Straßen-Auslastung Monat 0..2: %s, Kundschaft Gewerbe %d,%d: %d" % [name,
+			int(sim.venue_visitors(a)), jams, best % map.size, best / map.size, int(sim.customers[best])])
+	print("venuetest Gewerbe-Nachfrage %.2f -> %.2f" % [com_before, sim.demand_com])
+	SaveManager.load_slot("venuetest", map, sim)
+	DirAccess.remove_absolute(SaveManager.path("venuetest"))
+
+
+## Zonen-Idealformen: Gewerbe (Tiefe + Weg zur Kreuzung), Industrie-Ballung, Wohnen Nachbarschaft + Villenlage.
+static func zonetest() -> void:
+	var m := CityMap.new()
+	m.height.fill(6)
+	var s := Simulation.new()
+	s.map = m
+	s.powered.resize(m.size * m.size)
+	var road := func(x0: int, z0: int, x1: int, z1: int) -> void:
+		for z in range(z0, z1 + 1):
+			for x in range(x0, x1 + 1):
+				m.road[m.idx(x, z)] = 1
+	var zone_rect := func(zn: int, x0: int, z0: int, w: int, h: int) -> void:
+		for z in range(z0, z0 + h):
+			for x in range(x0, x0 + w):
+				m.zone[m.idx(x, z)] = zn
+				m.level[m.idx(x, z)] = 1
+	# A) Gewerbe 3x3, Straßen rundum (x 2..6, z 2..6)
+	road.call(2, 2, 6, 2); road.call(2, 6, 6, 6); road.call(2, 2, 2, 6); road.call(6, 2, 6, 6)
+	zone_rect.call(Config.Zone.COM, 3, 3, 3, 3)
+	# B) Gewerbe 10x2 an Straße z=10 mit Querstraßen an beiden Enden (x 10 und 21)
+	road.call(8, 10, 40, 10); road.call(10, 8, 10, 14); road.call(21, 8, 21, 14)
+	zone_rect.call(Config.Zone.COM, 11, 11, 10, 2)
+	# C) Gewerbe 16x1 ohne Querstraße (x 23..38) an derselben Straße
+	zone_rect.call(Config.Zone.COM, 23, 11, 16, 1)
+	# D) Industrie 3x3 und 3x6 an Straße z=20
+	road.call(2, 20, 30, 20)
+	zone_rect.call(Config.Zone.IND, 3, 21, 3, 3)
+	zone_rect.call(Config.Zone.IND, 12, 21, 6, 3)
+	# E) Kleinsiedlung 3x2 am Wasser mit Parks vs. große Siedlung 12x3
+	road.call(2, 40, 30, 40)
+	zone_rect.call(Config.Zone.RES, 4, 41, 3, 2)
+	for p: Vector2i in [Vector2i(3, 41), Vector2i(7, 41), Vector2i(5, 43)]:
+		m.feature[m.idx(p.x, p.y)] = Config.Feature.PARK
+	m.height[m.idx(5, 44)] = 1     # Teich
+	zone_rect.call(Config.Zone.RES, 12, 41, 12, 3)
+	m.notify_changed(Rect2i(0, 0, m.size, m.size))
+	s.refresh()
+	var levels := func(x0: int, x1: int, z: int) -> String:
+		var out := ""
+		for x in range(x0, x1 + 1):
+			out += str(s._max_level(m.idx(x, z)))
+		return out
+	print("zonetest Gewerbe 3x3 rundum Straße, max Stufen je Reihe: %s / %s / %s" % [levels.call(3, 5, 3), levels.call(3, 5, 4), levels.call(3, 5, 5)])
+	print("zonetest Gewerbe 10x2 mit Querstraßen an den Enden: %s / %s" % [levels.call(11, 20, 11), levels.call(11, 20, 12)])
+	print("zonetest Gewerbe 16x1 ohne Querstraße:            %s" % levels.call(23, 38, 11))
+	print("zonetest Industrie 3x3: %s / %s / %s   3x6: %s / %s / %s" % [levels.call(3, 5, 21), levels.call(3, 5, 22), levels.call(3, 5, 23),
+		levels.call(12, 17, 21), levels.call(12, 17, 22), levels.call(12, 17, 23)])
+	for i: int in [m.idx(5, 41), m.idx(17, 42)]:
+		print("zonetest Wohnen %d,%d: Wohn-Nachbarn %d, Bodenwert %d%% -> Villenlage %s" % [i % m.size, i / m.size,
+			int(s.res_cluster[i]), roundi(s.land_value[i] * 100), s.villa_site(i)])
+	s.free()
+
+
+## Kleine Villensiedlung in die Demo-Stadt setzen (Screenshot): Straße, Parks, Teich, 4 Villen.
+static func place_villas(game: Node) -> void:
+	var map: CityMap = game.map
+	var x0 := 18
+	var z0 := 22
+	for x in range(x0, x0 + 6):
+		var i := map.idx(x, z0)
+		map.road[i] = 1
+		map.zone[i] = Config.Zone.NONE
+		map.feature[i] = Config.Feature.NONE
+	for x in range(x0, x0 + 6):
+		for z in range(z0 + 1, z0 + 3):
+			var i := map.idx(x, z)
+			map.height[i] = map.height[map.idx(x0, z0)]
+			map.feature[i] = Config.Feature.NONE
+			if x % 2 == 0 and z == z0 + 1:
+				map.zone[i] = Config.Zone.RES
+				map.level[i] = 3
+				map.villa[i] = 1
+			else:
+				map.feature[i] = Config.Feature.PARK
+	map.notify_changed(Rect2i(x0 - 1, z0 - 1, 8, 5))
+	game.sim.refresh()
+	game.hud.focus_requested.emit(Vector2i(x0 + 3, z0 + 1))
+
+
+## Steuern je Zone (Einnahmen/Nachfrage) und ÖPNV-Tarif (Fahrgäste, Einnahmen, Zufriedenheit).
+static func taxtest(game: Node) -> void:
+	var sim: Simulation = game.sim
+	var map: CityMap = game.map
+	SaveManager.save("taxtest", map, sim)
+	var show := func(label: String) -> void:
+		sim.refresh()
+		sim._budget()
+		print("taxtest %-26s Einnahmen %s = $%d  Nachfrage W/G/I %.2f/%.2f/%.2f  Zufriedenheit %d%%" % [label,
+			sim.income_parts.keys().map(func(k: String) -> String: return "%s %d" % [k, roundi(float(sim.income_parts[k]))]),
+			roundi(sim.last_income), sim.demand_res, sim.demand_com, sim.demand_ind, roundi(sim.city_happiness * 100)])
+	show.call("neutral (9/9/12)")
+	sim.tax[Config.Zone.IND] = 0.16
+	show.call("Industrie 16%")
+	sim.tax[Config.Zone.IND] = 0.12
+	sim.tax[Config.Zone.RES] = 0.13
+	show.call("Wohnen 13%")
+	sim.tax[Config.Zone.RES] = 0.09
+	for f in 3:
+		sim.fare = f
+		sim.refresh()
+		sim._budget()
+		print("taxtest ÖPNV %-10s Fahrgäste %d (Bus %d, Bahn %d), ÖPNV-Anteil %d%%, Einnahme $%d, Zufriedenheit %d%% (Tarif-Anteil %+d)" % [
+			Config.FARE_NAMES[f], int(sim.bus_riders + sim.rail_riders), int(sim.bus_riders), int(sim.rail_riders),
+			roundi(sim.transit_share * 100), roundi(float(sim.income_parts["ÖPNV"])), roundi(sim.city_happiness * 100),
+			roundi(float(sim.happy_parts.get("ÖPNV-Tarif", 0.0)) * 100)])
+	SaveManager.load_slot("taxtest", map, sim)
+	DirAccess.remove_absolute(SaveManager.path("taxtest"))
 
 
 ## Erstes freies Plätzchen spiralförmig um die Kartenmitte.

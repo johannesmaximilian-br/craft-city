@@ -17,6 +17,9 @@ var anchor: PackedInt32Array    # Index des Ursprungs-Tiles eines Sonderbaus, -1
 var rail: PackedByteArray       # 1 = Gleis (darf Straße kreuzen)
 var transit: PackedByteArray    # Config.Transit: Haltestelle (auf Straße) / Bahnhof (auf Gleis)
 var slevel: PackedByteArray     # Ausbaustufe eines Sonderbaus (am Ursprungs-Tile), 0 = alt/1
+var burning: PackedByteArray    # Brand: 0 = nein, 1..100 = Fortschritt in % (100 = abgebrannt)
+var ruin: PackedByteArray       # Brandruine: Monate bis das Tile wieder bebaut werden kann
+var villa: PackedByteArray      # 1 = Wohnen Stufe 3 ist eine Villa (statt Wohnblock)
 
 
 func _init(map_size: int = Config.MAP_SIZE) -> void:
@@ -34,6 +37,9 @@ func _init(map_size: int = Config.MAP_SIZE) -> void:
 	rail.resize(n)
 	transit.resize(n)
 	slevel.resize(n)
+	burning.resize(n)
+	ruin.resize(n)
+	villa.resize(n)
 
 
 func idx(x: int, z: int) -> int:
@@ -67,6 +73,11 @@ func is_special(x: int, z: int) -> bool:
 
 func is_power_line(x: int, z: int) -> bool:
 	return in_bounds(x, z) and power_line[idx(x, z)] == 1
+
+
+## Einwohner eines Wohn-Tiles (Villa: wenige, sonst je Stufe).
+func res_capacity(i: int) -> int:
+	return Config.VILLA_POP if villa[i] == 1 and level[i] == 3 else Config.RES_CAPACITY[level[i]]
 
 
 ## Gebäude oder Sonderbau steht drauf
@@ -190,7 +201,7 @@ func notify_changed(rect: Rect2i, infra := true) -> void:
 	tiles_changed.emit(rect)
 
 
-const SAVE_FIELDS := ["height", "zone", "road", "level", "feature", "power_line", "special", "anchor", "rail", "transit", "slevel"]
+const SAVE_FIELDS := ["height", "zone", "road", "level", "feature", "power_line", "special", "anchor", "rail", "transit", "slevel", "burning", "ruin", "villa"]
 
 
 func to_dict() -> Dictionary:
@@ -252,6 +263,9 @@ func generate(seed_value: int) -> void:
 			rail[i] = 0
 			transit[i] = 0
 			slevel[i] = 0
+			burning[i] = 0
+			ruin[i] = 0
+			villa[i] = 0
 			if not is_water(x, z) and tree_noise.get_noise_2d(x, z) > 0.25 and rng.randf() < 0.6:
 				feature[i] = Config.Feature.TREE
 

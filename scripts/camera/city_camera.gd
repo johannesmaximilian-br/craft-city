@@ -20,6 +20,7 @@ var _target_yaw := _yaw
 var _target_dist := _dist
 var _drag_pan := false
 var _drag_rot := false
+var _focus := Vector3.INF       # Ziel eines Kamera-Sprungs (INF = keiner)
 
 
 func _ready() -> void:
@@ -34,6 +35,10 @@ func _process(delta: float) -> void:
 	var input := Vector2(
 		Input.get_axis("ui_left", "ui_right") + float(Input.is_key_pressed(KEY_D)) - float(Input.is_key_pressed(KEY_A)),
 		Input.get_axis("ui_up", "ui_down") + float(Input.is_key_pressed(KEY_S)) - float(Input.is_key_pressed(KEY_W)))
+	if _focus != Vector3.INF:
+		position = position.lerp(_focus, minf(1.0, delta * 5.0))
+		if position.distance_to(_focus) < 0.1 or input != Vector2.ZERO or _drag_pan:
+			_focus = Vector3.INF
 	if input != Vector2.ZERO:
 		_pan(input.limit_length(1.0) * pan_speed * delta * (_dist / 70.0))
 	if Input.is_key_pressed(KEY_Q):
@@ -79,6 +84,13 @@ func _unhandled_input(event: InputEvent) -> void:
 		if _drag_rot:
 			_target_yaw -= mm.relative.x * 0.006
 			_pitch = clampf(_pitch - mm.relative.y * 0.004, deg_to_rad(-85.0), deg_to_rad(-20.0))
+
+
+## Sanft zu einem Tile fahren (z.B. Brand), bei Bedarf etwas heranzoomen.
+## height = Geländehöhe, damit das Ziel in Bildmitte landet.
+func focus_tile(t: Vector2i, height: float) -> void:
+	_focus = Vector3((t.x + 0.5) * Config.TILE_BLOCKS, height, (t.y + 0.5) * Config.TILE_BLOCKS)
+	_target_dist = minf(_target_dist, 55.0)
 
 
 ## Weltpunkt unter der Maus bleibt unter der Maus.

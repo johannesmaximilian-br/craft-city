@@ -166,6 +166,10 @@ static func service(b: BlockBatch, base: Vector3, sp: int, lv: int) -> void:
 			b.put_box("vox_dark", base + Vector3(1.5, 0.5, -0.02), Vector3(1.2, 1.0, 0.06))
 			_roof(b, base, 3, 3, f, "darkbrick")
 			b.put_box("vox_red", base + Vector3(1.5, f + 1.5, 0.5), Vector3(1.8, 1.0, 0.15))      # Schild
+		Config.Special.THEATER:
+			theater(b, base, lv)
+		Config.Special.STADIUM:
+			stadium(b, base, lv)
 		Config.Special.TOWNHALL:
 			var f := lv + 1
 			_hull(b, base, 6, 6, 0, f, "stone", "greybrick", "ice")
@@ -178,6 +182,51 @@ static func service(b: BlockBatch, base: Vector3, sp: int, lv: int) -> void:
 				b.put("wood", base + Vector3(2.5, y, 3.5) - Vector3(0, 0, 1))
 			b.put_box("vox_white", base + Vector3(3.0, f + tower - 0.5, 1.95), Vector3(0.8, 0.8, 0.08))
 			b.put("brick", base + Vector3(2.5, f + 1 + tower, 2.5))
+
+
+## Theater (6x6): Säulenfront, roter Vorhang-Giebel, hoher Bühnenturm hinten.
+static func theater(b: BlockBatch, base: Vector3, lv: int) -> void:
+	var f := lv + 2
+	_hull(b, base, 6, 6, 0, f, "stone", "brick", "ice")
+	_roof(b, base, 6, 6, f, "darkbrick")
+	for x: float in [0.5, 1.8, 3.0, 4.2, 5.5]:                                               # Säulen
+		b.put_box("stone", base + Vector3(x, f * 0.5, -0.35), Vector3(0.35, f, 0.35))
+	b.put_box("stone", base + Vector3(3.0, f + 0.15, -0.2), Vector3(6.4, 0.3, 0.9))          # Gesims
+	b.put_box("vox_red", base + Vector3(3.0, f + 0.9, 0.1), Vector3(4.0, 1.2, 0.2))          # Giebel/Vorhang
+	b.put_box("cheese", base + Vector3(3.0, 1.0, -0.05), Vector3(2.0, 0.5, 0.1))             # Leuchtschild
+	for y in range(f + 1, f + 2 + lv):                                                       # Bühnenturm
+		for z in range(3, 6):
+			for x in range(1, 5):
+				if x == 1 or x == 4 or z == 3 or z == 5:
+					b.put("brick", base + Vector3(x, y, z))
+	_roof(b, base + Vector3(1, 0, 3), 4, 3, f + 2 + lv, "darkbrick")
+
+
+## Stadion (9x9): Tribünen-Ring (Höhe je Stufe), Rasen mit Linien, Flutlichtmasten in den Ecken.
+static func stadium(b: BlockBatch, base: Vector3, lv: int) -> void:
+	var h := lv + 1
+	for z in 9:
+		for x in 9:
+			var ring := mini(mini(x, 8 - x), mini(z, 8 - z))                                 # 0 = Außenkante
+			if ring >= 2:
+				continue
+			var corner := (x < 2 or x > 6) and (z < 2 or z > 6)
+			if corner and (x == 0 or x == 8) and (z == 0 or z == 8):
+				continue                                                                     # abgerundete Ecken
+			var top := h - ring                                                              # Stufen nach innen
+			for y in top:
+				b.put("greybrick" if ring == 0 else "square", base + Vector3(x, y, z))
+			if ring == 1:
+				b.put_box("vox_red" if (x + z) % 2 == 0 else "vox_white",
+					base + Vector3(x + 0.5, top + 0.1, z + 0.5), Vector3(0.8, 0.2, 0.8))         # Sitze
+	b.put_box("vox_green", base + Vector3(4.5, 0.05, 4.5), Vector3(5.0, 0.1, 5.0))          # Rasen
+	b.put_box("paint_white", base + Vector3(4.5, 0.12, 4.5), Vector3(0.1, 0.04, 4.6))        # Mittellinie
+	b.put_box("paint_white", base + Vector3(4.5, 0.12, 4.5), Vector3(1.2, 0.04, 1.2))        # Anstoßkreis (eckig)
+	b.put_box("vox_green", base + Vector3(4.5, 0.13, 4.5), Vector3(1.0, 0.04, 1.0))
+	for p: Vector2 in [Vector2(0.5, 0.5), Vector2(8.5, 0.5), Vector2(0.5, 8.5), Vector2(8.5, 8.5)]:
+		var mh := h + 3.0
+		b.put_box("metal", base + Vector3(p.x, mh * 0.5, p.y), Vector3(0.2, mh, 0.2))         # Flutlicht
+		b.put_box("vox_yellow", base + Vector3(p.x, mh + 0.2, p.y), Vector3(0.8, 0.5, 0.3))
 
 
 ## Holzmast mit Querträger, Fuß bei foot (Tile-Mitte).

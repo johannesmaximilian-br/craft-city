@@ -213,14 +213,16 @@ func _emit_tile(tx: int, tz: int) -> void:
 	var zn := map.zone[i]
 	var lv := map.level[i]
 	if zn != Config.Zone.NONE:
-		if lv == 0:
+		if lv == 0 and map.ruin[i] > 0:
+			_emit_ruin(tx, tz, base)
+		elif lv == 0:
 			var plate: String = ["", "zone_res", "zone_com", "zone_ind"][zn]
 			for sz in B:
 				for sx in B:
 					_b.put(plate, base + Vector3(sx, 0, sz))
 		else:
 			_b.base = base
-			BuildingGenerator.emit(zn, lv, hash(Vector3i(tx, tz, lv)), _b.put_local, _b.prop_local)
+			BuildingGenerator.emit(zn, lv, hash(Vector3i(tx, tz, lv)), _b.put_local, _b.prop_local, map.villa[i] == 1)
 		return
 
 	var c := base + Vector3(1.5, 0, 1.5)
@@ -236,6 +238,20 @@ func _emit_tile(tx: int, tz: int) -> void:
 			_b.put_prop("flowers2", base + Vector3(2.5, 0, 2.5), 1.0)
 			_b.put_prop("bush", base + Vector3(2.5, 0, 0.5), 2.0)
 			_b.put_prop("bush", base + Vector3(0.5, 0, 2.5), 0.5)
+
+
+## Brandruine: verkohlter Boden, Mauerreste in den Ecken.
+func _emit_ruin(tx: int, tz: int, base: Vector3) -> void:
+	var r := absi(hash(Vector2i(tx, tz)))
+	for sz in B:
+		for sx in B:
+			var k := sz * B + sx
+			if (r >> k) & 1 == 0 or (sx == 1 and sz == 1):
+				_b.put("coal", base + Vector3(sx, -0.6, sz))
+			if sx != 1 and sz != 1 and (r >> (k + 9)) % 3 != 0:
+				_b.put("darkbrick", base + Vector3(sx, 0, sz))
+				if (r >> (k + 17)) & 1 == 1:
+					_b.put("darkbrick", base + Vector3(sx, 1, sz))
 
 
 func _pole_top(tx: int, tz: int) -> Vector3:

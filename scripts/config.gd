@@ -9,7 +9,7 @@ const SNOW_HEIGHT := 11
 
 enum Zone { NONE, RES, COM, IND }
 enum Feature { NONE, TREE, PARK }
-enum Special { NONE, COAL, WIND, POLICE, FIRE, SCHOOL, HOSPITAL, LIBRARY, CINEMA, TOWNHALL }
+enum Special { NONE, COAL, WIND, POLICE, FIRE, SCHOOL, HOSPITAL, LIBRARY, CINEMA, TOWNHALL, THEATER, STADIUM }
 enum Road { NONE, STREET }
 enum Transit { NONE, BUS_STOP, STATION }
 
@@ -21,7 +21,6 @@ const UPKEEP_BUS_STOP := 4.0
 const UPKEEP_RAIL := 0.5
 const UPKEEP_STATION := 15.0
 const BUS_RANGE := 3                    # Einzugsbereich Haltestelle (Tiles)
-const BUS_SHARE := 0.4                  # Anteil Pendler, die Bus fahren, wenn Start+Ziel versorgt
 const BUS_TRAFFIC := 0.1                # Straßenlast je Busfahrer (1 Bus ersetzt ~10 Autos)
 const STATION_WALK := 4                 # Fußweg zum Bahnhof (Tiles)
 const STATION_TRANSFER := 4.0           # Umsteige-/Wartezeit in Wegkosten
@@ -49,11 +48,46 @@ const POLLUTION_COAL := 4.0
 const POLLUTION_COAL_RANGE := 7
 const POLLUTION_TRAFFIC := 1.2          # bei Auslastung 1.0
 const POLLUTION_TRAFFIC_RANGE := 2
+# Grün filtert Verschmutzung: je Baum/Park im Umkreis von 2 Tiles (5x5) weniger Verschmutzung am Tile
+const GREEN_FILTER_TREE := 0.05
+const GREEN_FILTER_PARK := 0.08
+const GREEN_FILTER_MAX := 0.7           # höchstens 70 % weggefiltert
+const GREEN_FILTER_RANGE := 2
+# ---- Steuern je Zone: neutraler Satz und Empfindlichkeit der Nachfrage (Industrie nimmt mehr hin) ----
+const TAX_NEUTRAL := [0.0, 0.09, 0.09, 0.12]       # Index = Zone (RES, COM, IND)
+const TAX_DEMAND := [0.0, 5.0, 4.0, 2.5]           # Nachfrage-Abzug je Steuerpunkt über neutral (x 100)
+const TAX_HAPPY := 2.0                             # Zufriedenheit: nur die Wohnsteuer
+const TAX_MAX := 0.2
+
+# ---- ÖPNV-Tarif: 0 kostenlos, 1 normal, 2 teuer ----
+const FARE_NAMES := ["kostenlos", "normal", "teuer"]
+const FARE_PRICE := [0.0, 0.10, 0.20]              # $ je Fahrgast und Monat
+const FARE_PATH_COST := [-1.5, 0.0, 2.0]           # Bahn: Aufschlag auf Einstiegskosten (Routenwahl)
+const FARE_BUS_SHARE := [0.55, 0.4, 0.25]          # Busanteil, wenn Start + Ziel an Haltestellen
+const FARE_HAPPY := [0.05, 0.0, -0.03]             # Zufriedenheit für Wohnhäuser mit Bus-/Bahnanschluss
+
+# ---- Zonen-Idealformen ----
+const COM_MAX_LEVEL_BY_DEPTH := [3, 3, 3, 2]       # Gewerbe = Ladenzeile: Stufe je Abstand zur Straße (1 = direkt dran)
+const COM_DEPTH_GROWTH := [1.0, 1.0, 0.8, 0.6]     # ... und Wachstum je Abstand
+const COM_CORNER_LEVEL := [4, 6]                   # Weg entlang der Straße bis zur nächsten Kreuzung/Ecke: <=4 Stufe 3, <=6 Stufe 2, sonst 1
+const COM_FRONT_BONUS := 1.3                       # Wachstum an Hauptstraße / Haltestelle
+const IND_CLUSTER_RANGE := 2                       # Industrie = Ballung: Industrie-Tiles im 5x5 ringsum
+const IND_CLUSTER_LEVEL := [0, 3, 8]               # ab so vielen Nachbarn Stufe 2 bzw. 3
+const IND_CLUSTER_GROWTH := 0.04                   # Wachstum 0.6 + 0.04 je Nachbar (max 1.6)
+const RES_SHOP_RANGE := 4                          # Wohnen = Nachbarschaft: Gewerbe in 4 Tiles -> Bodenwert +
+const RES_SHOP_BONUS := 0.05
+const RES_DULL_RANGE := 6                          # kein Park/Wasser/Gewerbe in 6 Tiles -> Bodenwert -
+const RES_DULL_MALUS := 0.08
+# Villa: Wohnen Stufe 3 in Kleinsiedlung mit Top-Bodenwert -> wenige Bewohner, Bodenabgabe
+const VILLA_LAND := 0.75
+const VILLA_MAX_NEIGHBORS := 8                     # Wohn-Zonen im 5x5 ringsum (ohne eigenes)
+const VILLA_POP := 16
+const VILLA_LEVY := 6.0                            # $ je Villa und Monat
+
 # Bodenwert 0..1
 const LAND_BASE := 0.45
 const LAND_WATER := 0.12                # Wasser in 3 Tiles
-const LAND_TREE := 0.015                # je Baum in 3 Tiles (max 0.15)
-const LAND_PARK := 0.08                 # je Park in 3 Tiles (max 0.24)
+const LAND_PARK := 0.08                 # je Park in 3 Tiles (max 0.24); Bäume: nur Verschmutzungsfilter
 const LAND_HEIGHT := 0.012              # je Block über Wasserniveau (Aussicht, max 0.1)
 const LAND_POLLUTION := 0.09            # Abzug je Verschmutzungspunkt
 const LAND_CONGESTION := 0.12           # Abzug je Auslastung der Zufahrt
@@ -75,6 +109,11 @@ const SPECIALS := {
 	Special.LIBRARY:  {"name": "Bibliothek", "size": 1, "cost": 1000, "upgrade": 1200, "upkeep": 7.0, "power": 0, "service": "culture", "unlock": 1000},
 	Special.CINEMA:   {"name": "Kino", "size": 1, "cost": 1400, "upgrade": 1500, "upkeep": 6.0, "power": 0, "service": "culture", "unlock": 1000},
 	Special.TOWNHALL: {"name": "Bürgerhaus", "size": 2, "cost": 4000, "upgrade": 4000, "upkeep": 18.0, "power": 0, "service": "culture", "unlock": 2000},
+	# Großkultur: Besucher (je Stufe) = Kundschaft fürs Gewerbe ringsum + Verkehr an Veranstaltungstagen
+	Special.THEATER:  {"name": "Theater", "size": 2, "cost": 8000, "upgrade": 6000, "upkeep": 35.0, "power": 0, "service": "venue",
+		"unlock": 3000, "visitors": 300, "event_every": 1},
+	Special.STADIUM:  {"name": "Stadion", "size": 3, "cost": 15000, "upgrade": 10000, "upkeep": 60.0, "power": 0, "service": "venue",
+		"unlock": 5000, "visitors": 900, "event_every": 3},
 }
 
 # ---- Dienste, Zufriedenheit, Kriminalität ----
@@ -88,11 +127,32 @@ const SERVICES := {
 	"education": ["Schule", 600, 0.12],
 	"health": ["Krankenhaus", 600, 0.12],
 	"culture": ["Kultur", 1500, 0.08],
+	"venue": ["Großkultur", 4000, 0.08],
 }
 const HAPPY_BASE := 0.55
+# Veranstaltungen (Theater/Stadion)
+const VENUE_SHOP_RANGE := 5             # Gewerbe in diesem Umkreis bekommt Besucher als Kundschaft
+const VENUE_SHOP_SHARE := 0.5           # Anteil der Besucher, der dort einkauft
+const VENUE_TRAFFIC_RANGE := 3          # Straßen in diesem Umkreis tragen den Besucherverkehr
+const VENUE_TRAFFIC := 2.5              # Besucher -> Pendler-Äquivalente (verteilt auf die Straßen)
+const VENUE_TRANSIT_CUT := 0.4          # Bus/Bahn in 4 Tiles: so viel weniger Autoverkehr
+const HAPPY_PARK := 0.03                # Zufriedenheit je Park im Umkreis von 3 Tiles ...
+const HAPPY_PARK_MAX := 0.09            # ... höchstens
 const HAPPY_LEAVE := 0.30               # darunter ziehen Leute weg
-const FIRE_RISK := 0.002                # Brandrisiko je Gebäude/Monat ohne Feuerwehr
-const FIRE_GRACE_POP := 200             # kleine Dörfer brennen nicht
+const HAPPY_ALERT_DROP := 0.08          # Abfall in 3 Monaten (bzw. 60 % davon in 1 Monat) -> Meldung
+
+# ---- Brände (Zeiten in Sekunden bei Tempo 1, schneller bei höherem Tempo) ----
+const FIRE_RISK := 0.002                # Ausbruch je Gebäude/Monat ohne Brandschutz, x (1 - Schutz)²
+const FIRE_IND_FACTOR := 3.0            # Industrie brennt häufiger
+const FIRE_GRACE_POP := 200             # kleine Dörfer brennen nicht (gilt nicht für Industrie)
+const FIRE_JOB_WEIGHT := 0.5           # Arbeitsplätze zählen halb zur Auslastung der Feuerwache
+const FIRE_IND_MIN_SHARE := 0.25        # Industrie: Restrisiko auch bei vollem Brandschutz (Feuerwehr löscht dann)
+const FIRE_BURN_TIME := 10.0            # bis ein ungelöschtes Gebäude abbrennt
+const FIRE_DAMAGE_AT := 0.6             # erst danach gelöscht -> Gebäude verliert 1 Stufe
+const FIRE_SPREAD := 0.25               # je Nachbargebäude bei halbem Brand, x (1 - Schutz)²
+const FIRE_EXTINGUISH_TIME := 2.5       # Löschen vor Ort
+const FIRE_TRUCK_SPEED := 2.5           # Löschzug in Tiles/Sekunde
+const FIRE_RUIN_MONTHS := 6             # Brandruine blockiert Neubau
 
 # Stromverbrauch (MW) pro Gebäudestufe
 const POWER_USE := {
@@ -102,6 +162,7 @@ const POWER_USE := {
 }
 
 const START_MONEY := 20000.0
+const CHEAT_MONEY := 50000.0          # Strg/Cmd + Shift + G
 const START_YEAR := 2000
 
 # Baukosten pro Tile
@@ -114,7 +175,7 @@ const COST_TREE := 5
 const COST_PARK := 80
 
 # Unterhalt pro Monat
-const UPKEEP_PARK := 1.5
+const UPKEEP_PARK := 3.0               # Parks: Pflege, Wege, Bänke (Bäume kostenlos)
 const UPKEEP_POWERLINE := 0.1
 
 # Kapazität pro Gebäudestufe (Index = Stufe 0..3)

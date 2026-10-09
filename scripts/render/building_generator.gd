@@ -5,11 +5,15 @@ extends RefCounted
 ## prop.call(key: String, local: Vector3, rot: float)
 
 
-static func emit(zone: int, lv: int, seed_value: int, put: Callable, prop: Callable) -> void:
+static func emit(zone: int, lv: int, seed_value: int, put: Callable, prop: Callable, villa := false) -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = seed_value
 	match zone:
-		Config.Zone.RES: _res(lv, rng, put, prop)
+		Config.Zone.RES:
+			if villa and lv == 3:
+				_villa(rng, put, prop)
+			else:
+				_res(lv, rng, put, prop)
 		Config.Zone.COM: _com(lv, rng, put)
 		Config.Zone.IND: _ind(lv, rng, put)
 
@@ -70,6 +74,23 @@ static func _res(lv: int, rng: RandomNumberGenerator, put: Callable, prop: Calla
 				put.call("leaves", Vector3i(rng.randi_range(0, 2), floors + 1, rng.randi_range(0, 2)))
 			else:
 				put.call("crate", Vector3i(rng.randi_range(0, 2), floors + 1, rng.randi_range(0, 2)))
+
+
+## Villa: flacher Bungalow mit Flachdach-Terrasse, Pool, Hecke und Garten.
+static func _villa(rng: RandomNumberGenerator, put: Callable, prop: Callable) -> void:
+	var wall := "square" if rng.randf() < 0.5 else "stone"
+	for z in 2:
+		for x in 3:
+			put.call(wall if z == 1 or x != 1 else "ice", Vector3i(x, 0, z))
+			put.call("ice" if (x + z) % 2 == 0 else wall, Vector3i(x, 1, z))
+	for x in 3:
+		put.call("wood", Vector3i(x, 2, 0))
+	put.call("wood", Vector3i(2, 2, 1))
+	put.call("leaves", Vector3i(0, 2, 1))                                                  # Dachgarten
+	put.call("vox_blue", Vector3i(1, 0, 2))                                                # Pool
+	put.call("vox_blue", Vector3i(2, 0, 2))
+	prop.call("bush", Vector3(0.5, 0, 2.5), rng.randf() * TAU)
+	prop.call("flowers2", Vector3(0.4, 0, 1.6), 0.0)
 
 
 static func _com(lv: int, rng: RandomNumberGenerator, put: Callable) -> void:

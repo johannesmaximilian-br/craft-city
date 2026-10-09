@@ -45,5 +45,5 @@ func _rebuild() -> void:
 			# Leere Zonen nur jedes 2. Tile, damit es nicht überladen wirkt
 			if map.level[i] == 0 and (x + z) % 2 == 1:
 				continue
-			_points.append(Vector3(x * B + B * 0.5, map.height[i] + LEVEL_OFFSET[map.level[i]], z * B + B * 0.5))
+			_points.append(Vector3(x * B + B * 0.5, map.height[i] + (LEVEL_OFFSET[map.level[i]] if map.villa[i] == 0 else LEVEL_OFFSET[1] + 1.0), z * B + B * 0.5))
 	multimesh.instance_count = _points.size()

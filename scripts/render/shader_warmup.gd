@@ -14,7 +14,7 @@ func run(lib: BlockLibrary, cam: Camera3D) -> void:
 	for key: String in lib.meshes:
 		meshes.append(lib.meshes[key])
 		overrides.append(lib.materials.get(key, null))
-	for m: Mesh in [lib.car_mesh(), lib.bus_mesh(), lib.wagon_mesh()]:
+	for m: Mesh in [lib.car_mesh(), lib.bus_mesh(), lib.wagon_mesh(), lib.fire_truck_mesh()] + FireFx.warmup_meshes():
 		meshes.append(m)
 		overrides.append(null)
 	# Klein, dicht vor der Kamera, damit alles im Bild (und im Schatten-Pass) ist

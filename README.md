@@ -20,15 +20,20 @@ Projekt in Godot öffnen → F5. Dev-Flags (nach `--`):
 | Mausrad | Zoom |
 | 1 Info · 2 Straße · J Bushaltestelle · R Gleis · Z Bahnhof · 3 Stromleitung | Werkzeuge |
 | 4/5/6 Wohnen/Gewerbe/Industrie · 7 Kohle · 8 Wind · 9 Baum · 0 Park · T/G Terrain · B Abriss | Werkzeuge |
-| U Polizei · F Feuerwehr · L Schule · K Krankenhaus · N Bibliothek · X Kino · C Bürgerhaus | Dienste & Kultur (nochmal auf Gebäude klicken = Ausbau) |
+| U Polizei · F Feuerwehr · L Schule · K Krankenhaus · N Bibliothek · X Kino · C Bürgerhaus · H Theater · O Stadion | Dienste & Kultur (nochmal auf Gebäude klicken = Ausbau) |
 | Toolbar-Button mit `^` | Gruppe: klicken wählt zuletzt genutztes Werkzeug und klappt die Auswahl auf |
 | Linke Maus ziehen | Fläche (Zonen) / Linie in L-Form (Straße, Gleis, Leitung) |
 | Shift + ziehen (Straße) | Straßenraster mit 6 Tiles tiefen Blöcken |
 | P | Pause |
+| Tab, Klick auf Brand-Anzeige | reihum zu laufenden Bränden springen (sonst zum Ort der letzten Meldung) |
+| Klick auf Meldung mit `>` | Kamera fährt zum Ort der Meldung |
 | V | Ansicht: Verkehr → Verschmutzung → Bodenwert → Kriminalität → Zufriedenheit → aus |
+| Ansicht-Button (oben, Balken-Symbol) | Liste aller Ansichten mit Kennzahlen (Stau, ÖPNV, Ø Verschmutzung/Bodenwert/Kriminalität, Arbeitslose); Button zeigt aktive Ansicht |
+| Zufriedenheit (oben, Smiley) | Hover: größte Minuspunkte · Klick: Aufschlüsselung mit Tipps, was fehlt |
 | Esc | Menü: Speichern / Laden / Neue Stadt |
 | F5 / F9 | Schnellspeichern / Schnellladen |
 | M | Musik an/aus (Lautstärken im Menü) |
+| Strg/Cmd + Shift + G | Cheat: +$50.000 (zum Testen) |
 
 ## Regeln (Kurz)
 
@@ -45,9 +50,9 @@ Projekt in Godot öffnen → F5. Dev-Flags (nach `--`):
 
 Dev-Werkzeuge liegen getrennt vom Spielcode in `scripts/dev/` und laufen nur mit Flags (nach `--`):
 
-- `dev_tools.gd` — wertet Flags aus: `--demo`, `--cam=x,z,dist`, `--overlay[=1..5]`, `--menu`, `--flyout`, `--screenshot=pfad`, `--quit`
+- `dev_tools.gd` — wertet Flags aus: `--demo`, `--cam=x,z,dist`, `--ignite=x,z[,sek]` (Gebäude anzünden, Brand vorspulen, Kamera hin), `--ruin=x,z` (sofort abbrennen), `--overlay[=1..5]`, `--popup=view|happy`, `--menu`, `--flyout`, `--screenshot=pfad`, `--quit`
 - `demo_city.gd` — reproduzierbare Teststadt (Zonen, Strom, ÖPNV, 4-spurige Straße mit Verjüngung)
-- `dev_tests.gd` — `--selftest` (Timing, Speichern/Laden, Audio), `--dragtest` (echtes Maus-Ziehen), `--lanetest` (Rechtsverkehr auf Hauptstraßen), `--widetest` (Hauptstraßen-Erkennung), `--profile[=Sek,Tempo]` (Frame-Zeiten + Ruckler-Ursachen), `--gfx=0..2`, `--nowarmup`, `--servicetest`, `--tool=<name>`, `--traffictest` (Korridor: Straße/Parallelstraße/Hauptstraße/Bus/Bahn), `--pickcheck`
+- `dev_tests.gd` — `--selftest` (Timing, Speichern/Laden, Audio), `--dragtest` (echtes Maus-Ziehen), `--lanetest` (Rechtsverkehr auf Hauptstraßen), `--widetest` (Hauptstraßen-Erkennung), `--profile[=Sek,Tempo]` (Frame-Zeiten + Ruckler-Ursachen), `--gfx=0..2`, `--nowarmup`, `--servicetest`, `--tool=<name>`, `--traffictest` (Korridor: Straße/Parallelstraße/Hauptstraße/Bus/Bahn), `--pickcheck`, `--firetest` (Brand an der Wache gelöscht, ohne Wache abgebrannt + Ruine), `--bustest` (Vorstadt mit eigenem Straßennetz bekommt Busse), `--happytest` (Aufschlüsselung, Warnung bei Steuer hoch / Polizei weg), `--cheattest` (Geld-Cheat per Tastenereignis), `--greentest` (Grüngürtel gegen Verschmutzung, Terraforming reißt Straße ab), `--venuetest` (Stadion/Theater: Besucherverkehr, Kundschaft), `--zonetest` (Ladenzeile, Ballung, Nachbarschaft), `--taxtest` (Steuern je Zone, ÖPNV-Tarif)
 
 ```bash
 /Applications/Godot.app/Contents/MacOS/Godot --path . -- --demo --selftest --dragtest --traffictest --quit
@@ -58,17 +63,37 @@ Dev-Werkzeuge liegen getrennt vom Spielcode in `scripts/dev/` und laufen nur mit
 | Dienst | erwartet ab | Wirkung |
 |---|---|---|
 | Polizei | 300 Einw. | senkt Kriminalität (bis 85 %) |
-| Feuerwehr | 300 Einw. | verhindert Brände (ohne: Gebäude brennen ab, Industrie 3x häufiger) |
+| Feuerwehr | 300 Einw. | Brandschutz + Löschzüge (siehe *Brände*) |
 | Schule | 600 Einw. | Zufriedenheit + Fachkräfte (Gewerbe/Industrie wachsen schneller) |
 | Krankenhaus (2x2) | 600 Einw. | Zufriedenheit |
 | Bibliothek / Kino | 1.500 Einw. (baubar ab 1.000) | Kultur |
 | Bürgerhaus (2x2) | 1.500 Einw. (baubar ab 2.000) | Kultur, groß |
+| Theater (2x2) | 4.000 Einw. (baubar ab 3.000) | Großkultur; jeden Monat Vorstellung, 300 Besucher je Stufe |
+| Stadion (3x3) | 4.000 Einw. (baubar ab 5.000) | Großkultur; Spieltag alle 3 Monate, 900 Besucher je Stufe |
+
+**Unterhalt** (je Monat, Stufe 2/3: ×2,2/×3,8): Polizei/Feuerwehr 10, Schule 13, Krankenhaus 20, Bibliothek 7, Kino 6, Bürgerhaus 18, Theater 35, Stadion 60.
+
+**Großkultur (Theater/Stadion)**: Besucher kaufen im Umkreis von 5 Tiles ein (+50 % der Besucher als Kundschaft fürs Gewerbe) und erhöhen die Gewerbe-Nachfrage. Am Veranstaltungstag fahren die Besucher über die Straßen im Umkreis von 3 Tiles (Besucher × 2,5 Pendler-Äquivalente, verteilt) → Stau; Bushaltestelle/Bahnhof in 4 Tiles nimmt 40 % auf. Info-Karte zeigt Besucher, „heute!“ und die Auslastung rundum; verstopft ein Event die Straßen, kommt (max. 1×/Jahr) eine Meldung. Test: `--venuetest`, Screenshot-Flag `--venues`.
 
 - **Ausbaustufen 1–3**: gleiches Werkzeug auf das Gebäude → Reichweite 6/9/12 Tiles, Kapazität 800/2.000/4.500 Einwohner, mehr Etagen. Überlastete Gebäude wirken schwächer.
-- **Zufriedenheit** je Wohnhaus: Bodenwert + versorgt (+) / unversorgt (−, sobald die Stadtgröße den Dienst verlangt) − Kriminalität − Steuern. **Unter 30 % ziehen Leute weg** → weniger Kunden/Arbeitskräfte → Gewerbe und Industrie schrumpfen. Zufriedene Städte locken Zuzug an.
+- **Zufriedenheit** je Wohnhaus: Bodenwert + versorgt (+) / unversorgt (−, sobald die Stadtgröße den Dienst verlangt) − Kriminalität − Wohnsteuer ± ÖPNV-Tarif. **Unter 30 % ziehen Leute weg** → weniger Kunden/Arbeitskräfte → Gewerbe und Industrie schrumpfen. Zufriedene Städte locken Zuzug an.
+- **Aufschlüsselung** (Klick auf Zufriedenheit): Grundwert 55 + Bodenwert + Parks + je Dienst (versorgt +, unversorgt −) − Kriminalität − Steuern, schlechteste zuerst mit Tipp („Krankenhaus erreicht nur 33 % – mehr bauen oder ausbauen“, „Steuern senken“ …). Einwohnergewichteter Schnitt der Wohnhäuser.
+- **Warnung**: sinkt die Zufriedenheit in 3 Monaten um ≥ 8 Punkte (oder in 1 Monat um ≥ 5), kommt eine Meldung mit dem Teil, der am stärksten gefallen ist, z.B. „Zufriedenheit sinkt: 60 % → 40 % – Grund: Polizei (−14)“. Danach 6 Monate Pause. Test `--happytest`.
 - **Kriminalität** aus Dichte, niedrigem Bodenwert und Arbeitslosigkeit; Polizei senkt sie; schadet Zufriedenheit und Gewerbe.
 - Mit einem Dienst-Werkzeug in der Hand zeigt die Karte dessen **Versorgung** (grün/gelb/rot). Die Info-Karte eines Hauses nennt fehlende Dienste.
-- Test (`--servicetest`, Demo-Stadt ohne Dienste, 36 Monate): ohne Dienste 570 → 530 Einw., Zufriedenheit 35 %, 6 Brände; mit Diensten → 770 Einw., 55 %, 1 Brand.
+- Test (`--servicetest`, Demo-Stadt, Dienste entfernt bzw. neu gebaut, 36 Monate): ohne Dienste 770 → 490 Einw., Zufriedenheit 34 %, 3 Ausbrüche / 8 abgebrannt (inkl. Ausbreitung); mit Diensten 760 Einw., 59 %, 0 Ausbrüche.
+
+### Brände
+
+- **Ausbruch** (monatlich je Gebäude): 0,2 % × (1 − Brandschutz)². Wohnen/Gewerbe erst ab 200 Einw. in der Stadt; volle Abdeckung ⇒ dort praktisch keine Brände.
+- **Industrie brennt immer**: ×3 Risiko, unabhängig von der Einwohnerzahl und mit Restrisiko 25 % auch bei vollem Brandschutz — die Feuerwehr hat dort also zu tun und löscht. Test: 30 Industriegebäude ohne Einwohner, Wache daneben → in 10 Jahren 5 Brände, 4 gelöscht.
+- **Brandschutz** = Versorgung der Feuerwache (100 % nah, 60 % am Rand der Reichweite). Auslastung der Wache = Einwohner + **halbe Arbeitsplätze** im Einzugsgebiet; Überlastung schwächt den Schutz.
+- **Verlauf**: Ein Brand dauert ~10 s (Tempo 1, schneller bei höherem Tempo) bis zum Abbrennen. Sichtbar durch Flammen + Rauchsäule; Meldung sofort mit Ort, oben eine Brand-Anzeige (Tab/Klick springt hin).
+- **Löschzug**: Die nächste Wache, in deren Reichweite der Brand liegt, schickt einen Zug über die Straßen (Wache braucht Straßenanschluss). Je Ausbaustufe 1/2/3 Züge. Vor Ort stoppt der Brand, Löschen dauert 2,5 s. Erst nach 60 % Brandfortschritt gelöscht ⇒ Gebäude verliert 1 Stufe.
+- **Ohne Löschzug** (keine Wache in Reichweite / alle im Einsatz / keine Zufahrt): Gebäude brennt ab. Bei halbem Brand greift das Feuer auf Nachbarn über: 25 % × (1 − Schutz)² je Nachbar.
+- **Brandruine**: 6 Monate verkohlte Reste mit Rauch, dort wächst nichts (Info-Karte: Restmonate). Abriss/Umzonen räumt sie.
+- **Info-Karte** eines Gebäudes: „Brandschutz 66 % – Rand der Reichweite / Feuerwache überlastet / keine Feuerwache“; bei Brand Fortschritt und Status des Löschzugs.
+- Werte: `config.gd` (Abschnitt *Brände*). Test: `--firetest` (Wache nah: gelöscht nach 2,9 s; ohne Wache: abgebrannt nach 10 s, Ruine).
 
 ## Zonen richtig planen
 
@@ -77,11 +102,34 @@ Beim Aufziehen färbt die Vorschau jedes Tile nach **Eignung** (grün/gelb/rot).
 | | Ideal | Vermeiden |
 |---|---|---|
 | **Blockgröße** | 6 Tiles tief zwischen zwei parallelen Straßen (je 3 Tiles Reichweite) – Shift+Ziehen baut so ein Raster | Tiles > 3 von der Straße wachsen nie |
-| **Wohnen** | Bodenwert hoch: Wasser, Wald, Parks, Höhenlage. Stufe 2 ab 35 %, Wohnblock (Stufe 3) ab 55 % Bodenwert | < 5 Tiles zu Industrie, < 8 zum Kohlekraftwerk, Staustraßen (Lärm) |
-| **Gewerbe** | Viele Einwohner im Umkreis von 6 Tiles (Kundschaft), zwischen Wohnen und Industrie | Abgelegen ohne Wohngebiete |
-| **Industrie** | Am Rand, gute Straßenanbindung, Abstand zu Wohnen | Direkt neben Wohngebieten (verschmutzt 4 Tiles weit) |
+| **Wohnen** = Nachbarschaft | Blöcke ~6×8 bis 6×12 mit Laden (+5 % Bodenwert, wenn Gewerbe in 4 Tiles) oder Park dazwischen. Bodenwert hoch: Wasser, Parks, Höhenlage, wenig Verschmutzung. Stufe 2 ab 35 %, Wohnblock (Stufe 3) ab 55 % | Eintönige Großsiedlung: kein Laden/Park/Wasser in 6 Tiles = −8 % Bodenwert. < 5 Tiles zu Industrie, < 8 zum Kohlekraftwerk, Staustraßen |
+| **Gewerbe** = Ladenzeile | 1–2 Tiles tiefe Streifen an belebter Straße (Hauptstraße/Haltestelle/Bahnhof: Wachstum ×1,3), viele Einwohner in 6 Tiles. **Tiefe:** Reihe 1–2 bis Stufe 3 (Reihe 2 wächst ×0,8), Reihe 3 bis Stufe 2 (×0,6). **Länge:** Weg entlang der Straße bis zur nächsten Kreuzung/Ecke/Straßenende ≤ 4 → Stufe 3, ≤ 6 → Stufe 2, darüber 1 ⇒ etwa alle 8–10 Tiles eine Querstraße. 3×3-Block mit Straßen rundum wird komplett Stufe 3 | Lange Gewerbestreifen ohne Querstraße, tiefe Blöcke, abgelegen |
+| **Industrie** = Ballung | Kompakte Flächen, am Rand, Abstand zu Wohnen. Industrie-Zonen im 5×5 ringsum: ab 3 → Stufe 2, ab 8 → Stufe 3 (2×2 → Stufe 2, 3×3 → komplett Stufe 3); Wachstum 0,6 + 0,04 je Nachbar (max ×1,6) | Einzelne Tiles und Paare (bleiben Stufe 1, wachsen langsam); direkt neben Wohnen |
+| **Villa** | Wohnen mit Bodenwert ≥ 75 % in einer **Kleinsiedlung** (≤ 8 Wohn-Tiles im 5×5 ringsum): Stufe 3 wird statt Wohnblock eine Villa (Bungalow mit Pool), 16 Einwohner, **Bodenabgabe $6/Monat**, wenig Last für Dienste/Verkehr. Info-Karte zeigt „Villenlage“ | Große Siedlungen (dort entstehen Wohnblöcke) |
 
-Werte und Reichweiten: `scripts/config.gd` (Abschnitt *Standortregeln*).
+Werte und Reichweiten: `scripts/config.gd` (Abschnitte *Standortregeln*, *Zonen-Idealformen*). Die Info-Karte zeigt je Tile Ladenzeile/Ballung/Nachbarschaft, die Vorschau berücksichtigt sie. Test: `--zonetest` (u.a. 10×2 Gewerbe mit Querstraßen an den Enden: Stufen 3333223333; 16×1 ohne Querstraße: 3332211111122333). Screenshot-Flag `--villas`.
+
+### Steuern & ÖPNV-Tarif
+
+| Steuer (Regler W/G/I oben rechts) | neutral | Wirkung je Punkt über neutral |
+|---|---|---|
+| Wohnen | 9 % | Nachfrage −0,05 und Zufriedenheit −2 (empfindlich) |
+| Gewerbe | 9 % | Gewerbe-Nachfrage −0,04 |
+| Industrie | 12 % | Industrie-Nachfrage −0,025 (robust, „dreckig, nimmt es hin“) |
+
+- Einnahmen/Monat = Einwohner × 0,12 × Wohnsteuer × 12 + Gewerbejobs × 0,1 × Gewerbesteuer × 12 + Industriejobs × 0,1 × Industriesteuer × 12 + ÖPNV-Tarif + Bodenabgabe der Villen. Tooltip auf „+x / Monat“ zeigt die Aufteilung.
+- **ÖPNV-Tarif** (Button unter den Steuern): **kostenlos** – keine Einnahmen, Einstieg in die Bahn wirkt günstiger, Busanteil 55 %, +5 Zufriedenheit für Wohnhäuser mit Bus-/Bahnanschluss · **normal** – $0,10 je Fahrgast, Busanteil 40 % · **teuer** – $0,20, Busanteil 25 %, −3 Zufriedenheit.
+- Demo-Stadt (`--taxtest`): neutral $193/Monat; Industrie 16 % → +$15, Nachfrage I −0,10; Wohnen 13 % → +$48, aber Zufriedenheit −8, Wohnnachfrage −0,27. Tarif kostenlos/normal/teuer: 244/178/110 Fahrgäste, $0/18/22, Zufriedenheit 65/60/57 %.
+
+### Bäume & Parks
+
+| | Verschmutzung | Bodenwert | Zufriedenheit | Unterhalt |
+|---|---|---|---|---|
+| **Baum** ($5) | −5 % je Baum im Umkreis 2 Tiles | – | – | – |
+| **Park** ($80) | −8 % je Park im Umkreis 2 Tiles | +8 % je Park in 3 Tiles (max +24 %) | +3 je Park in 3 Tiles (max +9) | $3/Monat |
+
+- Filter zusammen höchstens 70 %. Ein 2 Tiles breiter **Grüngürtel** zwischen Industrie und Wohnen halbiert (Bäume) bzw. drittelt (Parks) die Verschmutzung am Wohnhaus (`--greentest`). Info-Karte: „Verschmutzung 0.3 (Grün filtert 50 %)“.
+- **Terrain anheben/absenken** reißt Straßen, Gleise (samt Haltestelle/Bahnhof), Parks und Gebäude auf dem Tile ab (+$2 Abriss); Bäume bleiben.
 
 ## Verkehr
 
@@ -95,7 +143,7 @@ Werte und Reichweiten: `scripts/config.gd` (Abschnitt *Standortregeln*).
 
 | | Wirkung | Kosten / Unterhalt |
 |---|---|---|
-| **Bushaltestelle** (auf Straße) | Liegen Start *und* Ziel im Umkreis von 3 Tiles einer Haltestelle, fahren 40 % Bus. Ein Busfahrer = 10 % Straßenlast. **Zubringer:** Haltestelle ≤ 4 Tiles vom Bahnhof bindet das ganze zusammenhängende Haltestellen-Netz an die Bahn an. Busse fahren ab 2 Haltestellen. Grundstücke mit Bus-/Bahnanschluss: +8 % Bodenwert. | $150 / $4 |
+| **Bushaltestelle** (auf Straße) | Liegen Start *und* Ziel im Umkreis von 3 Tiles einer Haltestelle, fahren 40 % Bus. Ein Busfahrer = 10 % Straßenlast. **Zubringer:** Haltestelle ≤ 4 Tiles vom Bahnhof bindet das ganze zusammenhängende Haltestellen-Netz an die Bahn an. Busse fahren je zusammenhängendem Straßennetz ab 2 Haltestellen (1 Bus je 2 Haltestellen + mehr bei vielen Fahrgästen) — eine nur per Bahn angebundene Vorstadt bekommt eigene Busse. Grundstücke mit Bus-/Bahnanschluss: +8 % Bodenwert. | $150 / $4 |
 | **Gleis** | Eigenes Netz, darf Straßen kreuzen (Bahnübergang), max. 1 Block Steigung | $40 / $0,5 je Tile |
 | **Bahnhof** (auf Gleis) | Fußweg bis 4 Tiles + Umsteigezeit; Bahn ist schnell und praktisch staufrei. Pendler wählen den Zug nur, wenn er schneller ist. Verbindet getrennte Straßennetze. | $800 / $15 |
 
@@ -145,6 +193,7 @@ python3 tools/audio/gen_audio.py sfx ambient  # nur Effekte + Loops (~3 s)
 | `config.gd` | alle Konstanten (Kosten, Kapazitäten, Reichweiten, Standortregeln, Dienste) |
 | `city/city_map.gd` | Kartendaten als Packed-Arrays + Signale `tiles_changed` / `infra_changed`, Hauptstraßen-Erkennung |
 | `city/simulation.gd` | Monat in 5 Etappen: Netz/Strom → Pendler → Umwelt → Dienste → Wachstum/Brände/Budget |
+| `city/fire_dept.gd` | Brände in Echtzeit: Fortschritt, Löschzug-Alarmierung (BFS über Straßen), Löschen, Ausbreitung, Meldungen mit Ort |
 | `city/save_manager.gd` | Spielstände (Meta + Daten, ZSTD) |
 | `tools/tool_controller.gd` | Werkzeuge, Kosten, Vorschau, Bauen, Ausbau |
 | `render/world_renderer.gd` | 16×16-Chunks als MultiMesh, Neubau mit Zeitbudget; Rotoren |
@@ -153,6 +202,7 @@ python3 tools/audio/gen_audio.py sfx ambient  # nur Effekte + Loops (~3 s)
 | `render/traffic.gd` / `trains.gd` | Autos+Busse / Züge (rein visuell) |
 | `render/traffic_overlay.gd` | Ansichten (V) + Versorgungsansicht |
 | `render/status_markers.gd` | Blitz-Marker (kein Strom) |
+| `render/fire_fx.gd` | Flammen, Rauch, Wasserstrahl, Löschzüge mit Blaulicht, Rauch über Ruinen |
 | `render/graphics_settings.gd` / `shader_warmup.gd` | Grafikstufen / Shader vorkompilieren |
 | `ui/hud.gd` / `ui_theme.gd` / `icon_factory.gd` | HUD, Stil, aus Modellen gerenderte Icons |
 | `audio/audio_manager.gd` | Autoload `Audio` |
@@ -165,8 +215,10 @@ python3 tools/audio/gen_audio.py sfx ambient  # nur Effekte + Loops (~3 s)
 - [x] v0.6 Flächen ziehen, Standortregeln, Pixel-Texturen · v0.7 Bus & Bahn, Hauptstraßen
 - [x] v0.8 Performance · v0.9 Dienste, Zufriedenheit, Kriminalität, Brände
 - [ ] Wasserversorgung (Pumpen, Rohre)
-- [ ] Budget-Fenster (Ressorts, Kredite, Jahresbilanz), Ticketeinnahmen ÖPNV
-- [ ] Brände sichtbar machen (Rauch/Flammen), Feuerwehr-Einsätze
+- [x] Steuern je Zone (W/G/I), ÖPNV-Tarif, Zonen-Idealformen (Ladenzeile, Ballung, Nachbarschaft)
+- [ ] Budget-Fenster (Ressorts, Kredite, Jahresbilanz)
+- [x] Brände sichtbar (Flammen/Rauch/Ruinen), Feuerwehr-Einsätze mit Löschzügen, Meldungen mit Kamera-Sprung
+- [ ] Brand-Geräusche (Sirene, Knistern), evtl. Brandschutz-Ansicht (V)
 - [ ] Bewohner/Tiere aus dem Kit (Characters/Animals) als Leben in der Stadt
 - [ ] Performance: Pendler-Berechnung in Thread, Sichtweite für Kleinkram, Terrain/Gebäude getrennt rendern
 - [ ] Glattere Hauptstraßen-Rundung (echtes Mesh statt Streifen)

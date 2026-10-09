@@ -53,6 +53,33 @@ $G --path . -- --demo --cam=32,32,60 --screenshot=/pfad/bild.png          # Scre
   vorberechnet in `_compute_wide`; Fahrtrichtung = längere Achse, Paare ab Bandkante). Enden → Viertelbogen (`_emit_taper`).
 - **Sonderbauten** (`Config.SPECIALS`): Kraftwerke + Dienste/Kultur, Größe 1 oder 2, `anchor` = Ursprungs-Tile,
   `slevel` = Ausbaustufe 1..3 (0 in alten Saves ⇒ 1). Dienste haben `"service"`-Kategorie aus `Config.SERVICES`.
+- **Brände:** Ausbruch würfelt `Simulation._fires()` monatlich (setzt `map.burning = 1`, zählt Ruinen herunter).
+  Verlauf/Löschzüge/Ausbreitung laufen in `FireDept` in **Echtzeit** (`advance(dt)`, skaliert mit Tempo, steht bei Pause) —
+  sonst wären Löschzüge bei schnellem Tempo bedeutungslos. `FireDept` übernimmt neue Brände über `tiles_changed`
+  (auch beim Laden; volle Karte ⇒ alte Einsätze verwerfen). Tests rufen `advance()` selbst (`tick_month()` bewegt keine Züge).
+  Meldungen mit Ort: Signal `alert(text, tile)` → `Hud.show_message(text, tile)` → `focus_requested` → Kamera.
+- **Busse (visuell, `traffic.gd`):** je zusammenhängendem Straßennetz mit ≥ 2 Haltestellen (`_stop_groups`), Bus bleibt
+  in seinem Netz. Früher globale Anzahl + Start an zufälliger Haltestelle ⇒ getrennte Vorstädte bekamen oft keinen Bus.
+- **Zufriedenheit erklärbar:** `_compute_services` sammelt `happy_parts` (einwohnergewichtete Anteile; Summe + `HAPPY_BASE`
+  = `city_happiness`, solange keine Kappung greift). Neue Einflüsse auf `happiness[i]` dort **mit eintragen**, sonst stimmt
+  die HUD-Aufschlüsselung nicht. `_check_happiness()` läuft nur in der Monats-Etappe „dienste“ (nicht in `refresh()`).
+- **HUD-Ausklapplisten:** `Hud._popup` (Ansicht-Liste / Zufriedenheit), getrennt vom Werkzeug-`_flyout`; Meldungen weichen nach unten aus.
+- **Grünfilter:** `_compute_environment` stempelt Verschmutzung, filtert sie dann je Tile über Bäume/Parks im Umkreis
+  (Integralbild, `green_filter`) und rechnet erst danach Bodenwert. Kein echtes „Blockieren“ entlang der Windrichtung —
+  Grün nahe am Empfänger wirkt. Bäume geben keinen Bodenwert mehr (Nutzerwunsch: Bäume = nur Filter, Parks = Filter + Zufriedenheit + Kosten).
+- **Großkultur:** Theater/Stadion = Dienst-Kategorie `venue` + Felder `visitors`/`event_every` in `SPECIALS`.
+  Event-Verkehr wird in `_compute_commute` **vor** der Stau-Berechnung auf `traffic` addiert (`_add_venue_traffic`),
+  Kundschaft-Bonus am Ende von `_compute_environment`. Stadion ist der erste 3x3-Sonderbau (Größe überall generisch).
+- **Dienst-Auslastung** zählt Einwohner (`_ipop`); nur die Feuerwehr zählt zusätzlich Arbeitsplätze (`_ijobs` × `FIRE_JOB_WEIGHT`).
+  Brand-Ausbruch für Industrie ohne Einwohner-Schwelle und mit Restrisiko (`FIRE_IND_MIN_SHARE`).
+- **Steuern:** `sim.tax[zone]` (Array, Index = `Config.Zone`), neutral/Empfindlichkeit in `Config.TAX_*`; Zufriedenheit nur
+  über die Wohnsteuer. Alte Saves mit `tax_rate` → W/G übernehmen, I neutral. Tarif `sim.fare` wirkt in
+  `_build_transit_links` (Einstiegskosten), `_record_trip` (Busanteil) und Zufriedenheit; Änderung ⇒ `sim.refresh()`.
+- **Zonen-Idealformen** werden in `_compute_environment` vorberechnet (`ind_cluster`, `land_mix` per Integralbild) und
+  greifen über `_max_level` (Gewerbe nach `road_dist` und `junction_dist` = Weg zur nächsten Kreuzung, in der Etappe „netz“
+  berechnet; Industrie nach Ballung), `_growth_factor`, `suitability`, `growth_blockers`.
+- **Villa** = Map-Feld `villa` auf Wohnen Stufe 3, gesetzt beim Wachsen auf 3 (`villa_site`). Einwohner immer über
+  `CityMap.res_capacity(i)`, nie direkt `RES_CAPACITY[level]` (sonst zählen Villen 80 statt 16).
 - **Speichern:** neue Map-Felder in `CityMap.SAVE_FIELDS` eintragen; fehlende Felder alter Saves werden genullt.
 
 ## Fallstricke (schon einmal hineingetappt)
@@ -68,6 +95,13 @@ $G --path . -- --demo --cam=32,32,60 --screenshot=/pfad/bild.png          # Scre
 - Silkscreen hat kein `− ✓ ✗` → ASCII (`- + x`) verwenden.
 - Shader-Kompilier-Ruckler: neue Meshes/Materialien landen automatisch im `ShaderWarmup` (liest `BlockLibrary.meshes`);
   Fahrzeug-Meshes dort explizit ergänzen.
+- MultiMesh-Instanzfarben sind **linear**: sRGB-Farben vorher `.srgb_to_linear()` (sonst blass/weiß; ältere Autos sind
+  deshalb pastell). Effekt-Würfel (Rauch) unshaded, sonst färbt das Himmelslicht sie bläulich.
+- `--cam=x,z` zielt auf Wasserhöhe → Bildmitte liegt nicht genau auf dem Tile; `CityCamera.focus_tile(t, höhe)` nutzt Geländehöhe.
+- Demo-Aufbau (`tick_month()` ×60) kann Brände starten, die erst im laufenden Spiel weiterbrennen → Demo zeigt oft schon Brände.
+- Button mit Text + `expand_icon = true` ⇒ Icon schrumpft auf 0 → `Hud._set_btn_icon()` (feste `icon_max_width`).
+- Kompilierfehler in einem Dev-Test ⇒ `main.gd` lädt nicht, Fenster bleibt offen und `--quit` greift nie (Befehl hängt).
+  Erst `--headless --import` prüfen. Neue Funktion nie mitten in eine bestehende einfügen (Rumpf-Rest landet in der neuen).
 - Beim Ersetzen von Code per Skript nicht über Blockgrenzen schneiden (einmal ist so ein Config-Block verloren gegangen).
 
 ## Stil & Design (vom Nutzer gewünscht)
@@ -81,5 +115,5 @@ $G --path . -- --demo --cam=32,32,60 --screenshot=/pfad/bild.png          # Scre
 
 ## Offene Punkte / Ideen
 
-Siehe README → Roadmap. Zusätzlich: Brandrisiko evtl. zu hoch (Meldungen), Balance der Dienstkosten beobachten,
+Siehe README → Roadmap. Zusätzlich: Brand-Balance im echten Spiel beobachten (Brenndauer 10 s, Ausbreitung 25 %), Balance der Dienstkosten beobachten,
 `--lanetest` hat in der Demo oft wenige Messungen (wenig Verkehr auf der Hauptstraße).

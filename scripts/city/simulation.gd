@@ -9,13 +9,14 @@ signal message(text: String)
 
 const SECONDS_PER_MONTH := [0.0, 3.0, 1.5, 0.5]
 const MONTH_NAMES := ["Jan", "Feb", "Mär", "Apr", "Mai", "Jun", "Jul", "Aug", "Sep", "Okt", "Nov", "Dez"]
-const NEUTRAL_TAX := 0.09
 
 var map: CityMap
 var money: float = Config.START_MONEY
 var month := 0
 var year := Config.START_YEAR
-var tax_rate := NEUTRAL_TAX
+var tax := [0.0, 0.09, 0.09, 0.12]   # Steuersatz je Zone (Index = Config.Zone), Startwerte = neutral
+var fare := 1                       # ÖPNV-Tarif (Config.FARE_*)
+var income_parts := {}              # Einnahmen je Quelle (Wohnen, Gewerbe, Industrie, ÖPNV)
 var speed := 1
 
 var population := 0
@@ -62,9 +63,16 @@ var city_happiness := 0.6           # einwohnergewichteter Durchschnitt
 var city_coverage := {}             # Kategorie -> Anteil versorgter Einwohner
 var service_load := {}              # Anker-Tile -> Auslastung (Einwohner / Kapazität)
 var unemployment := 0.0
-var fires_total := 0
+var fires_total := 0               # Brandausbrüche (Statistik/Tests)
 var _needs_announced := {}
+var venue_event := {}               # Anker Theater/Stadion -> Besucher der Veranstaltung diesen Monat (0 = keine)
+var venue_jam := {}                 # Anker -> Ø Auslastung der Straßen rundum (nach Pendlern)
+var _jam_warned := 0                # Monate bis zur nächsten Stau-Meldung am Stadion
+var happy_parts := {}               # Anteil an der Zufriedenheit (Punkte 0..1, einwohnergewichtet): Name -> Wert
+var _happy_hist: Array = []         # letzte Monate: [city_happiness, happy_parts]
+var _happy_alert_cool := 0          # Monate bis zur nächsten Zufriedenheits-Warnung
 var _ipop := PackedFloat32Array()   # Integralbild Einwohner (aus _compute_environment)
+var _ijobs := PackedFloat32Array()  # Integralbild Arbeitsplätze (Feuerwehr-Auslastung)
 
 # Öffentlicher Verkehr
 var bus_served: PackedByteArray     # 1 = Straßen-Tile im Einzugsbereich einer Haltestelle
@@ -89,6 +97,13 @@ var pollution: PackedFloat32Array   # 0.. (Punkte)
 var land_value: PackedFloat32Array  # 0..1
 var customers: PackedFloat32Array   # Einwohner im Umkreis (für Gewerbe)
 var res_nearby: PackedFloat32Array  # Einwohner im Umkreis 4 (Industrie-Abstand)
+var parks_near: PackedFloat32Array  # Parks im Umkreis 3 (Zufriedenheit)
+var res_cluster: PackedFloat32Array # Wohn-Zonen im 5x5 ringsum (ohne eigenes) -> Kleinsiedlung/Villa
+var junction_dist: PackedInt32Array # Straßen-Tile: Weg entlang der Straße zur nächsten Kreuzung/Ecke/Ende
+var villa_count := 0
+var ind_cluster: PackedFloat32Array # Industrie-Tiles im 5x5 ringsum (ohne eigenes) -> Ballung
+var land_mix: PackedFloat32Array    # Bodenwert-Anteil aus Nachbarschaft: + Nahversorgung / - eintönig
+var green_filter: PackedFloat32Array  # Anteil der Verschmutzung, den Grün im Umkreis wegfiltert (0..GREEN_FILTER_MAX)
 var _acc := 0.0
 var _ticking := false               # Monat läuft gerade (über mehrere Frames)
 var _rng := RandomNumberGenerator.new()
@@ -115,18 +130,26 @@ func _process(delta: float) -> void:
 
 
 func to_dict() -> Dictionary:
-	return {"money": money, "month": month, "year": year, "tax_rate": tax_rate, "congestion": congestion}
+	return {"money": money, "month": month, "year": year, "tax": tax, "fare": fare, "congestion": congestion}
 
 
 func from_dict(d: Dictionary) -> void:
 	money = d.get("money", Config.START_MONEY)
 	month = d.get("month", 0)
 	year = d.get("year", Config.START_YEAR)
-	tax_rate = d.get("tax_rate", NEUTRAL_TAX)
+	tax = (Config.TAX_NEUTRAL as Array).duplicate()
+	if d.has("tax"):
+		tax = (d["tax"] as Array).duplicate()
+	elif d.has("tax_rate"):
+		# Alte Spielstände: ein Satz für alle -> Wohnen/Gewerbe übernehmen, Industrie neutral
+		tax[Config.Zone.RES] = d["tax_rate"]
+		tax[Config.Zone.COM] = d["tax_rate"]
+	fare = d.get("fare", 1)
 	congestion = d.get("congestion", PackedFloat32Array())
 	last_income = 0.0
 	last_expense = 0.0
 	_acc = 0.0
+	_happy_hist.clear()
 	refresh()
 
 
@@ -151,6 +174,7 @@ func spend(cost: float) -> void:
 func refresh() -> void:
 	var t := Perf.begin()
 	_compute_road_distance()
+	_compute_junctions()
 	_compute_power()
 	Perf.end("sim.strassen+strom", t)
 	t = Perf.begin()
@@ -193,6 +217,7 @@ func _tick_stage(stage: String) -> void:
 	match stage:
 		"netz":
 			_compute_road_distance()
+			_compute_junctions()
 			_compute_power()
 		"pendler":
 			_compute_commute()
@@ -202,6 +227,7 @@ func _tick_stage(stage: String) -> void:
 		"dienste":
 			_compute_services()
 			_update_demand()
+			_check_happiness()
 		"wachstum":
 			_fires()
 			_grow()
@@ -244,6 +270,42 @@ func _compute_road_distance() -> void:
 				road_dist[map.idx(q.x, q.y)] = d + 1
 				road_src[map.idx(q.x, q.y)] = road_src[map.idx(p.x, p.y)]
 				queue.append(q)
+
+
+## Weg entlang der Straße zur nächsten Kreuzung, Ecke oder zum Straßenende (BFS über Straßen).
+## Hauptstraßen-Partner zählt nicht als Abzweig.
+func _compute_junctions() -> void:
+	var n := map.size * map.size
+	junction_dist.resize(n)
+	junction_dist.fill(99)
+	var queue := PackedInt32Array()
+	for i in n:
+		if map.road[i] == 0:
+			continue
+		var x := i % map.size
+		var z := i / map.size
+		var partner := map.wide_partner(x, z)
+		var dirs: Array[Vector2i] = []
+		for d: Vector2i in DIRS:
+			if d != partner and map.roads_connected(x, z, x + d.x, z + d.y):
+				dirs.append(d)
+		var straight := dirs.size() == 2 and dirs[0] == -dirs[1]
+		if not straight:
+			junction_dist[i] = 0
+			queue.append(i)
+	var head := 0
+	while head < queue.size():
+		var u := queue[head]
+		head += 1
+		var ux := u % map.size
+		var uz := u / map.size
+		for d: Vector2i in DIRS:
+			if not map.roads_connected(ux, uz, ux + d.x, uz + d.y):
+				continue
+			var v := map.idx(ux + d.x, uz + d.y)
+			if junction_dist[v] > junction_dist[u] + 1:
+				junction_dist[v] = junction_dist[u] + 1
+				queue.append(v)
 
 
 ## Pendler: Arbeitskräfte je Straßen-Anschluss werden in ASSIGN_ROUNDS Etappen
@@ -306,7 +368,7 @@ func _compute_commute() -> void:
 		var lv := map.level[i]
 		var amount := 0.0
 		if zn == Config.Zone.RES:
-			amount = Config.RES_CAPACITY[lv] * WORK_SHARE
+			amount = map.res_capacity(i) * WORK_SHARE
 		else:
 			amount = Config.COM_CAPACITY[lv] if zn == Config.Zone.COM else Config.IND_CAPACITY[lv]
 		for k in range(0, acc.size(), 2):
@@ -392,6 +454,7 @@ func _compute_commute() -> void:
 	avg_commute = total_cost / total_assigned if total_assigned > 0.0 else 0.0
 	transit_share = _transit_trips / total_assigned if total_assigned > 0.0 else 0.0
 
+	_add_venue_traffic()
 	# Auslastung; Anzeige = Stau, den Pendler im Schnitt erleben (verkehrsgewichtet)
 	var w_sum := 0.0
 	var c_sum := 0.0
@@ -403,6 +466,70 @@ func _compute_commute() -> void:
 		w_sum += traffic[i]
 		c_sum += traffic[i] * congestion[i]
 	avg_congestion = c_sum / w_sum if w_sum > 0.0 else 0.0
+	for a: int in venue_event:
+		var roads := _venue_roads(a)
+		var sum := 0.0
+		for r in roads:
+			sum += congestion[r]
+		venue_jam[a] = sum / maxf(roads.size(), 1.0)
+
+
+## Theater/Stadion (Anker-Tiles).
+func venues() -> PackedInt32Array:
+	var out := PackedInt32Array()
+	for i in map.size * map.size:
+		if map.anchor[i] == i and Config.SPECIALS[map.special[i]].get("service", "") == "venue":
+			out.append(i)
+	return out
+
+
+func venue_visitors(a: int) -> float:
+	return float(Config.SPECIALS[map.special[a]]["visitors"]) * map.special_level(a)
+
+
+## Veranstaltung diesen Monat? Versetzt je Gebäude, damit nicht alle gleichzeitig spielen.
+func venue_has_event(a: int) -> bool:
+	var every: int = Config.SPECIALS[map.special[a]]["event_every"]
+	return (year * 12 + month + a) % every == 0
+
+
+func _venue_roads(a: int) -> PackedInt32Array:
+	var s: int = Config.SPECIALS[map.special[a]]["size"]
+	var r := Config.VENUE_TRAFFIC_RANGE
+	var ax := a % map.size
+	var az := a / map.size
+	var out := PackedInt32Array()
+	for z in range(maxi(az - r, 0), mini(az + s + r, map.size)):
+		for x in range(maxi(ax - r, 0), mini(ax + s + r, map.size)):
+			if map.road[z * map.size + x] != 0:
+				out.append(z * map.size + x)
+	return out
+
+
+## Besucher an Veranstaltungstagen belasten die Straßen rund um Theater/Stadion;
+## Bus/Bahn in der Nähe nimmt einen Teil auf.
+func _add_venue_traffic() -> void:
+	venue_event = {}
+	venue_jam = {}
+	for a in venues():
+		if not venue_has_event(a):
+			venue_event[a] = 0.0
+			continue
+		var visitors := venue_visitors(a)
+		venue_event[a] = visitors
+		var roads := _venue_roads(a)
+		if roads.is_empty():
+			continue
+		var cut := 1.0
+		var ax := a % map.size
+		var az := a / map.size
+		for z in range(maxi(az - 4, 0), mini(az + 7, map.size)):
+			for x in range(maxi(ax - 4, 0), mini(ax + 7, map.size)):
+				if map.transit[z * map.size + x] != Config.Transit.NONE:
+					cut = 1.0 - Config.VENUE_TRANSIT_CUT
+		var per_road := visitors * Config.VENUE_TRAFFIC * cut / roads.size()
+		for r in roads:
+			traffic[r] += per_road
 
 
 func _relax(heap: MinHeap, u: int, v: int, nd: float, hop_inc: int, run: int) -> void:
@@ -442,7 +569,7 @@ func _record_trip(u: int, s: int, take: float) -> void:
 		return
 	var car := take
 	if bus_served[s] == 1 and bus_served[u] == 1:
-		var bus := take * Config.BUS_SHARE
+		var bus := take * float(Config.FARE_BUS_SHARE[fare])
 		bus_riders += bus
 		_transit_trips += bus
 		car = take - bus + bus * Config.BUS_TRAFFIC
@@ -457,6 +584,8 @@ func _record_trip(u: int, s: int, take: float) -> void:
 ## Haltestellen markieren Straßen-Tiles mit Busanschluss (bus_served).
 func _build_transit_links(road_comps: int) -> void:
 	var n := map.size * map.size
+	# Tarif wirkt auf die Routenwahl: kostenlos = Einstieg "billiger", teuer = teurer
+	var transfer := maxf(Config.STATION_TRANSFER + float(Config.FARE_PATH_COST[fare]), 0.5)
 	_station_links = {}
 	_road_station_links = {}
 	bus_served.resize(n)
@@ -487,7 +616,7 @@ func _build_transit_links(road_comps: int) -> void:
 			for dx in range(-w, w + 1):
 				var d := absi(dx) + absi(dz)
 				if d <= w and map.is_road(x + dx, z + dz):
-					best[map.idx(x + dx, z + dz)] = d * Config.WALK_COST + Config.STATION_TRANSFER
+					best[map.idx(x + dx, z + dz)] = d * Config.WALK_COST + transfer
 		# Zubringerbus: Haltestelle am Bahnhof bindet das ganze Haltestellen-Netz
 		# (alle Straßen mit Busanschluss im selben Straßennetz) an
 		var fed_comps := {}
@@ -499,7 +628,7 @@ func _build_transit_links(road_comps: int) -> void:
 				if bus_served[r] == 0 or not fed_comps.has(road_comp[r]):
 					continue
 				var d := absi(r % map.size - x) + absi(r / map.size - z)
-				var cost := Config.STATION_TRANSFER + Config.BUS_WAIT + d * Config.BUS_FEEDER_COST
+				var cost := transfer + Config.BUS_WAIT + d * Config.BUS_FEEDER_COST
 				if cost < best.get(r, INF):
 					best[r] = cost
 		var links: Array = []
@@ -628,31 +757,61 @@ func _compute_environment() -> void:
 	var it := PackedFloat32Array()
 	var ip := PackedFloat32Array()
 	var ipop := PackedFloat32Array()
-	for a: PackedFloat32Array in [iw, it, ip, ipop]:
+	var ijobs := PackedFloat32Array()
+	var icom := PackedFloat32Array()   # Gewerbe mit Gebäude (Läden)
+	var iind := PackedFloat32Array()   # Industrie-Zonen
+	var ires := PackedFloat32Array()   # Wohn-Zonen
+	for a: PackedFloat32Array in [iw, it, ip, ipop, ijobs, icom, iind, ires]:
 		a.resize(s * s)
 	for z in size:
 		var rw := 0.0
 		var rt := 0.0
 		var rp := 0.0
 		var rpop := 0.0
+		var rjobs := 0.0
+		var rcom := 0.0
+		var rind := 0.0
+		var rres := 0.0
 		for x in size:
 			var i := z * size + x
 			if height[i] < Config.WATER_LEVEL: rw += 1.0
 			var f := feature[i]
 			if f == Config.Feature.TREE: rt += 1.0
 			elif f == Config.Feature.PARK: rp += 1.0
-			if zone[i] == Config.Zone.RES: rpop += Config.RES_CAPACITY[level[i]]
+			if zone[i] == Config.Zone.RES:
+				rpop += map.res_capacity(i)
+				rres += 1.0
+			elif zone[i] == Config.Zone.COM:
+				rjobs += Config.COM_CAPACITY[level[i]]
+				if level[i] > 0: rcom += 1.0
+			elif zone[i] == Config.Zone.IND:
+				rjobs += Config.IND_CAPACITY[level[i]]
+				rind += 1.0
 			var o := (z + 1) * s + x + 1
 			var up := z * s + x + 1
 			iw[o] = iw[up] + rw
 			it[o] = it[up] + rt
 			ip[o] = ip[up] + rp
 			ipop[o] = ipop[up] + rpop
+			ijobs[o] = ijobs[up] + rjobs
+			icom[o] = icom[up] + rcom
+			iind[o] = iind[up] + rind
+			ires[o] = ires[up] + rres
 	_ipop = ipop
+	_ijobs = ijobs
 
 	land_value.resize(n)
 	customers.resize(n)
 	res_nearby.resize(n)
+	parks_near.resize(n)
+	green_filter.resize(n)
+	ind_cluster.resize(n)
+	res_cluster.resize(n)
+	land_mix.resize(n)
+	var gr := Config.GREEN_FILTER_RANGE
+	var kr := Config.IND_CLUSTER_RANGE
+	var sr := Config.RES_SHOP_RANGE
+	var dr := Config.RES_DULL_RANGE
 	var cr := Config.COM_CUSTOMER_RANGE
 	var range_ok := Config.ROAD_ACCESS_RANGE
 	for z in size:
@@ -666,11 +825,50 @@ func _compute_environment() -> void:
 			var i := z * size + x
 			var x0 := maxi(x - 3, 0)
 			var x1 := mini(x + 4, size)
+			# Bäume/Parks im Umkreis filtern Verschmutzung (Grüngürtel zwischen Industrie und Wohnen)
+			var gz0 := maxi(z - gr, 0) * s
+			var gz1 := mini(z + gr + 1, size) * s
+			var gx0 := maxi(x - gr, 0)
+			var gx1 := mini(x + gr + 1, size)
+			var gf := minf((it[gz1 + gx1] - it[gz0 + gx1] - it[gz1 + gx0] + it[gz0 + gx0]) * Config.GREEN_FILTER_TREE
+				+ (ip[gz1 + gx1] - ip[gz0 + gx1] - ip[gz1 + gx0] + ip[gz0 + gx0]) * Config.GREEN_FILTER_PARK, Config.GREEN_FILTER_MAX)
+			green_filter[i] = gf
+			pollution[i] *= 1.0 - gf
 			var v := Config.LAND_BASE
 			if iw[z1 + x1] - iw[z0 + x1] - iw[z1 + x0] + iw[z0 + x0] > 0.0:
 				v += Config.LAND_WATER
-			v += minf((it[z1 + x1] - it[z0 + x1] - it[z1 + x0] + it[z0 + x0]) * Config.LAND_TREE, 0.15)
-			v += minf((ip[z1 + x1] - ip[z0 + x1] - ip[z1 + x0] + ip[z0 + x0]) * Config.LAND_PARK, 0.24)
+			var parks := ip[z1 + x1] - ip[z0 + x1] - ip[z1 + x0] + ip[z0 + x0]
+			parks_near[i] = parks
+			v += minf(parks * Config.LAND_PARK, 0.24)
+			# Nachbarschaft: Läden in der Nähe (+), weit und breit nur Häuser (-)
+			var sz0 := maxi(z - sr, 0) * s
+			var sz1 := mini(z + sr + 1, size) * s
+			var sx0 := maxi(x - sr, 0)
+			var sx1 := mini(x + sr + 1, size)
+			var mix := 0.0
+			if icom[sz1 + sx1] - icom[sz0 + sx1] - icom[sz1 + sx0] + icom[sz0 + sx0] > 0.0:
+				mix = Config.RES_SHOP_BONUS
+			else:
+				var dz0 := maxi(z - dr, 0) * s
+				var dz1 := mini(z + dr + 1, size) * s
+				var dx0 := maxi(x - dr, 0)
+				var dx1 := mini(x + dr + 1, size)
+				var variety := icom[dz1 + dx1] - icom[dz0 + dx1] - icom[dz1 + dx0] + icom[dz0 + dx0] \
+					+ ip[dz1 + dx1] - ip[dz0 + dx1] - ip[dz1 + dx0] + ip[dz0 + dx0] \
+					+ iw[dz1 + dx1] - iw[dz0 + dx1] - iw[dz1 + dx0] + iw[dz0 + dx0]
+				if variety <= 0.0:
+					mix = -Config.RES_DULL_MALUS
+			land_mix[i] = mix
+			v += mix
+			# Ballung: Industrie-Zonen im 5x5 ringsum
+			var kz0 := maxi(z - kr, 0) * s
+			var kz1 := mini(z + kr + 1, size) * s
+			var kx0 := maxi(x - kr, 0)
+			var kx1 := mini(x + kr + 1, size)
+			ind_cluster[i] = iind[kz1 + kx1] - iind[kz0 + kx1] - iind[kz1 + kx0] + iind[kz0 + kx0] \
+				- (1.0 if zone[i] == Config.Zone.IND else 0.0)
+			res_cluster[i] = ires[kz1 + kx1] - ires[kz0 + kx1] - ires[kz1 + kx0] + ires[kz0 + kx0] \
+				- (1.0 if zone[i] == Config.Zone.RES else 0.0)
 			v += minf(maxf(0.0, height[i] - Config.WATER_LEVEL) * Config.LAND_HEIGHT, 0.1)
 			v -= pollution[i] * Config.LAND_POLLUTION
 			if road_dist[i] <= range_ok:
@@ -685,6 +883,14 @@ func _compute_environment() -> void:
 			var rx0 := maxi(x - 4, 0)
 			var rx1 := mini(x + 5, size)
 			res_nearby[i] = ipop[rz1 + rx1] - ipop[rz0 + rx1] - ipop[rz1 + rx0] + ipop[rz0 + rx0]
+	# Besucher von Theater/Stadion kaufen im Umkreis ein
+	for a in venues():
+		var bonus := venue_visitors(a) * Config.VENUE_SHOP_SHARE
+		var vs: int = Config.SPECIALS[map.special[a]]["size"]
+		var vr := Config.VENUE_SHOP_RANGE
+		for z in range(maxi(a / size - vr, 0), mini(a / size + vs + vr, size)):
+			for x in range(maxi(a % size - vr, 0), mini(a % size + vs + vr, size)):
+				customers[z * size + x] += bonus
 	traffic_changed.emit()
 
 
@@ -727,10 +933,12 @@ func suitability(i: int, zn: int) -> float:
 		Config.Zone.RES:
 			return clampf(land_value[i] * 1.4 - 0.2, 0.0, 1.0) * road_factor
 		Config.Zone.COM:
-			return clampf(0.35 + customers[i] / Config.COM_CUSTOMERS_FULL * 0.65, 0.0, 1.0) * road_factor
+			var depth: float = [1.0, 1.0, 0.7, 0.45][clampi(road_dist[i], 0, 3)]   # Ladenzeile
+			return clampf(0.35 + customers[i] / Config.COM_CUSTOMERS_FULL * 0.65, 0.0, 1.0) * road_factor * depth
 		Config.Zone.IND:
-			# gut: weg von Wohnen (Industrie verschmutzt Nachbarn)
-			return clampf(1.0 - res_nearby[i] / 250.0, 0.25, 1.0) * road_factor
+			# gut: weg von Wohnen (Industrie verschmutzt Nachbarn), neben anderer Industrie (Ballung)
+			var cl := 0.6 + 0.4 * minf((ind_cluster[i] if ind_cluster.size() > i else 0.0) / Config.IND_CLUSTER_LEVEL[2], 1.0)
+			return clampf(1.0 - res_nearby[i] / 250.0, 0.25, 1.0) * road_factor * cl
 	return 0.0
 
 
@@ -878,6 +1086,7 @@ func _compute_power() -> void:
 
 func _recount() -> void:
 	population = 0
+	villa_count = 0
 	jobs_com = 0
 	jobs_ind = 0
 	road_count = 0
@@ -890,7 +1099,9 @@ func _recount() -> void:
 	for i in map.size * map.size:
 		var lv := map.level[i]
 		match map.zone[i]:
-			Config.Zone.RES: population += Config.RES_CAPACITY[lv]
+			Config.Zone.RES:
+				population += map.res_capacity(i)
+				villa_count += 1 if map.villa[i] == 1 and lv == 3 else 0
 			Config.Zone.COM: jobs_com += Config.COM_CAPACITY[lv]
 			Config.Zone.IND: jobs_ind += Config.IND_CAPACITY[lv]
 		road_count += 1 if map.road[i] != 0 else 0
@@ -916,6 +1127,8 @@ func _update_demand() -> void:
 	demand_ind = (ind_target - jobs_ind) / maxf(40.0, ind_target * 0.4)
 	# Gewerbe: braucht Kundschaft (Einwohner) und etwas Industrie-Zulieferung
 	var com_target := 15.0 + pop * 0.22 + jobs_ind * 0.1
+	for a in venues():
+		com_target += venue_visitors(a) * 0.05       # Gastronomie/Läden für Besucher
 	demand_com = (com_target - jobs_com) / maxf(30.0, com_target * 0.4)
 	# Arbeitskräftemangel bremst Jobs
 	if jobs > workforce + 80.0:
@@ -925,10 +1138,14 @@ func _update_demand() -> void:
 	if population > 0:
 		demand_res += (city_happiness - 0.5) * 0.8
 	# Steuern über Neutralwert dämpfen, darunter fördern
-	var tax_effect := (tax_rate - NEUTRAL_TAX) * 5.0
-	demand_res = clampf(demand_res - tax_effect, -1.0, 1.0)
-	demand_com = clampf(demand_com - tax_effect, -1.0, 1.0)
-	demand_ind = clampf(demand_ind - tax_effect, -1.0, 1.0)
+	demand_res = clampf(demand_res - tax_effect(Config.Zone.RES), -1.0, 1.0)
+	demand_com = clampf(demand_com - tax_effect(Config.Zone.COM), -1.0, 1.0)
+	demand_ind = clampf(demand_ind - tax_effect(Config.Zone.IND), -1.0, 1.0)
+
+
+## Nachfrage-Abzug durch Steuern über dem neutralen Satz (negativ = Förderung).
+func tax_effect(zn: int) -> float:
+	return (float(tax[zn]) - Config.TAX_NEUTRAL[zn]) * Config.TAX_DEMAND[zn]
 
 
 func demand_for(z: int) -> float:
@@ -942,6 +1159,8 @@ func demand_for(z: int) -> float:
 ## Liste der Gründe, warum ein Zonen-Tile nicht wächst (leer = alles ok).
 func growth_blockers(i: int) -> PackedStringArray:
 	var out := PackedStringArray()
+	if map.ruin[i] > 0:
+		out.append("Brandruine - Neubau in %d Monaten" % map.ruin[i])
 	if road_dist.size() > i and road_dist[i] > Config.ROAD_ACCESS_RANGE:
 		out.append("Keine Straße in Reichweite")
 	if powered.size() > i and powered[i] == 0:
@@ -958,6 +1177,14 @@ func growth_blockers(i: int) -> PackedStringArray:
 	if map.zone[i] == Config.Zone.RES and lv < 3 and land_value.size() > i \
 			and land_value[i] < Config.RES_MIN_LAND[lv + 1]:
 		out.append("Bodenwert zu niedrig für Stufe %d" % (lv + 1))
+	if map.zone[i] == Config.Zone.COM and lv < 3 and lv >= _max_level(i):
+		if _corner_level(i) <= lv:
+			out.append("%d Tiles bis zur nächsten Kreuzung - Querstraße bauen" % corner_dist(i))
+		else:
+			out.append("Ladenzeile: Stufe %d nur näher an der Straße" % (lv + 1))
+	if map.zone[i] == Config.Zone.IND and lv < 3 and lv >= _max_level(i):
+		out.append("Zu wenig Industrie ringsum (%d) - Ballung ab %d für Stufe %d" % [
+			int(ind_cluster[i]), Config.IND_CLUSTER_LEVEL[lv], lv + 1])
 	if map.zone[i] == Config.Zone.RES and happiness.size() > i and lv > 0 and happiness[i] < Config.HAPPY_LEAVE:
 		out.append("Unzufrieden - Leute ziehen weg")
 	if demand_for(map.zone[i]) <= 0.0:
@@ -988,7 +1215,7 @@ func _grow() -> void:
 		for x in map.size:
 			var i := map.idx(x, z)
 			var zn := map.zone[i]
-			if zn == Config.Zone.NONE:
+			if zn == Config.Zone.NONE or map.burning[i] > 0 or map.ruin[i] > 0:
 				continue
 			var lv := map.level[i]
 			var demand := demand_for(zn)
@@ -1012,6 +1239,8 @@ func _grow() -> void:
 				new_lv = lv - 1
 			if new_lv != lv:
 				map.level[i] = new_lv
+				# Wohnen Stufe 3: in Villenlage eine Villa statt Wohnblock
+				map.villa[i] = 1 if zn == Config.Zone.RES and new_lv == 3 and villa_site(i) else 0
 				var r := Rect2i(x, z, 1, 1)
 				changed = r if not any else changed.merge(r)
 				any = true
@@ -1021,13 +1250,55 @@ func _grow() -> void:
 
 ## Höchste erreichbare Stufe (Wohnen: begrenzt durch Bodenwert).
 func _max_level(i: int) -> int:
-	if map.zone[i] != Config.Zone.RES:
-		return 3
+	match map.zone[i]:
+		Config.Zone.COM:
+			# Ladenzeile: je weiter von der Straße, desto niedriger
+			var by_depth: int = Config.COM_MAX_LEVEL_BY_DEPTH[clampi(road_dist[i], 0, 3)]
+			return mini(by_depth, _corner_level(i))
+		Config.Zone.IND:
+			var lv_i := 1
+			for k in range(1, 3):
+				if ind_cluster.size() > i and ind_cluster[i] >= Config.IND_CLUSTER_LEVEL[k]:
+					lv_i = k + 1
+			return lv_i
+		Config.Zone.NONE:
+			return 3
 	var lv := 1
 	for k in range(2, 4):
 		if land_value[i] >= Config.RES_MIN_LAND[k]:
 			lv = k
 	return lv
+
+
+## Gewerbe: Laufkundschaft kommt von Kreuzungen -> Stufe nach Weg zur nächsten Kreuzung/Ecke.
+func corner_dist(i: int) -> int:
+	var src := _src(i)
+	return junction_dist[src] if src >= 0 and junction_dist.size() > src else 99
+
+
+func _corner_level(i: int) -> int:
+	var d := corner_dist(i)
+	if d <= Config.COM_CORNER_LEVEL[0]:
+		return 3
+	return 2 if d <= Config.COM_CORNER_LEVEL[1] else 1
+
+
+## Villenlage: Top-Bodenwert in einer Kleinsiedlung.
+func villa_site(i: int) -> bool:
+	return land_value.size() > i and land_value[i] >= Config.VILLA_LAND \
+		and res_cluster.size() > i and res_cluster[i] <= Config.VILLA_MAX_NEIGHBORS
+
+
+## Belebte Lage für Läden: Hauptstraße, Bushaltestelle oder Bahnhof in der Nähe.
+func _busy_front(src: int) -> bool:
+	return map.wide_partner(src % map.size, src / map.size) != Vector2i.ZERO or bus_served[src] == 1 \
+		or _road_station_links.has(src)
+
+
+## Industrie-Ballung: Zulieferer ringsum beschleunigen (einzelne Tiles kümmern).
+func _cluster_factor(i: int) -> float:
+	var c := ind_cluster[i] if ind_cluster.size() > i else 0.0
+	return minf(0.6 + c * Config.IND_CLUSTER_GROWTH, 1.6)
 
 
 ## Wachstums-Multiplikator je Zone.
@@ -1043,9 +1314,12 @@ func _growth_factor(i: int, zn: int) -> float:
 		Config.Zone.COM:
 			var f := 0.3 + 0.9 * minf(customers[i] / Config.COM_CUSTOMERS_FULL, 1.0)
 			f *= 1.0 - crime[i] * 0.5                                # Kriminalität schreckt Kunden ab
+			f *= Config.COM_DEPTH_GROWTH[clampi(road_dist[i], 0, 3)]  # hintere Reihen langsamer
+			if src >= 0 and _busy_front(src):
+				f *= Config.COM_FRONT_BONUS                          # Hauptstraße/Haltestelle: Laufkundschaft
 			return f * _workforce_education()
 		Config.Zone.IND:
-			return _workforce_education()
+			return _cluster_factor(i) * _workforce_education()
 	return 1.0
 
 
@@ -1081,6 +1355,8 @@ func _compute_services() -> void:
 		var served := 0.0
 		if _ipop.size() == s * s:
 			served = _ipop[z1 * s + x1] - _ipop[z0 * s + x1] - _ipop[z1 * s + x0] + _ipop[z0 * s + x0]
+			if cat == "fire":       # Feuerwehr schützt auch Arbeitsplätze (Gewerbe, Industrie)
+				served += Config.FIRE_JOB_WEIGHT * (_ijobs[z1 * s + x1] - _ijobs[z0 * s + x1] - _ijobs[z1 * s + x0] + _ijobs[z0 * s + x0])
 		var load := served / float(Config.SERVICE_CAPACITY[lv])
 		service_load[i] = load
 		var strength := 1.0 if load <= 1.0 else 1.0 / load
@@ -1113,8 +1389,16 @@ func _compute_services() -> void:
 	var sum_h := 0.0
 	var sum_w := 0.0
 	var cov_sum := {}
+	var part_land := 0.0
+	var part_park := 0.0
+	var part_fare := 0.0
+	var tax_happy := (float(tax[Config.Zone.RES]) - Config.TAX_NEUTRAL[Config.Zone.RES]) * Config.TAX_HAPPY
+	var fare_happy: float = Config.FARE_HAPPY[fare]
+	var part_crime := 0.0
+	var part_svc := {}
 	for cat: String in Config.SERVICES:
 		cov_sum[cat] = 0.0
+		part_svc[cat] = 0.0
 	for i in n:
 		var zn := map.zone[i]
 		var lv := map.level[i]
@@ -1127,18 +1411,29 @@ func _compute_services() -> void:
 		if zn != Config.Zone.RES:
 			happiness[i] = 0.0
 			continue
-		var h := Config.HAPPY_BASE + (land_value[i] - 0.45) * 0.5
+		var p: float = map.res_capacity(i)
+		var land := (land_value[i] - 0.45) * 0.5
+		var h := Config.HAPPY_BASE + land
+		part_land += land * p
 		for cat: String in Config.SERVICES:
 			var spec: Array = Config.SERVICES[cat]
 			var cov: float = (coverage[cat] as PackedFloat32Array)[i]
-			if population >= int(spec[1]):
-				h += float(spec[2]) * (2.0 * cov - 1.0)     # versorgt +, unversorgt -
-			else:
-				h += float(spec[2]) * cov * 0.5             # schon vorher ein kleiner Bonus
+			var sv := float(spec[2]) * (2.0 * cov - 1.0) if population >= int(spec[1]) \
+				else float(spec[2]) * cov * 0.5            # versorgt +, unversorgt -; vorher kleiner Bonus
+			h += sv
+			part_svc[cat] += sv * p
+		var pk := minf(parks_near[i] * Config.HAPPY_PARK, Config.HAPPY_PARK_MAX)
+		h += pk
+		part_park += pk * p
 		h -= crime[i] * 0.3
-		h -= (tax_rate - NEUTRAL_TAX) * 2.0
+		part_crime -= crime[i] * 0.3 * p
+		h -= tax_happy
+		if fare_happy != 0.0 and road_dist[i] <= Config.ROAD_ACCESS_RANGE:
+			var src := road_src[i]
+			if bus_served[src] == 1 or _road_station_links.has(src):
+				h += fare_happy
+				part_fare += fare_happy * p
 		happiness[i] = clampf(h, 0.0, 1.0)
-		var p: float = Config.RES_CAPACITY[lv]
 		sum_h += happiness[i] * p
 		sum_w += p
 		for cat: String in Config.SERVICES:
@@ -1146,6 +1441,16 @@ func _compute_services() -> void:
 	city_happiness = sum_h / sum_w if sum_w > 0.0 else 0.6
 	for cat: String in Config.SERVICES:
 		city_coverage[cat] = cov_sum[cat] / sum_w if sum_w > 0.0 else 0.0
+	# Aufschlüsselung für HUD und Warnungen (Summe ~ city_happiness, ohne Kappung auf 0..1)
+	happy_parts = {}
+	if sum_w > 0.0:
+		happy_parts["Bodenwert"] = part_land / sum_w
+		happy_parts["Parks"] = part_park / sum_w
+		for cat: String in Config.SERVICES:
+			happy_parts[Config.SERVICES[cat][0]] = part_svc[cat] / sum_w
+		happy_parts["Kriminalität"] = part_crime / sum_w
+		happy_parts["Steuern"] = -tax_happy
+		happy_parts["ÖPNV-Tarif"] = part_fare / sum_w
 
 	# Bürgerwünsche: einmalige Meldung, wenn die Stadt eine Größe erreicht und der Dienst fehlt
 	for cat: String in Config.SERVICES:
@@ -1153,6 +1458,75 @@ func _compute_services() -> void:
 		if population >= int(spec[1]) and not has_cat.has(cat) and not _needs_announced.has(cat):
 			_needs_announced[cat] = true
 			message.emit("Die Bürger verlangen nach: %s" % spec[0])
+
+
+## Monatlich: deutlicher Abfall der Zufriedenheit -> Meldung mit dem Teil, der am stärksten gesunken ist.
+func _check_happiness() -> void:
+	_jam_warned = maxi(_jam_warned - 1, 0)
+	for a: int in venue_jam:
+		if float(venue_event.get(a, 0.0)) > 0.0 and float(venue_jam[a]) > 1.0 and _jam_warned == 0:
+			_jam_warned = 12
+			message.emit("%s: Besucherverkehr verstopft die Straßen - Bus/Bahn in der Nähe hilft" % Config.SPECIALS[map.special[a]]["name"])
+	_happy_hist.push_front([city_happiness, happy_parts.duplicate()])
+	if _happy_hist.size() > 4:
+		_happy_hist.pop_back()
+	_happy_alert_cool = maxi(_happy_alert_cool - 1, 0)
+	if population < 100 or _happy_alert_cool > 0 or _happy_hist.size() < 2:
+		return
+	var old: Array = _happy_hist[-1]
+	var drop: float = float(old[0]) - city_happiness
+	var last_drop: float = float(_happy_hist[1][0]) - city_happiness
+	if drop < Config.HAPPY_ALERT_DROP and last_drop < Config.HAPPY_ALERT_DROP * 0.6:
+		return
+	var ref: Array = old if drop >= Config.HAPPY_ALERT_DROP else _happy_hist[1]
+	var old_parts: Dictionary = ref[1]
+	var worst := ""
+	var worst_d := 0.0
+	for k: String in happy_parts:
+		var d: float = float(old_parts.get(k, 0.0)) - float(happy_parts[k])
+		if d > worst_d:
+			worst_d = d
+			worst = k
+	_happy_alert_cool = 6
+	var text := "Zufriedenheit sinkt: %d%% -> %d%%" % [roundi(float(ref[0]) * 100.0), roundi(city_happiness * 100.0)]
+	if worst != "":
+		text += " - Grund: %s (-%d)" % [worst, roundi(worst_d * 100.0)]
+	if city_happiness < Config.HAPPY_LEAVE:
+		text += ". Leute ziehen weg!"
+	message.emit(text)
+
+
+## Teile der Zufriedenheit mit Tipp, schlechteste zuerst: [Name, Punkte, Tipp].
+func happiness_report() -> Array:
+	var out := []
+	var has_cat := {}
+	for i in map.size * map.size:
+		if map.anchor[i] == i and Config.SPECIALS[map.special[i]].has("service"):
+			has_cat[Config.SPECIALS[map.special[i]]["service"]] = true
+	for k: String in happy_parts:
+		var v: float = happy_parts[k]
+		var tip := ""
+		if k == "Bodenwert" and v < 0.0:
+			tip = "Parks, Wasser, Höhenlage; Abstand/Grüngürtel zu Industrie"
+		elif k == "Parks" and v < Config.HAPPY_PARK_MAX * 0.5:
+			tip = "Parks in Wohnnähe (3 Tiles) bauen"
+		elif k == "Kriminalität" and v < -0.02:
+			tip = "Polizei" + (", mehr Jobs (Arbeitslos %d%%)" % roundi(unemployment * 100.0) if unemployment > 0.05 else "")
+		elif k == "Steuern" and v < 0.0:
+			tip = "Wohnsteuer senken (neutral %d%%)" % roundi(Config.TAX_NEUTRAL[Config.Zone.RES] * 100.0)
+		elif k == "ÖPNV-Tarif" and v < 0.0:
+			tip = "ÖPNV günstiger/kostenlos machen"
+		else:
+			for cat: String in Config.SERVICES:
+				var spec: Array = Config.SERVICES[cat]
+				if spec[0] != k or v >= 0.0:
+					continue
+				var cov := float(city_coverage.get(cat, 0.0))
+				tip = ("%s bauen" % k) if not has_cat.has(cat) else \
+					"erreicht nur %d%% - mehr bauen oder ausbauen" % roundi(cov * 100.0)
+		out.append([k, v, tip])
+	out.sort_custom(func(a: Array, b: Array) -> bool: return float(a[1]) < float(b[1]))
+	return out
 
 
 ## Fehlende Dienste an einem Wohn-Tile (nur solche, die die Stadtgröße schon verlangt).
@@ -1172,38 +1546,59 @@ func _workforce_education() -> float:
 	return 0.6 + 0.4 * float(city_coverage.get("education", 0.0))
 
 
-## Brände: Gebäude ohne Feuerwehrschutz können abbrennen (Industrie häufiger).
+## Brände: Ausbruch je Gebäude, seltener mit Brandschutz. Verlauf, Löschzüge und
+## Ausbreitung übernimmt FireDept (Echtzeit). Brandruinen zählen hier herunter.
 func _fires() -> void:
-	if population < Config.FIRE_GRACE_POP or not coverage.has("fire"):
-		return
-	var fire: PackedFloat32Array = coverage["fire"]
-	var burned := 0
-	var covered := 0
+	var n := map.size * map.size
+	var burning := map.burning
+	var ruin := map.ruin
+	var zone := map.zone
+	var level := map.level
 	var rect := Rect2i()
-	for i in map.size * map.size:
-		var lv := map.level[i]
-		if lv == 0 or map.zone[i] == Config.Zone.NONE:
+	var started := 0
+	var cov: PackedFloat32Array = coverage.get("fire", PackedFloat32Array())
+	var town := population >= Config.FIRE_GRACE_POP      # Wohnen/Gewerbe brennen erst in größeren Orten
+	var ignite := cov.size() == n
+	for i in n:
+		if ruin[i] > 0:
+			# Abgerissen/umgezont -> Ruine weg, sonst Monat herunterzählen
+			ruin[i] = 0 if zone[i] == Config.Zone.NONE else ruin[i] - 1
+			if ruin[i] == 0:
+				var r := Rect2i(i % map.size, i / map.size, 1, 1)
+				rect = r if rect.size == Vector2i.ZERO else rect.merge(r)
 			continue
-		var risk := Config.FIRE_RISK * (3.0 if map.zone[i] == Config.Zone.IND else 1.0) * (1.0 - 0.95 * fire[i])
+		if not ignite or level[i] == 0 or zone[i] == Config.Zone.NONE or burning[i] > 0:
+			continue
+		var ind := zone[i] == Config.Zone.IND
+		if not ind and not town:
+			continue
+		var unprotected := 1.0 - minf(cov[i], 1.0)
+		var share := unprotected * unprotected
+		if ind:
+			share = maxf(share, Config.FIRE_IND_MIN_SHARE)     # Industrie brennt auch geschützt mal
+		var risk := Config.FIRE_RISK * share * (Config.FIRE_IND_FACTOR if ind else 1.0)
 		if _rng.randf() < risk:
-			map.level[i] = 0
-			if fire[i] >= 0.3:
-				covered += 1
+			burning[i] = 1
+			started += 1
 			var r := Rect2i(i % map.size, i / map.size, 1, 1)
-			rect = r if burned == 0 else rect.merge(r)
-			burned += 1
-	if burned > 0:
-		fires_total += burned
-		map.notify_changed(rect, false)
-		if covered == burned:
-			message.emit("Brand! %d Gebäude abgebrannt - trotz Feuerwehr." % burned)
-		else:
-			message.emit("Brand! %d Gebäude abgebrannt - Feuerwehr fehlt in der Nähe." % burned)
+			rect = r if rect.size == Vector2i.ZERO else rect.merge(r)
+	fires_total += started
+	if rect.size != Vector2i.ZERO:
+		map.notify_changed(rect, false)    # FireDept übernimmt neue Brände, Renderer zeigt Ruinen
 
 
 func _budget() -> void:
 	var jobs := jobs_com + jobs_ind
-	last_income = (population * 0.12 + jobs * 0.1) * tax_rate * 12.0
+	income_parts = {
+		"Wohnen": population * 0.12 * float(tax[Config.Zone.RES]) * 12.0,
+		"Gewerbe": jobs_com * 0.1 * float(tax[Config.Zone.COM]) * 12.0,
+		"Industrie": jobs_ind * 0.1 * float(tax[Config.Zone.IND]) * 12.0,
+		"ÖPNV": (bus_riders + rail_riders) * float(Config.FARE_PRICE[fare]),
+		"Bodenabgabe": villa_count * Config.VILLA_LEVY,
+	}
+	last_income = 0.0
+	for k: String in income_parts:
+		last_income += float(income_parts[k])
 	last_expense = road_count * Config.UPKEEP_ROAD + park_count * Config.UPKEEP_PARK \
 		+ line_count * Config.UPKEEP_POWERLINE + special_upkeep \
 		+ rail_count * Config.UPKEEP_RAIL + bus_stop_count * Config.UPKEEP_BUS_STOP \

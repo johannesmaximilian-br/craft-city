@@ -1,7 +1,7 @@
 class_name TrafficOverlay
 extends MultiMeshInstance3D
 ## Karten-Ansichten: Verkehr, Verschmutzung, Bodenwert, Kriminalität, Zufriedenheit.
-## Taste V schaltet durch. Mit einem Dienst-Werkzeug in der Hand wird automatisch dessen
+## Taste V schaltet durch, Ansicht-Button oben wählt per Liste. Mit einem Dienst-Werkzeug in der Hand wird automatisch dessen
 ## Versorgung gezeigt (grün = versorgt, rot = nicht versorgt).
 
 enum Mode { OFF, TRAFFIC, POLLUTION, LAND, CRIME, HAPPY }
@@ -49,14 +49,15 @@ static func color_for(cong: float) -> Color:
 
 ## Nächster Modus; gibt dessen Namen zurück ("" = aus).
 func cycle() -> String:
-	mode = (mode + 1) % Mode.size() as Mode
-	visible = mode != Mode.OFF
+	return set_mode((mode + 1) % Mode.size())
+
+
+## Modus direkt wählen; gibt dessen Namen zurück ("" = aus).
+func set_mode(m: int) -> String:
+	mode = m as Mode
+	visible = mode != Mode.OFF or service_cat != ""
 	_rebuild()
 	return MODE_NAMES[mode]
-
-
-func toggle() -> void:
-	cycle()
 
 
 ## Versorgungsansicht für ein Dienst-Werkzeug ein-/ausschalten ("" = aus).

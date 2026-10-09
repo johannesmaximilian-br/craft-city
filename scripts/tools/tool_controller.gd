@@ -9,7 +9,7 @@ signal message(text: String)
 signal applied(tool: Tool)
 
 enum Tool { INSPECT, ROAD, POWERLINE, BUS_STOP, RAIL, STATION, RES, COM, IND, COAL, WIND, TREE, PARK, RAISE, LOWER, BULLDOZE,
-	POLICE, FIRE, SCHOOL, HOSPITAL, LIBRARY, CINEMA, TOWNHALL }
+	POLICE, FIRE, SCHOOL, HOSPITAL, LIBRARY, CINEMA, TOWNHALL, THEATER, STADIUM }
 
 ## Anzeige-Metadaten: Name, Icon, Taste, Gruppe (für Toolbar-Trenner)
 const TOOLS := {
@@ -46,10 +46,18 @@ const TOOLS := {
 		"hint": "Kultur  ·  verfügbar ab 1.000 Einwohnern  ·  ab 1.500 erwartet"},
 	Tool.TOWNHALL:  {"name": "Bürgerhaus", "icon": "townhall", "key": KEY_C, "group": 8, "cost": 4000,
 		"hint": "Kultur, große Reichweite  ·  2x2 Tiles  ·  verfügbar ab 2.000 Einwohnern"},
-	Tool.TREE:      {"name": "Baum", "icon": "tree", "key": KEY_9, "group": 4, "cost": Config.COST_TREE},
-	Tool.PARK:      {"name": "Park", "icon": "park", "key": KEY_0, "group": 4, "cost": Config.COST_PARK},
-	Tool.RAISE:     {"name": "Terrain anheben", "icon": "raise", "key": KEY_T, "group": 5, "cost": Config.COST_TERRAFORM},
-	Tool.LOWER:     {"name": "Terrain absenken", "icon": "lower", "key": KEY_G, "group": 5, "cost": Config.COST_TERRAFORM},
+	Tool.THEATER:   {"name": "Theater", "icon": "theater", "key": KEY_H, "group": 8, "cost": 8000,
+		"hint": "Großkultur  ·  2x2  ·  ab 3.000 Einw.  ·  jeden Monat Vorstellung: Besucher kaufen ringsum ein, Verkehr"},
+	Tool.STADIUM:   {"name": "Stadion", "icon": "stadium", "key": KEY_O, "group": 8, "cost": 15000,
+		"hint": "Großkultur  ·  3x3  ·  ab 5.000 Einw.  ·  Spieltag alle 3 Monate: viele Besucher, Stau ohne Bus/Bahn"},
+	Tool.TREE:      {"name": "Baum", "icon": "tree", "key": KEY_9, "group": 4, "cost": Config.COST_TREE,
+		"hint": "Filtert Verschmutzung im Umkreis von 2 Tiles  ·  kostenlos im Unterhalt"},
+	Tool.PARK:      {"name": "Park", "icon": "park", "key": KEY_0, "group": 4, "cost": Config.COST_PARK,
+		"hint": "Filtert Verschmutzung  ·  Zufriedenheit + Bodenwert im Umkreis von 3 Tiles  ·  $%d/Monat" % int(Config.UPKEEP_PARK)},
+	Tool.RAISE:     {"name": "Terrain anheben", "icon": "raise", "key": KEY_T, "group": 5, "cost": Config.COST_TERRAFORM,
+		"hint": "Straßen, Gleise, Parks und Gebäude darauf werden abgerissen"},
+	Tool.LOWER:     {"name": "Terrain absenken", "icon": "lower", "key": KEY_G, "group": 5, "cost": Config.COST_TERRAFORM,
+		"hint": "Straßen, Gleise, Parks und Gebäude darauf werden abgerissen"},
 	Tool.BULLDOZE:  {"name": "Abriss", "icon": "bulldoze", "key": KEY_B, "group": 5, "cost": Config.COST_BULLDOZE},
 }
 
@@ -120,6 +128,8 @@ func _special_for_tool() -> int:
 		Tool.LIBRARY: return Config.Special.LIBRARY
 		Tool.CINEMA: return Config.Special.CINEMA
 		Tool.TOWNHALL: return Config.Special.TOWNHALL
+		Tool.THEATER: return Config.Special.THEATER
+		Tool.STADIUM: return Config.Special.STADIUM
 	return Config.Special.NONE
 
 
@@ -290,7 +300,7 @@ func tile_cost(t: Vector2i) -> int:
 			if map.zone[i] == _tool_zone(): return 0
 			return Config.COST_ZONE + demolish
 		Tool.COAL, Tool.WIND, Tool.POLICE, Tool.FIRE, Tool.SCHOOL, Tool.HOSPITAL, \
-				Tool.LIBRARY, Tool.CINEMA, Tool.TOWNHALL:
+				Tool.LIBRARY, Tool.CINEMA, Tool.TOWNHALL, Tool.THEATER, Tool.STADIUM:
 			var sp := _special_for_tool()
 			if locked_reason(tool) != "": return -1
 			var up := _upgrade_target()
@@ -310,12 +320,13 @@ func tile_cost(t: Vector2i) -> int:
 					or map.feature[i] != Config.Feature.NONE or rail or map.transit[i] != Config.Transit.NONE:
 				return Config.COST_BULLDOZE
 			return 0
-		Tool.RAISE:
+		Tool.RAISE, Tool.LOWER:
 			if special: return -1
-			return Config.COST_TERRAFORM if map.height[i] < Config.MAX_HEIGHT else -1
-		Tool.LOWER:
-			if special: return -1
-			return Config.COST_TERRAFORM if map.height[i] > 1 else -1
+			if map.height[i] >= Config.MAX_HEIGHT and tool == Tool.RAISE or map.height[i] <= 1 and tool == Tool.LOWER:
+				return -1
+			# Straße/Gleis/Park darauf wird abgerissen
+			var built := map.road[i] != 0 or rail or map.feature[i] == Config.Feature.PARK
+			return Config.COST_TERRAFORM + (Config.COST_BULLDOZE if built else 0)
 		Tool.TREE:
 			if water or special or rail or map.road[i] != 0 or building: return -1
 			return Config.COST_TREE if map.feature[i] != Config.Feature.TREE else 0
@@ -463,12 +474,15 @@ func _apply_tile(t: Vector2i) -> Rect2i:
 			if map.special[i] != Config.Special.NONE:
 				r = _remove_special(i)
 			_clear(i)
-		Tool.RAISE:
+		Tool.RAISE, Tool.LOWER:
+			# Gebäude, Straßen, Gleise (samt Haltestelle/Bahnhof) und Parks passen nicht mehr -> weg
 			map.level[i] = 0
-			map.height[i] += 1
-		Tool.LOWER:
-			map.level[i] = 0
-			map.height[i] -= 1
+			map.road[i] = 0
+			map.rail[i] = 0
+			map.transit[i] = Config.Transit.NONE
+			if map.feature[i] == Config.Feature.PARK:
+				map.feature[i] = Config.Feature.NONE
+			map.height[i] += 1 if tool == Tool.RAISE else -1
 			if map.is_water(t.x, t.y):
 				_clear(i)
 		Tool.TREE:

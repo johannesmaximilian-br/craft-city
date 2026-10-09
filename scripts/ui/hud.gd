@@ -5,8 +5,9 @@ extends CanvasLayer
 signal save_requested(slot: String)
 signal load_requested(slot: String)
 signal new_city_requested
-signal overlay_toggled
+signal overlay_selected(mode: int)   # TrafficOverlay.Mode
 signal graphics_changed
+signal focus_requested(tile: Vector2i)
 
 const MARGIN := 16.0
 const SLOT_NAMES := {"quick": "Schnellspeicher", "1": "Slot 1", "2": "Slot 2", "3": "Slot 3"}
@@ -29,7 +30,8 @@ const TOOLBAR := [
 	[ToolController.Tool.RAISE, ToolController.Tool.LOWER],
 	[],
 	[ToolController.Tool.POLICE, ToolController.Tool.FIRE, ToolController.Tool.SCHOOL, ToolController.Tool.HOSPITAL],
-	[ToolController.Tool.LIBRARY, ToolController.Tool.CINEMA, ToolController.Tool.TOWNHALL],
+	[ToolController.Tool.LIBRARY, ToolController.Tool.CINEMA, ToolController.Tool.TOWNHALL,
+		ToolController.Tool.THEATER, ToolController.Tool.STADIUM],
 	[],
 	[ToolController.Tool.BULLDOZE],
 ]
@@ -38,6 +40,7 @@ var sim: Simulation
 var tools: ToolController
 var map: CityMap
 var icons: IconFactory
+var fire_dept: FireDept
 
 var _money: Label
 var _money_delta: Label
@@ -45,14 +48,17 @@ var _date: Label
 var _pop: Label
 var _jobs: Label
 var _power: Label
-var _traffic: Label
-var _transit: Label
-var _happy: Label
-var _overlay_btn: Button
+var _happy_btn: Button
+var _view_btn: Button
+var _overlay_mode := 0
+var _popup: PanelContainer         # Ausklapp-Liste unter Ansicht-/Zufriedenheits-Button
+var _popup_col: VBoxContainer
+var _popup_kind := ""              # "view" / "happy" / "" = zu
 var _menu: PanelContainer
 var _slot_labels := {}
 var _speed_before_menu := 1
-var _tax: Label
+var _tax_labels := {}           # Zone -> Label
+var _fare_btn: Button
 var _tool_title: Label
 var _tool_hint: Label
 var _info_card: PanelContainer
@@ -72,6 +78,10 @@ var _flyout_group := -1
 var _gfx_buttons: Array[Button] = []
 var _speed_buttons: Array[Button] = []
 var _toast_time := 0.0
+var _toast_target := Vector2i(-1, -1)  # Ort der Meldung (Klick/Tab springt hin)
+var _fire_pill: PanelContainer
+var _fire_btn: Button
+var _fire_next := 0
 
 
 class RciGraph:
@@ -100,8 +110,10 @@ class RciGraph:
 		draw_line(Vector2(0, mid), Vector2(size.x, mid), Color(UiTheme.PANEL_EDGE, 0.6), 2.0)
 
 
-func setup(simulation: Simulation, tool_ctrl: ToolController, city_map: CityMap, icon_factory: IconFactory) -> void:
+func setup(simulation: Simulation, tool_ctrl: ToolController, city_map: CityMap, icon_factory: IconFactory,
+		fires: FireDept) -> void:
 	icons = icon_factory
+	fire_dept = fires
 	sim = simulation
 	tools = tool_ctrl
 	map = city_map
@@ -109,6 +121,7 @@ func setup(simulation: Simulation, tool_ctrl: ToolController, city_map: CityMap,
 	sim.stats_changed.connect(_refresh)
 	sim.message.connect(show_message)
 	tools.message.connect(show_message)
+	fire_dept.alert.connect(show_message)
 	tools.hover_changed.connect(_on_hover)
 	tools.preview_cost_changed.connect(_on_cost)
 	_refresh()
@@ -161,17 +174,14 @@ func _build() -> void:
 	_power = _label(tc_row, 16)
 	_power.add_theme_font_override("font", UiTheme.font(true))
 	tc_row.add_child(VSeparator.new())
-	_overlay_btn = _icon_button(tc_row, "car", "Ansichten [V]: Verkehr / Verschmutzung / Bodenwert\nZahl: Ø Stau, den Pendler erleben", _toggle_overlay, 40)
-	_traffic = _label(tc_row, 16)
-	_traffic.add_theme_font_override("font", UiTheme.font(true))
+	_happy_btn = _text_button(tc_row, "-", _toggle_popup.bind("happy"), "")
+	_set_btn_icon(_happy_btn, "happy")
+	_happy_btn.add_theme_font_override("font", UiTheme.font(true))
 	tc_row.add_child(VSeparator.new())
-	_icon(tc_row, "bus", 36, "Anteil Pendler mit Bus und Bahn")
-	_transit = _label(tc_row, 16)
-	_transit.add_theme_font_override("font", UiTheme.font(true))
-	tc_row.add_child(VSeparator.new())
-	_icon(tc_row, "happy", 30, "Zufriedenheit der Einwohner\nunter 30 % ziehen Leute weg")
-	_happy = _label(tc_row, 16)
-	_transit.add_theme_font_override("font", UiTheme.font(true))
+	# Ansichten + weitere Kennzahlen als Ausklapp-Liste
+	_view_btn = _text_button(tc_row, "", _toggle_popup.bind("view"),
+		"Ansicht wählen [V]\nmit Stau, ÖPNV, Bodenwert, Kriminalität ...")
+	_set_btn_icon(_view_btn, "stats")
 
 	# Oben rechts: RCI, Steuer, Tempo
 	var tr := _card(root)
@@ -186,16 +196,29 @@ func _build() -> void:
 	var tax_head := _label(tax_col, 16, UiTheme.TEXT_DIM)
 	tax_head.text = "STEUER"
 	tax_head.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	var tax_row := _row(tax_col, 2)
-	_text_button(tax_row, "-", func(): _change_tax(-0.01), "Steuer senken")
-	_tax = _label(tax_row, 16)
-	_tax.add_theme_font_override("font", UiTheme.font(true))
-	_tax.custom_minimum_size.x = 52
-	_tax.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_text_button(tax_row, "+", func(): _change_tax(0.01), "Steuer erhöhen")
+	# Je Zone ein Regler; Industrie verträgt mehr (dreckig), Wohnen ist empfindlich
+	var tips := {Config.Zone.RES: "Wohnen: empfindlich - Zufriedenheit und Zuzug sinken",
+		Config.Zone.COM: "Gewerbe: mittel - Gewerbe-Nachfrage sinkt",
+		Config.Zone.IND: "Industrie: robust - verträgt höhere Sätze"}
+	for zn: int in [Config.Zone.RES, Config.Zone.COM, Config.Zone.IND]:
+		var tax_row := _row(tax_col, 2)
+		var tag := _label(tax_row, 16, [UiTheme.TEXT, UiTheme.RES, UiTheme.COM, UiTheme.IND][zn])
+		tag.text = ["", "W", "G", "I"][zn]
+		tag.custom_minimum_size.x = 18
+		var tip: String = tips[zn] + "\nneutral %d%%" % roundi(Config.TAX_NEUTRAL[zn] * 100.0)
+		_text_button(tax_row, "-", _change_tax.bind(zn, -0.01), tip).custom_minimum_size = Vector2(28, 26)
+		var l := _label(tax_row, 16)
+		l.add_theme_font_override("font", UiTheme.font(true))
+		l.custom_minimum_size.x = 44
+		l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		_tax_labels[zn] = l
+		_text_button(tax_row, "+", _change_tax.bind(zn, 0.01), tip).custom_minimum_size = Vector2(28, 26)
+	_fare_btn = _text_button(tax_col, "", _cycle_fare, "")
+	_fare_btn.custom_minimum_size = Vector2(0, 26)
 	tr_row.add_child(VSeparator.new())
 	for s in 4:
 		var b := _icon_button(tr_row, SPEED_ICONS[s], SPEED_NAMES[s], _set_speed.bind(s), 44)
+		b.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		_speed_buttons.append(b)
 
 	# Unten Mitte: Werkzeugtitel + Werkzeugleiste
@@ -232,6 +255,12 @@ func _build() -> void:
 			var mark := _label(b, 16, UiTheme.TEXT_DIM)
 			mark.text = "^"
 			mark.position = Vector2(48, -2)
+	_popup = _card(root, 10, 8)
+	_popup.visible = false
+	_popup_col = VBoxContainer.new()
+	_popup_col.add_theme_constant_override("separation", 4)
+	_popup.add_child(_popup_col)
+
 	_flyout = _card(root, 10, 6)
 	_flyout.visible = false
 	_flyout_col = VBoxContainer.new()
@@ -257,6 +286,15 @@ func _build() -> void:
 	_toast_pill.add_theme_stylebox_override("panel", UiTheme.card(10, 8, UiTheme.TOAST))
 	_toast = _label(_toast_pill, 16, UiTheme.WARN)
 	_toast_pill.visible = false
+	_toast_pill.gui_input.connect(_on_toast_input)
+
+	# Laufende Brände: Klick/Tab springt reihum hin
+	_fire_pill = _card(root, 10, 4)
+	_fire_pill.add_theme_stylebox_override("panel", UiTheme.card(10, 4, UiTheme.TOAST))
+	_fire_btn = _text_button(_fire_pill, "", jump_to_fire, "Zum nächsten Brand springen [Tab]")
+	_set_btn_icon(_fire_btn, "fire")
+	_fire_btn.add_theme_color_override("font_color", UiTheme.BAD)
+	_fire_pill.visible = false
 
 	_anchor(left, Control.PRESET_TOP_LEFT, Control.GROW_DIRECTION_END, Control.GROW_DIRECTION_END)
 	_anchor(tr, Control.PRESET_TOP_RIGHT, Control.GROW_DIRECTION_BEGIN, Control.GROW_DIRECTION_END)
@@ -264,6 +302,9 @@ func _build() -> void:
 	_anchor(_toast_pill, Control.PRESET_CENTER_TOP, Control.GROW_DIRECTION_BOTH, Control.GROW_DIRECTION_END)
 	_toast_pill.offset_top += 170
 	_toast_pill.offset_bottom += 170
+	_anchor(_fire_pill, Control.PRESET_CENTER_TOP, Control.GROW_DIRECTION_BOTH, Control.GROW_DIRECTION_END)
+	_fire_pill.offset_top += 110
+	_fire_pill.offset_bottom += 110
 
 	_build_menu(root)
 
@@ -365,13 +406,98 @@ func _refresh_slots() -> void:
 
 
 func _toggle_overlay() -> void:
-	overlay_toggled.emit()
+	overlay_selected.emit((_overlay_mode + 1) % TrafficOverlay.MODE_NAMES.size())
 
 
 ## Vom Spiel nach dem Umschalten aufgerufen ("" = aus).
-func set_overlay_mode(mode_name: String) -> void:
-	_overlay_btn.set_pressed_no_signal(mode_name != "")
-	show_message("Ansicht: " + mode_name if mode_name != "" else "Ansicht aus")
+func set_overlay_mode(mode: int, mode_name: String, quiet := false) -> void:
+	_overlay_mode = mode
+	_view_btn.text = "Ansicht: %s  v" % (mode_name if mode_name != "" else "aus")
+	_view_btn.set_pressed_no_signal(mode != 0)
+	if not quiet:
+		show_message("Ansicht: " + mode_name if mode_name != "" else "Ansicht aus")
+	if _popup_kind == "view":
+		_fill_popup()
+
+
+func _toggle_popup(kind: String) -> void:
+	var btn := _view_btn if kind == "view" else _happy_btn
+	if _popup_kind == kind:
+		_close_popup()
+		return
+	_popup_kind = kind
+	_fill_popup()
+	_popup.visible = true
+	_popup.reset_size()
+	var r := btn.get_global_rect()
+	_popup.position = Vector2(r.position.x, r.end.y + 8)
+	btn.set_pressed_no_signal(true)
+
+
+func _close_popup() -> void:
+	_popup.visible = false
+	_popup_kind = ""
+	_happy_btn.set_pressed_no_signal(false)
+	_view_btn.set_pressed_no_signal(_overlay_mode != 0)
+
+
+func _fill_popup() -> void:
+	for c in _popup_col.get_children():
+		c.queue_free()
+	if _popup_kind == "view":
+		var avg := _city_averages()
+		var stats := ["Karte ohne Einfärbung",
+			"Stau Ø %d%%  ·  ÖPNV %d%%" % [roundi(sim.avg_congestion * 100.0), roundi(sim.transit_share * 100.0)],
+			"Ø %.1f bei Wohnhäusern" % avg[0],
+			"Ø %d%% bei Wohnhäusern" % roundi(avg[1] * 100.0),
+			"Ø %d%%  ·  Arbeitslos %d%%" % [roundi(avg[2] * 100.0), roundi(sim.unemployment * 100.0)],
+			"Stadt %d%%" % roundi(sim.city_happiness * 100.0)]
+		for m in TrafficOverlay.MODE_NAMES.size():
+			var label: String = TrafficOverlay.MODE_NAMES[m] if m > 0 else "Aus"
+			var b := _text_button(_popup_col, "%s:  %s" % [label, stats[m]], _pick_view.bind(m), "")
+			b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+			b.toggle_mode = true
+			b.set_pressed_no_signal(m == _overlay_mode)
+	else:
+		var title := _label(_popup_col, 16)
+		title.add_theme_font_override("font", UiTheme.font(true))
+		title.text = "Zufriedenheit %d%%  (Grundwert %d)" % [roundi(sim.city_happiness * 100.0), roundi(Config.HAPPY_BASE * 100.0)]
+		for part: Array in sim.happiness_report():
+			var v: float = part[1]
+			var pts := roundi(v * 100.0)
+			var l := _label(_popup_col, 16, UiTheme.BAD if pts < 0 else (UiTheme.GOOD if pts > 0 else UiTheme.TEXT_DIM))
+			l.text = "%s%d  %s%s" % ["+" if pts >= 0 else "", pts, part[0], ("  -> " + part[2]) if part[2] != "" else ""]
+		var foot := _label(_popup_col, 16, UiTheme.TEXT_DIM)
+		foot.text = "Unter %d%% ziehen Leute weg. Ansicht: V / Zufriedenheit" % roundi(Config.HAPPY_LEAVE * 100.0)
+	_popup.reset_size()
+
+
+func _pick_view(m: int) -> void:
+	overlay_selected.emit(m)
+	_close_popup()
+
+
+## Ø Verschmutzung, Bodenwert, Kriminalität über bebaute Wohn-Tiles.
+func _city_averages() -> Array:
+	var sum := [0.0, 0.0, 0.0]
+	var cnt := 0
+	if sim.land_value.size() == map.size * map.size:
+		for i in map.size * map.size:
+			if map.zone[i] == Config.Zone.RES and map.level[i] > 0:
+				sum[0] += sim.pollution[i]
+				sum[1] += sim.land_value[i]
+				sum[2] += sim.crime[i]
+				cnt += 1
+	return [sum[0] / maxi(cnt, 1), sum[1] / maxi(cnt, 1), sum[2] / maxi(cnt, 1)]
+
+
+## Tooltip der Zufriedenheit: die drei größten Minuspunkte.
+func _happy_tip() -> String:
+	var lines := PackedStringArray(["Zufriedenheit - klicken für Details"])
+	for part: Array in sim.happiness_report().slice(0, 3):
+		if float(part[1]) < -0.005:
+			lines.append("%d  %s%s" % [roundi(float(part[1]) * 100.0), part[0], ("  -> " + part[2]) if part[2] != "" else ""])
+	return "\n".join(lines)
 
 
 ## Ecke/Kante verankern; Karte wächst bei Inhaltsänderung vom Rand weg.
@@ -434,6 +560,12 @@ func _icon_button(parent: Node, icon_name: String, tip: String, cb: Callable, px
 	return b
 
 
+## Icon links neben Text (expand_icon würde es neben Text auf 0 schrumpfen).
+func _set_btn_icon(b: Button, icon_name: String) -> void:
+	b.icon = icons.get_icon(icon_name)
+	b.add_theme_constant_override("icon_max_width", 28)
+
+
 func _text_button(parent: Node, text: String, cb: Callable, tip: String) -> Button:
 	var b := Button.new()
 	b.text = text
@@ -457,11 +589,28 @@ func _process(delta: float) -> void:
 		_toast_pill.modulate.a = clampf(_toast_time * 2.0, 0.0, 1.0)
 		if _toast_time <= 0.0:
 			_toast_pill.visible = false
+	# Meldung nicht über eine offene Ausklapp-Liste legen
+	var toast_y := 170.0 + MARGIN
+	if _popup.visible:
+		toast_y = maxf(toast_y, _popup.position.y + _popup.size.y + 10.0)
+	_toast_pill.offset_bottom += toast_y - _toast_pill.offset_top
+	_toast_pill.offset_top = toast_y
+	var n := fire_dept.fires.size()
+	_fire_pill.visible = n > 0
+	if n > 0:
+		var txt := "%d %s  [Tab]" % [n, "Brand" if n == 1 else "Brände"]
+		if _fire_btn.text != txt:
+			_fire_btn.text = txt
+			_fire_pill.reset_size()
 
 
 func _unhandled_key_input(event: InputEvent) -> void:
 	var k := event as InputEventKey
 	if not k.pressed or k.echo:
+		return
+	# Geld-Cheat: Strg/Cmd + Shift + G (vor den Werkzeug-Tasten, G = Terrain)
+	if k.keycode == KEY_G and k.shift_pressed and (k.ctrl_pressed or k.meta_pressed):
+		cheat_money()
 		return
 	for t in ToolController.TOOLS:
 		if ToolController.TOOLS[t]["key"] == k.keycode:
@@ -471,6 +620,8 @@ func _unhandled_key_input(event: InputEvent) -> void:
 		KEY_P: _set_speed(0 if sim.speed != 0 else 1)
 		KEY_V:
 			_toggle_overlay()
+		KEY_TAB:
+			jump_to_fire()
 		KEY_M:
 			Audio.toggle_music_mute()
 			show_message("Musik aus" if Audio.music_muted else "Musik an")
@@ -478,10 +629,18 @@ func _unhandled_key_input(event: InputEvent) -> void:
 		KEY_F9: load_requested.emit("quick")
 		KEY_ESCAPE:
 			# Beim Ziehen bricht Esc nur die Aktion ab (ToolController), offene Auswahl zuerst schließen
-			if _flyout.visible:
+			if _popup.visible:
+				_close_popup()
+			elif _flyout.visible:
 				_close_flyout()
 			elif not tools._dragging:
 				toggle_menu()
+
+
+func cheat_money() -> void:
+	sim.money += Config.CHEAT_MONEY
+	sim.stats_changed.emit()
+	show_message("Cheat: +$%s" % _fmt(int(Config.CHEAT_MONEY)))
 
 
 func _tool_tip(t: ToolController.Tool) -> String:
@@ -555,17 +714,45 @@ func _set_speed(s: int) -> void:
 		_speed_buttons[k].set_pressed_no_signal(k == s)
 
 
-func _change_tax(d: float) -> void:
-	sim.tax_rate = clampf(snappedf(sim.tax_rate + d, 0.01), 0.0, 0.2)
+func _change_tax(zn: int, d: float) -> void:
+	sim.tax[zn] = clampf(snappedf(float(sim.tax[zn]) + d, 0.01), 0.0, Config.TAX_MAX)
 	sim._update_demand()
 	_refresh()
 
 
-func show_message(text: String) -> void:
-	_toast.text = text
+## ÖPNV-Tarif durchschalten: kostenlos -> normal -> teuer. Wirkt sofort auf Routen und Zufriedenheit.
+func _cycle_fare() -> void:
+	sim.fare = (sim.fare + 1) % Config.FARE_NAMES.size()
+	sim.refresh()
+	show_message("ÖPNV-Tarif: %s" % Config.FARE_NAMES[sim.fare])
+
+
+## tile >= 0: Meldung hat einen Ort -> länger sichtbar, Klick springt hin.
+func show_message(text: String, tile := Vector2i(-1, -1)) -> void:
+	_toast.text = text + ("  >" if tile.x >= 0 else "")
+	_toast_target = tile
 	_toast_pill.visible = true
 	_toast_pill.modulate.a = 1.0
-	_toast_time = 3.5
+	_toast_time = 6.0 if tile.x >= 0 else 3.5
+	_toast_pill.tooltip_text = "Klicken: hinspringen" if tile.x >= 0 else ""
+	_toast_pill.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND if tile.x >= 0 else Control.CURSOR_ARROW
+
+
+func _on_toast_input(event: InputEvent) -> void:
+	var mb := event as InputEventMouseButton
+	if mb != null and mb.pressed and mb.button_index == MOUSE_BUTTON_LEFT and _toast_target.x >= 0:
+		focus_requested.emit(_toast_target)
+
+
+## Reihum zu laufenden Bränden springen; ohne Brand zum Ort der letzten Meldung.
+func jump_to_fire() -> void:
+	var tiles := fire_dept.burning_tiles()
+	if tiles.is_empty():
+		if _toast_target.x >= 0:
+			focus_requested.emit(_toast_target)
+		return
+	_fire_next = (_fire_next + 1) % tiles.size()
+	focus_requested.emit(tiles[_fire_next])
 
 
 func _refresh() -> void:
@@ -579,13 +766,29 @@ func _refresh() -> void:
 	_jobs.text = _fmt(sim.jobs_com + sim.jobs_ind)
 	_power.text = "%d / %d MW" % [sim.power_demand, sim.power_supply]
 	_power.add_theme_color_override("font_color", UiTheme.BAD if sim.power_demand > sim.power_supply else UiTheme.TEXT)
-	_traffic.text = "Stau %d%%" % roundi(sim.avg_congestion * 100.0)
-	_transit.text = "ÖPNV %d%%" % roundi(sim.transit_share * 100.0)
-	_happy.text = "%d%%" % roundi(sim.city_happiness * 100.0) if sim.population > 0 else "-"
-	_happy.add_theme_color_override("font_color", UiTheme.BAD if sim.city_happiness < 0.4 and sim.population > 0
-		else (UiTheme.GOOD if sim.city_happiness > 0.65 else UiTheme.TEXT))
-	_traffic.add_theme_color_override("font_color", UiTheme.TEXT if sim.avg_congestion < 0.7 else UiTheme.BAD)
-	_tax.text = "%d%%" % roundi(sim.tax_rate * 100.0)
+	_happy_btn.text = "%d%%" % roundi(sim.city_happiness * 100.0) if sim.population > 0 else "-"
+	var hc := UiTheme.BAD if sim.city_happiness < 0.4 and sim.population > 0 \
+		else (UiTheme.GOOD if sim.city_happiness > 0.65 else UiTheme.TEXT)
+	for st: String in ["font_color", "font_hover_color", "font_pressed_color", "font_hover_pressed_color"]:
+		_happy_btn.add_theme_color_override(st, hc)
+	_happy_btn.tooltip_text = _happy_tip()
+	if _popup_kind != "":
+		_fill_popup()
+	for zn: int in _tax_labels:
+		var t := float(sim.tax[zn])
+		var lbl: Label = _tax_labels[zn]
+		lbl.text = "%d%%" % roundi(t * 100.0)
+		lbl.add_theme_color_override("font_color", UiTheme.BAD if t > Config.TAX_NEUTRAL[zn] + 0.025
+			else (UiTheme.GOOD if t < Config.TAX_NEUTRAL[zn] - 0.005 else UiTheme.TEXT))
+	_fare_btn.text = "ÖPNV: %s" % Config.FARE_NAMES[sim.fare]
+	_fare_btn.tooltip_text = "ÖPNV-Tarif (klicken zum Wechseln)\nkostenlos: mehr Fahrgäste, +5 Zufriedenheit mit Anschluss\nnormal: $0,10 je Fahrgast\nteuer: $0,20, weniger Fahrgäste, -3 Zufriedenheit\nFahrgäste: %d/Monat -> $%d" % [
+		int(sim.bus_riders + sim.rail_riders), int(sim.income_parts.get("ÖPNV", 0.0))]
+	var inc := PackedStringArray(["Einnahmen / Monat:"])
+	for k: String in sim.income_parts:
+		inc.append("  %s  $%d" % [k, roundi(float(sim.income_parts[k]))])
+	inc.append("Ausgaben  $%d" % roundi(sim.last_expense))
+	_money_delta.tooltip_text = "\n".join(inc)
+	_money_delta.mouse_filter = Control.MOUSE_FILTER_PASS
 	_rci.values = [sim.demand_res, sim.demand_com, sim.demand_ind]
 	_rci.queue_redraw()
 	_on_hover(tools.hover)
@@ -608,16 +811,25 @@ func _on_hover(t: Vector2i) -> void:
 			var a := map.anchor[i]
 			var lv := map.special_level(i)
 			title = "%s  ·  Stufe %d" % [def["name"], lv]
-			lines.append("Reichweite %d Tiles  ·  Kapazität %s Einw." % [Config.SERVICE_RADIUS[lv], _fmt(Config.SERVICE_CAPACITY[lv])])
+			lines.append("Reichweite %d Tiles  ·  Kapazität %s %s" % [Config.SERVICE_RADIUS[lv], _fmt(Config.SERVICE_CAPACITY[lv]),
+				"Einw. + Jobs" if def["service"] == "fire" else "Einw."])
 			var load: float = sim.service_load.get(a, 0.0)
 			lines.append("Auslastung %d%%%s" % [roundi(load * 100.0), "  - überlastet!" if load > 1.0 else ""])
 			lines.append("Unterhalt $%d/Monat" % int(def["upkeep"] * Config.UPKEEP_LEVEL[lv]))
+			if def["service"] == "venue":
+				var every: int = def["event_every"]
+				var now := float(sim.venue_event.get(a, 0.0)) > 0.0
+				lines.append("%d Besucher je %s  ·  %s" % [int(sim.venue_visitors(a)),
+					"Vorstellung" if every == 1 else "Spieltag", "heute!" if now else "alle %d Monate" % every])
+				lines.append("Straßen rundum: Auslastung %d%%" % roundi(float(sim.venue_jam.get(a, 0.0)) * 100.0))
 			if lv < 3:
 				lines.append("Ausbau: gleiches Werkzeug, $%d" % (int(def["upgrade"]) * lv))
 		else:
 			lines.append("Leistung %d MW  ·  Unterhalt $%d/Monat" % [def["power"], int(def["upkeep"])])
 	elif map.zone[i] != Config.Zone.NONE:
 		title = "%s  ·  Stufe %d" % [Config.ZONE_NAMES[map.zone[i]], map.level[i]]
+		if map.villa[i] == 1 and map.level[i] == 3:
+			title = "Villa  ·  %d Einw.  ·  Bodenabgabe $%d" % [Config.VILLA_POP, int(Config.VILLA_LEVY)]
 		var src := sim._src(i)
 		if map.zone[i] == Config.Zone.RES and src >= 0 and sim.tile_commute(i) > 0.0:
 			lines.append("Arbeitsweg %d" % roundi(sim.tile_commute(i)))
@@ -631,6 +843,28 @@ func _on_hover(t: Vector2i) -> void:
 				lines.append("Fehlt: " + ", ".join(miss))
 		elif sim.crime.size() > i and map.level[i] > 0:
 			lines.append("Kriminalität %d%%" % roundi(sim.crime[i] * 100.0))
+		if map.level[i] > 0 and sim.population >= Config.FIRE_GRACE_POP and sim.coverage.has("fire"):
+			var cov := minf((sim.coverage["fire"] as PackedFloat32Array)[i], 1.0)
+			var note := fire_dept.protection_note(i)
+			lines.append("Brandschutz %d%%%s" % [roundi(cov * 100.0), ("  - " + note) if note != "" else ""])
+		if map.burning[i] > 0:
+			lines.append("BRAND %d%%  ·  %s" % [map.burning[i], fire_dept.status_text(i)])
+		if sim.land_mix.size() > i:
+			match map.zone[i]:
+				Config.Zone.RES:
+					var mix := sim.land_mix[i]
+					if mix > 0.0:
+						lines.append("Nahversorgung: Läden in %d Tiles (+%d%% Bodenwert)" % [Config.RES_SHOP_RANGE, roundi(mix * 100)])
+					elif mix < 0.0:
+						lines.append("Eintönig: kein Laden/Park/Wasser in %d Tiles (%d%%)" % [Config.RES_DULL_RANGE, roundi(mix * 100)])
+					if sim.villa_site(i) and map.villa[i] == 0:
+						lines.append("Villenlage: Stufe 3 wird eine Villa (Bodenwert >= %d%%, Kleinsiedlung)" % roundi(Config.VILLA_LAND * 100))
+				Config.Zone.COM:
+					lines.append("Ladenzeile: %d. Reihe, %d Tiles zur Kreuzung -> max. Stufe %d" % [
+						sim.road_dist[i], sim.corner_dist(i), sim._max_level(i)])
+				Config.Zone.IND:
+					lines.append("Ballung: %d Industrie-Tiles ringsum -> Wachstum x%.1f, max. Stufe %d" % [
+						int(sim.ind_cluster[i]), sim._cluster_factor(i), sim._max_level(i)])
 		var blockers := sim.growth_blockers(i)
 		if blockers.is_empty():
 			lines.append("+ Kann wachsen" if map.level[i] < 3 else "Voll ausgebaut")
@@ -663,7 +897,9 @@ func _on_hover(t: Vector2i) -> void:
 	if map.power_line[i] == 1:
 		lines.append("Stromleitung")
 	if sim.land_value.size() > i and not map.is_water(t.x, t.y):
-		lines.append("Bodenwert %d%%  ·  Verschmutzung %.1f" % [roundi(sim.land_value[i] * 100.0), sim.pollution[i]])
+		var gf := sim.green_filter[i] if sim.green_filter.size() > i else 0.0
+		lines.append("Bodenwert %d%%  ·  Verschmutzung %.1f%s" % [roundi(sim.land_value[i] * 100.0), sim.pollution[i],
+			("  (Grün filtert %d%%)" % roundi(gf * 100.0)) if gf > 0.0 else ""])
 		if map.zone[i] == Config.Zone.COM:
 			lines.append("Kundschaft im Umkreis: %d" % int(sim.customers[i]))
 	lines.append("Tile %d, %d  ·  Höhe %d" % [t.x, t.y, map.height[i]])
