@@ -1,0 +1,114 @@
+class_name CityCamera
+extends Node3D
+## RTS-Kamera:
+## WASD/Pfeile = verschieben, Q/E = drehen, Mausrad = Zoom,
+## Leertaste+Linksklick / mittlere Maus / Linksklick im Info-Modus = greifen & ziehen,
+## rechte Maustaste = drehen/neigen.
+
+@export var pan_speed := 60.0
+@export var min_dist := 12.0
+@export var max_dist := 180.0
+
+var camera: Camera3D
+var bounds := Rect2(0, 0, 192, 192)
+var left_drag_pans := true      # vom Werkzeug gesetzt (Info-Modus)
+
+var _yaw := deg_to_rad(45.0)
+var _pitch := deg_to_rad(-50.0)
+var _dist := 70.0
+var _target_yaw := _yaw
+var _target_dist := _dist
+var _drag_pan := false
+var _drag_rot := false
+
+
+func _ready() -> void:
+	camera = Camera3D.new()
+	camera.fov = 50.0
+	camera.far = 1000.0
+	add_child(camera)
+	_apply()
+
+
+func _process(delta: float) -> void:
+	var input := Vector2(
+		Input.get_axis("ui_left", "ui_right") + float(Input.is_key_pressed(KEY_D)) - float(Input.is_key_pressed(KEY_A)),
+		Input.get_axis("ui_up", "ui_down") + float(Input.is_key_pressed(KEY_S)) - float(Input.is_key_pressed(KEY_W)))
+	if input != Vector2.ZERO:
+		_pan(input.limit_length(1.0) * pan_speed * delta * (_dist / 70.0))
+	if Input.is_key_pressed(KEY_Q):
+		_target_yaw += 1.5 * delta
+	if Input.is_key_pressed(KEY_E):
+		_target_yaw -= 1.5 * delta
+	_yaw = lerp_angle(_yaw, _target_yaw, minf(1.0, delta * 10.0))
+	_dist = lerpf(_dist, _target_dist, minf(1.0, delta * 10.0))
+	_apply()
+	_update_cursor()
+
+
+func _update_cursor() -> void:
+	var shape := Input.CURSOR_ARROW
+	if _drag_pan:
+		shape = Input.CURSOR_DRAG
+	elif Input.is_key_pressed(KEY_SPACE):
+		shape = Input.CURSOR_POINTING_HAND
+	Input.set_default_cursor_shape(shape)
+
+
+func _unhandled_input(event: InputEvent) -> void:
+	if event is InputEventMouseButton:
+		var mb := event as InputEventMouseButton
+		match mb.button_index:
+			MOUSE_BUTTON_WHEEL_UP:
+				_target_dist = clampf(_target_dist * 0.88, min_dist, max_dist)
+			MOUSE_BUTTON_WHEEL_DOWN:
+				_target_dist = clampf(_target_dist * 1.12, min_dist, max_dist)
+			MOUSE_BUTTON_MIDDLE:
+				_drag_pan = mb.pressed
+			MOUSE_BUTTON_LEFT:
+				if mb.pressed and (Input.is_key_pressed(KEY_SPACE) or left_drag_pans):
+					_drag_pan = true
+				elif not mb.pressed:
+					_drag_pan = false
+			MOUSE_BUTTON_RIGHT:
+				_drag_rot = mb.pressed
+	elif event is InputEventMouseMotion:
+		var mm := event as InputEventMouseMotion
+		if _drag_pan:
+			_grab_pan(mm.position - mm.relative, mm.position)
+		if _drag_rot:
+			_target_yaw -= mm.relative.x * 0.006
+			_pitch = clampf(_pitch - mm.relative.y * 0.004, deg_to_rad(-85.0), deg_to_rad(-20.0))
+
+
+## Weltpunkt unter der Maus bleibt unter der Maus.
+func _grab_pan(from: Vector2, to: Vector2) -> void:
+	var a: Variant = _ground_point(from)
+	var b: Variant = _ground_point(to)
+	if a == null or b == null:
+		return
+	position += (a as Vector3) - (b as Vector3)
+	_clamp()
+
+
+func _ground_point(screen: Vector2) -> Variant:
+	var plane := Plane(Vector3.UP, position.y)
+	return plane.intersects_ray(camera.project_ray_origin(screen), camera.project_ray_normal(screen))
+
+
+func _pan(v: Vector2) -> void:
+	var right := Vector3(cos(_yaw), 0, -sin(_yaw))
+	var fwd := Vector3(sin(_yaw), 0, cos(_yaw))
+	position += right * v.x + fwd * v.y
+	_clamp()
+
+
+func _clamp() -> void:
+	position.x = clampf(position.x, bounds.position.x, bounds.end.x)
+	position.z = clampf(position.z, bounds.position.y, bounds.end.y)
+
+
+func _apply() -> void:
+	rotation = Vector3(0, _yaw, 0)
+	camera.position = Vector3(0, 0, _dist).rotated(Vector3.RIGHT, _pitch)
+	camera.look_at(global_position, Vector3.UP)
