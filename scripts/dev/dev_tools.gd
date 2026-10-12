@@ -4,8 +4,10 @@ extends RefCounted
 ##
 ##   --demo                 Teststadt bauen (DemoCity)
 ##   --cam=x,z,dist         Kamera auf Tile x,z mit Abstand dist
-##   --overlay[=1..6]       Ansicht: 1 Verkehr, 2 Verschmutzung, 3 Bodenwert, 4 Kriminalität, 5 Zufriedenheit, 6 ÖPNV
+##   --overlay[=1..7]       Ansicht: 1 Verkehr, 2 Verschmutzung, 3 Bodenwert, 4 Kriminalität, 5 Zufriedenheit, 6 ÖPNV, 7 Strom
 ##   --popup=view|happy     Ansicht-Liste bzw. Zufriedenheits-Karte aufklappen
+##   --hover=x,z [--detail] Info-Karte für Tile zeigen (ausführlich)
+##   --notify               Beispiel-Warnungen in die Meldungsleiste
 ##   --menu / --flyout      Menü bzw. Strom-Werkzeuggruppe öffnen
 ##   --selftest --dragtest --lanetest --traffictest --pickcheck --firetest --bustest --happytest --cheattest --greentest --venuetest --zonetest --taxtest --cartest
 ##   --venues               Theater + Stadion in die Demo-Stadt setzen (Screenshots)
@@ -13,10 +15,16 @@ extends RefCounted
 ##   --bigcity              ganze Karte bebauen (Performance)
 ##   --buildtest            Bau-Klick-Zeit messen
 ##   --villas               kleine Villensiedlung setzen (Screenshot)   Tests (DevTests)
+##   --focus=x,z            Kamera auf Tile x,z fahren
 ##   --ignite=x,z[,sek]     Gebäude nahe x,z anzünden, Brand sek vorspulen
 ##   --ruin=x,z             Gebäude nahe x,z sofort abbrennen (Brandruine)
 ##   --screenshot=pfad      nach 90 Frames Bild speichern und beenden
 ##   --quit                 nach den Tests beenden (ohne Screenshot)
+
+
+## Automatischer Lauf (Test/Screenshot): Tastatur wird ignoriert. Das Testfenster schiebt sich unter macOS in den
+## Vordergrund, und Tastendrücke des Nutzers (der woanders tippt) würden sonst Werkzeuge wählen / die Kamera bewegen.
+static var automated := false
 
 
 static func has(flag: String) -> bool:
@@ -35,6 +43,9 @@ static func run(game: Node) -> void:
 		return
 	# Tests/Demo-Aufbau rechnen Pendler synchron (deterministisch, Ergebnis sofort lesbar)
 	game.sim.async_commute = false
+	# Automatische Läufe (Tests/Screenshots) nehmen keinen Tastaturfokus: sonst landen Tastendrücke
+	# des Nutzers (der gerade woanders tippt) im Spiel und wählen z.B. Werkzeuge
+	automated = has("--quit") or value("--screenshot") != ""
 	if has("--demo"):
 		DemoCity.build(game)
 	if value("--loadfile") != "":
@@ -77,6 +88,10 @@ static func run(game: Node) -> void:
 			for k in int(v[2] * 10.0):
 				game.fire_dept.advance(0.1)
 		game.hud.focus_requested.emit(Vector2i(best % map.size, best / map.size))
+	if value("--focus") != "":
+		# --focus=x,z: Kamera auf Tile (Geländehöhe, Bildmitte)
+		var fv := value("--focus").split_floats(",")
+		game.hud.focus_requested.emit(Vector2i(int(fv[0]), int(fv[1])))
 	if value("--gfx") != "":
 		# Grafikstufe nur für diesen Lauf (0 Niedrig, 1 Mittel, 2 Hoch), nicht gespeichert
 		GraphicsSettings.current = int(value("--gfx")) as GraphicsSettings.Preset
@@ -99,10 +114,22 @@ static func run(game: Node) -> void:
 		DevTests.place_venues(game)
 	if has("--jamreport"):
 		DevTests.jamreport(game)
+	if has("--decaytest"):
+		DevTests.decaytest()
+	if has("--worn"):
+		DevTests.mark_worn(game)
+	if has("--fronttest"):
+		DevTests.fronttest(game)
+	if has("--loadreport"):
+		DevTests.loadreport(game)
+	if has("--powertest"):
+		DevTests.powertest()
 	if has("--cartest"):
 		DevTests.cartest(game)
 	if has("--greentest"):
 		DevTests.greentest(game)
+	if has("--mutetest"):
+		DevTests.mutetest(game)
 	if has("--cheattest"):
 		DevTests.cheattest(game)
 	if has("--happytest"):
@@ -125,6 +152,16 @@ static func run(game: Node) -> void:
 	game.sim.async_commute = true
 	if value("--cardrift") != "":
 		await DevTests.cardrift(game, float(value("--cardrift")))
+	if has("--fpstest"):
+		await DevTests.fpstest(game)
+	if value("--gpumeasure") != "":
+		# --gpumeasure=Sek[,maxfps]
+		var gm := value("--gpumeasure").split_floats(",")
+		if gm.size() > 1:
+			GraphicsSettings.fps_limit = int(gm[1])     # nur für diesen Lauf, nicht gespeichert
+		if has("--pause"):
+			game.hud._set_speed(0)
+		await DevTests.gpumeasure(game, gm[0])
 	if has("--profile") or value("--profile") != "":
 		# --profile oder --profile=Sekunden,Tempo
 		var p := value("--profile").split_floats(",") if value("--profile") != "" else PackedFloat64Array()
@@ -145,6 +182,22 @@ static func run(game: Node) -> void:
 	if value("--popup") != "":
 		await game.get_tree().process_frame
 		game.hud._toggle_popup(value("--popup"))
+	if value("--hover") != "":
+		# --hover=x,z: Info-Karte für Tile x,z zeigen (Screenshot); --detail = ausführlich
+		await game.get_tree().process_frame
+		var hv := value("--hover").split_floats(",")
+		if has("--detail"):
+			game.hud._info_detail = true
+		game.tools.hover = Vector2i(int(hv[0]), int(hv[1]))
+		game.hud._on_hover(game.tools.hover)
+	if has("--notify"):
+		# Beispiel-Warnungen für Screenshots der Meldungsleiste
+		game.hud.notify("Stromengpass im Netz bei 30,30: Bedarf 48 MW > Leistung 30 MW", Vector2i(30, 30))
+		game.hud.notify("Feuer! Wohnhaus bei 28,33 - keine Feuerwache in Reichweite", Vector2i(28, 33))
+		game.hud.notify("Feuer! Wohnhaus bei 28,33 - keine Feuerwache in Reichweite", Vector2i(28, 33))
+		game.hud.show_message("Ansicht: Strom")
+	if has("--hidehud"):
+		game.hud.toggle_hud()
 	if has("--menu"):
 		game.hud.toggle_menu()
 

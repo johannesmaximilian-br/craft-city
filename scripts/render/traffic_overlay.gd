@@ -4,8 +4,11 @@ extends MultiMeshInstance3D
 ## Taste V schaltet durch, Ansicht-Button oben wählt per Liste. Mit einem Dienst-Werkzeug in der Hand wird automatisch dessen
 ## Versorgung gezeigt (grün = versorgt, rot = nicht versorgt).
 
-enum Mode { OFF, TRAFFIC, POLLUTION, LAND, CRIME, HAPPY, TRANSIT }
-const MODE_NAMES := ["", "Verkehr", "Verschmutzung", "Bodenwert", "Kriminalität", "Zufriedenheit", "ÖPNV"]
+enum Mode { OFF, TRAFFIC, POLLUTION, LAND, CRIME, HAPPY, TRANSIT, POWER }
+const MODE_NAMES := ["", "Verkehr", "Verschmutzung", "Bodenwert", "Kriminalität", "Zufriedenheit", "ÖPNV", "Strom"]
+# Netzfarben (Strom-Ansicht); Rot bleibt für Gebäude ohne Strom reserviert
+const NET_COLORS := [Color(0.3, 0.55, 1.0, 0.6), Color(0.3, 0.85, 0.4, 0.6), Color(0.75, 0.45, 1.0, 0.6),
+	Color(0.2, 0.85, 0.85, 0.6), Color(1.0, 0.75, 0.2, 0.6), Color(0.95, 0.5, 0.8, 0.6)]
 const BUS_ROUTE := Color(0.25, 0.55, 1.0, 0.75)
 
 const B := Config.TILE_BLOCKS
@@ -89,6 +92,20 @@ func _rebuild() -> void:
 				if sim.happiness.size() > i and map.level[i] > 0 and map.zone[i] == Config.Zone.RES:
 					items.append(i)
 					colors.append(ramp(1.0 - sim.happiness[i]))
+			Mode.POWER:
+				# Jedes Netz eigene Farbe, Gebäude ohne Strom rot, Kraftwerke weiß
+				if sim.power_net.size() > i and sim.power_net[i] >= 0:
+					var net: Dictionary = sim.power_nets[sim.power_net[i]]
+					if int(net["demand"]) == 0 and int(net["plants"]) == 0:
+						continue
+					items.append(i)
+					if sim.tile_power_use(i) > 0 and sim.powered[i] == 0:
+						colors.append(RED)
+					elif map.special[i] != Config.Special.NONE and int(Config.SPECIALS[map.special[i]]["power"]) > 0:
+						colors.append(Color(1, 1, 1, 0.85))
+					else:
+						var c: Color = NET_COLORS[sim.power_net[i] % NET_COLORS.size()]
+						colors.append(c)
 			Mode.TRANSIT:
 				# Straßen im Busnetz blau; Gebäude grün mit Bus-/Bahnanschluss, rot ohne
 				if map.road[i] != 0:

@@ -32,13 +32,17 @@ func _ready() -> void:
 
 
 func _process(delta: float) -> void:
+	if DevTools.automated:
+		_apply_focus(delta)
+		_dist = lerpf(_dist, _target_dist, minf(1.0, delta * 10.0))
+		_apply()
+		return
 	var input := Vector2(
 		Input.get_axis("ui_left", "ui_right") + float(Input.is_key_pressed(KEY_D)) - float(Input.is_key_pressed(KEY_A)),
 		Input.get_axis("ui_up", "ui_down") + float(Input.is_key_pressed(KEY_S)) - float(Input.is_key_pressed(KEY_W)))
-	if _focus != Vector3.INF:
-		position = position.lerp(_focus, minf(1.0, delta * 5.0))
-		if position.distance_to(_focus) < 0.1 or input != Vector2.ZERO or _drag_pan:
-			_focus = Vector3.INF
+	if input != Vector2.ZERO or _drag_pan:
+		_focus = Vector3.INF
+	_apply_focus(delta)
 	if input != Vector2.ZERO:
 		_pan(input.limit_length(1.0) * pan_speed * delta * (_dist / 70.0))
 	if Input.is_key_pressed(KEY_Q):
@@ -61,6 +65,8 @@ func _update_cursor() -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
+	if DevTools.automated and not event.has_meta("synthetic"):
+		return
 	if event is InputEventMouseButton:
 		var mb := event as InputEventMouseButton
 		match mb.button_index:
@@ -84,6 +90,13 @@ func _unhandled_input(event: InputEvent) -> void:
 		if _drag_rot:
 			_target_yaw -= mm.relative.x * 0.006
 			_pitch = clampf(_pitch - mm.relative.y * 0.004, deg_to_rad(-85.0), deg_to_rad(-20.0))
+
+
+func _apply_focus(delta: float) -> void:
+	if _focus != Vector3.INF:
+		position = position.lerp(_focus, minf(1.0, delta * 5.0))
+		if position.distance_to(_focus) < 0.1:
+			_focus = Vector3.INF
 
 
 ## Sanft zu einem Tile fahren (z.B. Brand), bei Bedarf etwas heranzoomen.

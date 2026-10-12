@@ -8,6 +8,7 @@ const NO_SHADOW_PREFIXES := ["zone_", "marking"]
 var lib: BlockLibrary
 var buckets := {}           # key -> Array[Transform3D]
 var base := Vector3.ZERO    # Ursprung für put_local/prop_local
+var pivot := Transform3D.IDENTITY   # wird allen folgenden Instanzen vorangestellt (z.B. Gebäude zur Straße drehen)
 
 
 func _init(library: BlockLibrary) -> void:
@@ -21,7 +22,7 @@ func clear() -> void:
 func _add(key: String, xf: Transform3D) -> void:
 	if not buckets.has(key):
 		buckets[key] = []
-	buckets[key].append(xf)
+	buckets[key].append(pivot * xf)
 
 
 ## Block mit unterer Ecke bei pos (Einheitswürfel).

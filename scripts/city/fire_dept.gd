@@ -150,7 +150,7 @@ func _extinguish(f: Fire) -> void:
 	extinguished_total += 1
 	if damaged:
 		map.notify_changed(Rect2i(i % map.size, i / map.size, 1, 1), false)
-	alert.emit("Feuer gelöscht: %s%s" % [_where(i), " (beschädigt)" if damaged else ""], _tile(i))
+	# Gelöschte Brände ohne Meldung (Routine); sichtbar bleiben sie über die Brand-Anzeige/Info-Karte
 
 
 func _burn_down(f: Fire) -> void:
@@ -246,7 +246,9 @@ func _start(i: int, spread: bool) -> void:
 	fires[i] = f
 	_dispatch(f)
 	f.retry = RETRY
-	alert.emit("Feuer%s! %s - %s" % [" greift über" if spread else "", _where(i), STATUS_TEXT[f.status]], _tile(i))
+	# Nur melden, wenn die Feuerwehr nicht einfach ausrücken kann oder das Feuer übergreift
+	if spread or f.status != Status.EN_ROUTE:
+		alert.emit("Feuer%s! %s - %s" % [" greift über" if spread else "", _where(i), STATUS_TEXT[f.status]], _tile(i))
 
 
 # ---------------------------------------------------------------- Alarmierung

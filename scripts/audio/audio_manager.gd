@@ -23,7 +23,7 @@ const ZOOM_NEAR := 25.0                     # Kameradistanz: voll hörbar
 const ZOOM_FAR := 110.0                     # Kameradistanz: still
 
 var volumes := {"Music": 0.6, "SFX": 0.8, "Ambient": 0.8}
-var music_muted := false
+var muted := false                  # Taste M: alle Töne aus (Master-Kanal), Lautstärken bleiben erhalten
 
 var _music: AudioStreamPlayer
 var _music_bag: Array = []
@@ -140,16 +140,20 @@ func set_volume(bus: String, v: float) -> void:
 	_save_settings()
 
 
-func toggle_music_mute() -> void:
-	music_muted = not music_muted
-	_apply_volume("Music")
+func toggle_mute() -> void:
+	muted = not muted
+	_apply_mute()
 	_save_settings()
+
+
+func _apply_mute() -> void:
+	AudioServer.set_bus_mute(AudioServer.get_bus_index("Master"), muted)
 
 
 func _apply_volume(bus: String) -> void:
 	var idx := AudioServer.get_bus_index(bus)
 	var v: float = volumes[bus]
-	var mute := v <= 0.001 or (bus == "Music" and music_muted)
+	var mute := v <= 0.001
 	AudioServer.set_bus_mute(idx, mute)
 	AudioServer.set_bus_volume_db(idx, linear_to_db(maxf(v, 0.001)))
 
@@ -159,9 +163,10 @@ func _load_settings() -> void:
 	if cfg.load(SETTINGS_PATH) == OK:
 		for bus: String in volumes:
 			volumes[bus] = cfg.get_value("audio", bus, volumes[bus])
-		music_muted = cfg.get_value("audio", "music_muted", false)
+		muted = cfg.get_value("audio", "muted", false)
 	for bus: String in volumes:
 		_apply_volume(bus)
+	_apply_mute()
 
 
 func _save_settings() -> void:
@@ -169,7 +174,7 @@ func _save_settings() -> void:
 	cfg.load(SETTINGS_PATH)
 	for bus: String in volumes:
 		cfg.set_value("audio", bus, volumes[bus])
-	cfg.set_value("audio", "music_muted", music_muted)
+	cfg.set_value("audio", "muted", muted)
 	cfg.save(SETTINGS_PATH)
 
 

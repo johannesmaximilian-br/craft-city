@@ -86,6 +86,8 @@ const VILLA_LAND := 0.75
 const VILLA_MAX_NEIGHBORS := 8                     # Wohn-Zonen im 5x5 ringsum (ohne eigenes)
 const VILLA_POP := 16
 const VILLA_LEVY := 6.0                            # $ je Villa und Monat
+const VILLA_KEEP_LAND := 0.70                      # darunter (oder zu dicht bebaut) verfällt die Villa zum Einfamilienhaus
+const VILLA_DECAY := 0.05                          # Chance je Monat
 
 # Bodenwert 0..1
 const LAND_BASE := 0.45

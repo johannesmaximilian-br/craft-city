@@ -52,6 +52,11 @@ func _ready() -> void:
 	tools.setup(map, sim, cam.camera)
 	tools.tool_changed.connect(func(t): cam.left_drag_pans = t == ToolController.Tool.INSPECT)
 
+	var limiter := FrameLimiter.new()
+	limiter.name = "FrameLimiter"
+	add_child(limiter)
+	limiter.setup(sim, cam)
+
 	var markers := StatusMarkers.new()
 	markers.name = "StatusMarkers"
 	add_child(markers)
@@ -113,6 +118,7 @@ func _ready() -> void:
 	tools.message.connect(func(_t): Audio.sfx("error", 0.02))
 	sim.message.connect(func(_t): Audio.sfx("notify", 0.0))
 	fire_dept.alert.connect(func(_t, _p): Audio.sfx("notify", 0.0))
+	sim.alert.connect(func(_t, _p): Audio.sfx("notify", 0.0))
 
 	DevTools.run(self)
 

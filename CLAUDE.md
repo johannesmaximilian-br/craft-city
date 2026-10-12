@@ -24,7 +24,8 @@ G=/Applications/Godot.app/Contents/MacOS/Godot
 $G --headless --import 2>&1 | grep -E "SCRIPT ERROR|Parse" -A1          # Kompilierfehler
 $G --path . -- --demo --selftest --dragtest --servicetest --quit          # Funktionstests
 $G --headless --path . -- --traffictest --widetest --quit                 # Verkehr/Hauptstraßen (synthetisch)
-$G --path . -- --demo --profile=20,3 --quit                               # Performance (Ruckler > 25 ms)
+$G --path . -- --demo --profile=20,3 --quit                               # Performance (Ruckler > 25 ms), läuft mit 60-FPS-Grenze
+$G --path . -- --demo --gpumeasure=0.1,0 --profile=20,3 --quit            # dito ohne FPS-Grenze (Vergleich mit alten Messungen)
 $G --path . -- --demo --cam=32,32,60 --screenshot=/pfad/bild.png          # Screenshot ansehen (Read-Tool)
 ```
 - Dev-Flags/Tests liegen in `scripts/dev/` (nie in `main.gd`). Neue Tests dort als statische Funktion + Flag in `dev_tools.gd`.
@@ -53,6 +54,9 @@ $G --path . -- --demo --cam=32,32,60 --screenshot=/pfad/bild.png          # Scre
 - **Rendering:** alles aus Kit-Blöcken via `BlockBatch` → MultiMesh je Mesh-Typ und Chunk. `put()` = Block an Ecke,
   `put_box()` = skalierte Box um Mittelpunkt (nur für Keys mit Einheitswürfel-Normierung, also nicht PLATES),
   `put_prop()` = Modell unten mittig. Neue Gebäude in `structure_generator.gd` / `building_generator.gd`.
+- **Ausrichtung von Sonderbauten:** Generatoren bauen die Front immer Richtung -z. `WorldRenderer._front_angle` wählt die
+  Seite mit den meisten Straßen, `BlockBatch.pivot` dreht alle folgenden Instanzen um die Grundflächen-Mitte (danach
+  zurücksetzen!). Chunks werden mit 3 Tiles Rand neu gebaut, damit eine neue Straße auch große Bauten neu ausrichtet.
 - **Icons** werden aus denselben Generatoren per SubViewport gerendert (`icon_factory.gd`) — neues Gebäude ⇒ Icon-Case ergänzen.
 - **Hauptstraße** wird nicht gebaut, sondern erkannt: 2 parallele Straßen nebeneinander (`CityMap.wide_partner`,
   vorberechnet in `_compute_wide`; Fahrtrichtung = längere Achse, Paare ab Bandkante). Enden → Viertelbogen (`_emit_taper`).
@@ -68,7 +72,13 @@ $G --path . -- --demo --cam=32,32,60 --screenshot=/pfad/bild.png          # Scre
 - **Zufriedenheit erklärbar:** `_compute_services` sammelt `happy_parts` (einwohnergewichtete Anteile; Summe + `HAPPY_BASE`
   = `city_happiness`, solange keine Kappung greift). Neue Einflüsse auf `happiness[i]` dort **mit eintragen**, sonst stimmt
   die HUD-Aufschlüsselung nicht. `_check_happiness()` läuft nur in der Monats-Etappe „dienste“ (nicht in `refresh()`).
-- **HUD-Ausklapplisten:** `Hud._popup` (Ansicht-Liste / Zufriedenheit), getrennt vom Werkzeug-`_flyout`; Meldungen weichen nach unten aus.
+- **HUD-Ausklapplisten:** `Hud._popup` (Ansicht-Liste / Zufriedenheit / Meldungsverlauf), getrennt vom Werkzeug-`_flyout`.
+- **Meldungen zweistufig:** `Hud.notify(text, tile)` = Warnung (Streifen rechts in `_feed`, Verlauf `_log`, Glocke;
+  verbunden mit `sim.message`, `sim.alert`, `fire_dept.alert` — die auch den Ton auslösen). `Hud.show_message(text)` =
+  kurze Info über der Werkzeugleiste ohne Verlauf (`tools.message`, Ansicht, Speichern). Neue Meldung: Problem ⇒ notify.
+- **Info-Karte:** `_on_hover` sammelt Zeilen je Abschnitt (`add.call(Abschnitt, Text)`), dazu `summary` und `problems`;
+  kompakt zeigt nur summary + problems, Taste I (`_info_detail`) alles. Neue Info ⇒ passenden Abschnitt wählen,
+  Probleme zusätzlich in `problems`.
 - **Grünfilter:** `_compute_environment` stempelt Verschmutzung, filtert sie dann je Tile über Bäume/Parks im Umkreis
   (Integralbild, `green_filter`) und rechnet erst danach Bodenwert. Kein echtes „Blockieren“ entlang der Windrichtung —
   Grün nahe am Empfänger wirkt. Bäume geben keinen Bodenwert mehr (Nutzerwunsch: Bäume = nur Filter, Parks = Filter + Zufriedenheit + Kosten).
@@ -85,6 +95,19 @@ $G --path . -- --demo --cam=32,32,60 --screenshot=/pfad/bild.png          # Scre
   berechnet; Industrie nach Ballung), `_growth_factor`, `suitability`, `growth_blockers`.
 - **Villa** = Map-Feld `villa` auf Wohnen Stufe 3, gesetzt beim Wachsen auf 3 (`villa_site`). Einwohner immer über
   `CityMap.res_capacity(i)`, nie direkt `RES_CAPACITY[level]` (sonst zählen Villen 80 statt 16).
+- **Verfall:** `decay_reason(i)` bündelt alle Abstiegsgründe aus `_grow()`; `_grow()` setzt monatlich `map.worn`
+  (Map-Feld, damit der Renderer es lesen kann) und meldet Änderungen mit `infra=false`. Neuer Abstiegsgrund ⇒ in beiden ergänzen.
+  Renderer: `_put_worn` tauscht ~35 % der Blöcke gegen verwitterte (`WORN_KEYS`), `_emit_worn_props` setzt Ranken/Geröll.
+- **Strom:** `_compute_power` erfasst **alle** leitenden Komponenten (auch ohne Kraftwerk) → `power_net` je Tile,
+  `power_nets` (capacity, demand, plants, unserved, dark). Meldungen über Signal `sim.alert(text, tile)` nur bei neuen
+  Problemen (`_power_warned`). Anzeige oben = Bedarf aller Gebäude, rot bei irgendeinem Gebäude ohne Strom.
+- **Dienst-Auslastung geteilt:** `_compute_services` zählt je Kategorie, wie viele Gebäude ein Tile abdecken
+  (`_service_tiles`, Kreis), und teilt dessen Einwohner/Jobs durch diese Zahl. Vorher zählte jedes Gebäude alles im
+  Quadrat → in dichten Vierteln war jede Wache überlastet, egal wie viele man baute.
+- **Bildrate/Stromsparen:** `FrameLimiter` (Node in main) setzt jeden Frame `Engine.max_fps`: Menü-Grenze
+  (`GraphicsSettings.fps_limit`, Standard 60), Fenster im Hintergrund 10, Pause + ruhende Kamera 30. In Testläufen
+  (`DevTools.automated`) keine Hintergrund-Drosselung, sonst laufen Tests im verdeckten Fenster mit 10 FPS.
+  Nicht direkt `Engine.max_fps` setzen (wird überschrieben) – für Messungen `GraphicsSettings.fps_limit`.
 - **Speichern:** neue Map-Felder in `CityMap.SAVE_FIELDS` eintragen; fehlende Felder alter Saves werden genullt.
 
 ## Fallstricke (schon einmal hineingetappt)
@@ -112,6 +135,10 @@ $G --path . -- --demo --cam=32,32,60 --screenshot=/pfad/bild.png          # Scre
 - Lokaler Alias eines Member-Packed-Arrays (`var p := _parent`) kopiert beim ersten Schreiben → Hilfsfunktionen, die den
   Member lesen, sehen alte Daten. Nur aliasen, was ausschließlich lokal genutzt wird.
 - `git stash` springt hier auf den ersten Commit zurück (alles andere ist uncommittet) → kein Vergleichsstand.
+- Testfenster (Screenshot/`--quit`) schieben sich unter macOS in den Vordergrund und bekommen Tastatur **und Maus**
+  des Nutzers → `DevTools.automated` lässt HUD/Kamera/Werkzeuge echte Eingaben ignorieren (künstliche Test-Events
+  tragen Meta `synthetic`). `Window.unfocusable` hilft auf macOS nicht. Der alte Fehlschlag „dragtest Straße 0 Tiles“
+  kam daher.
 - Export: Vorlage enthält nur `universal`, und `textures/vram_compression/import_etc2_astc` muss an sein.
 - Beim Ersetzen von Code per Skript nicht über Blockgrenzen schneiden (einmal ist so ein Config-Block verloren gegangen).
 

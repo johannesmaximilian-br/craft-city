@@ -6,6 +6,7 @@ signal stats_changed
 signal power_changed
 signal traffic_changed
 signal message(text: String)
+signal alert(text: String, tile: Vector2i)   # Meldung mit Ort (Klick/Tab springt hin)
 
 const SECONDS_PER_MONTH := [0.0, 3.0, 1.5, 0.5]
 const MONTH_NAMES := ["Jan", "Feb", "Mär", "Apr", "Mai", "Jun", "Jul", "Aug", "Sep", "Okt", "Nov", "Dez"]
@@ -30,7 +31,10 @@ var bus_stop_count := 0
 var station_count := 0
 var special_upkeep := 0.0
 var power_supply := 0
-var power_demand := 0
+var power_demand := 0              # Bedarf aller Gebäude, auch nicht angeschlossener
+var power_served := 0              # davon tatsächlich geliefert
+var power_net: PackedInt32Array    # Netz-Nummer je Tile (-1 = leitet nicht)
+var power_nets: Array = []         # je Netz: capacity, demand, plants, unserved, dark (Tile ohne Strom), key
 var demand_res := 0.0
 var demand_com := 0.0
 var demand_ind := 0.0
@@ -120,7 +124,7 @@ const COMMUTE_OUT := ["traffic", "congestion", "commute_cost", "road_comp", "com
 	"rail_riders", "_transit_trips", "avg_commute", "transit_share", "unreachable_workers", "avg_congestion",
 	"venue_event", "venue_jam", "car_trips"]
 var _rng := RandomNumberGenerator.new()
-var _was_brownout := false
+var _power_warned := {}            # Netz-Probleme, die schon gemeldet wurden
 
 const DIRS := [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]
 
@@ -1172,34 +1176,39 @@ func tile_power_use(i: int) -> int:
 	return Config.POWER_USE[zn][map.level[i]]
 
 
-## Pro Stromnetz: BFS ab den Kraftwerken, versorgt bis Kapazität erschöpft.
+## Stromnetze: zusammenhängende leitende Tiles (Leitungen, Zonen, Sonderbauten; Straßen leiten nicht).
+## Je Netz: BFS ab den Kraftwerken, versorgt bis die Leistung erschöpft ist (Leitungsende fällt zuerst aus).
+## Auch Netze ohne Kraftwerk werden erfasst (Bedarf zählt, Gebäude bleiben dunkel).
 func _compute_power() -> void:
 	var n := map.size * map.size
 	powered.resize(n)
 	powered.fill(0)
-	var seen := PackedByteArray()
-	seen.resize(n)
+	power_net.resize(n)
+	power_net.fill(-1)
 	power_supply = 0
 	power_demand = 0
-	var brownout := false
-
+	power_served = 0
+	power_nets = []
 	for start in n:
-		if seen[start] == 1 or map.special[start] == Config.Special.NONE:
+		if power_net[start] != -1 or not map.conducts(start):
 			continue
 		# 1) Netz-Komponente sammeln
+		var id := power_nets.size()
 		var comp: Array[int] = [start]
-		seen[start] = 1
+		power_net[start] = id
 		var head := 0
 		var plants: Array[int] = []
 		var capacity := 0
+		var demand := 0
 		while head < comp.size():
 			var i: int = comp[head]
 			head += 1
 			if map.anchor[i] == i:
-				capacity += Config.SPECIALS[map.special[i]]["power"]
-			if map.special[i] != Config.Special.NONE:
-				plants.append(i)
-			power_demand += tile_power_use(i)
+				var pw: int = Config.SPECIALS[map.special[i]]["power"]
+				capacity += pw
+				if pw > 0:
+					plants.append(i)
+			demand += tile_power_use(i)
 			var x := i % map.size
 			var z := i / map.size
 			for dir: Vector2i in DIRS:
@@ -1208,43 +1217,103 @@ func _compute_power() -> void:
 				if not map.in_bounds(nx, nz):
 					continue
 				var j := map.idx(nx, nz)
-				if seen[j] == 0 and map.conducts(j):
-					seen[j] = 1
+				if power_net[j] == -1 and map.conducts(j):
+					power_net[j] = id
 					comp.append(j)
-		power_supply += capacity
-
 		# 2) Versorgen in BFS-Reihenfolge ab den Kraftwerken
 		var left := capacity
-		var visited := {}
-		var q: Array[int] = plants.duplicate()
-		for p in plants:
-			visited[p] = true
-		head = 0
-		while head < q.size():
-			var i: int = q[head]
-			head += 1
-			var use := tile_power_use(i)
-			if use > left:
-				brownout = true
-				continue
-			left -= use
-			powered[i] = 1
-			var x := i % map.size
-			var z := i / map.size
-			for dir: Vector2i in DIRS:
-				var nx: int = x + dir.x
-				var nz: int = z + dir.y
-				if not map.in_bounds(nx, nz):
+		var unserved := 0
+		var dark := -1          # ein Gebäude ohne Strom (für Meldung/Kamera)
+		if not plants.is_empty():
+			var visited := {}
+			var q: Array[int] = []
+			for p in plants:
+				# Kraftwerke sind 1x1 oder 2x2: alle Tiles des Kraftwerks als Startpunkte
+				for k in comp:
+					if map.anchor[k] == p and not visited.has(k):
+						visited[k] = true
+						q.append(k)
+			head = 0
+			while head < q.size():
+				var i: int = q[head]
+				head += 1
+				var use := tile_power_use(i)
+				if use > left:
 					continue
-				var j := map.idx(nx, nz)
-				if not visited.has(j) and map.conducts(j):
-					visited[j] = true
-					q.append(j)
-
-	if brownout and not _was_brownout:
-		message.emit("Stromengpass! Mehr Kraftwerke bauen.")
-	_was_brownout = brownout
+				left -= use
+				powered[i] = 1
+				var x := i % map.size
+				var z := i / map.size
+				for dir: Vector2i in DIRS:
+					var nx: int = x + dir.x
+					var nz: int = z + dir.y
+					if not map.in_bounds(nx, nz):
+						continue
+					var j := map.idx(nx, nz)
+					if not visited.has(j) and map.conducts(j):
+						visited[j] = true
+						q.append(j)
+		for i in comp:
+			if tile_power_use(i) > 0 and powered[i] == 0:
+				unserved += 1
+				if dark < 0:
+					dark = i
+		# Sonderbauten ohne eigenen Verbrauch gelten als versorgt, wenn ihr Netz ein Kraftwerk hat
+		if not plants.is_empty():
+			for i in comp:
+				if map.special[i] != Config.Special.NONE:
+					powered[i] = 1
+		power_supply += capacity
+		power_demand += demand
+		power_served += capacity - left
+		power_nets.append({"capacity": capacity, "demand": demand, "plants": plants.size(),
+			"unserved": unserved, "dark": dark, "key": start})
+	_power_alerts()
 	power_changed.emit()
+
+
+## Stromnetz eines Tiles als Text für Info-Karte/Tooltip ("" = kein Netz oder ohne Bedarf und Kraftwerk).
+func power_net_text(i: int) -> String:
+	if power_net.size() <= i or power_net[i] < 0:
+		return ""
+	var net: Dictionary = power_nets[power_net[i]]
+	if int(net["demand"]) == 0 and int(net["plants"]) == 0:
+		return ""
+	var state := ""
+	if int(net["plants"]) == 0:
+		state = "  - kein Kraftwerk angeschlossen!"
+	elif int(net["unserved"]) > 0:
+		state = "  - Engpass (%d Gebäude ohne Strom)" % int(net["unserved"])
+	return "Stromnetz: %d MW Leistung / %d MW Bedarf (%d Kraftwerk%s)%s" % [int(net["capacity"]), int(net["demand"]),
+		int(net["plants"]), "" if int(net["plants"]) == 1 else "e", state]
+
+
+## Meldungen bei neuen Strom-Problemen (mit Ort); pro Netz nur einmal, solange das Problem besteht.
+func _power_alerts() -> void:
+	var now := {}
+	var fresh: Array = []
+	for net: Dictionary in power_nets:
+		if int(net["unserved"]) == 0:
+			continue
+		var kind := "noplant" if int(net["plants"]) == 0 else "short"
+		var key := "%s:%d" % [kind, int(net["key"])]
+		now[key] = true
+		if not _power_warned.has(key):
+			fresh.append(net)
+	_power_warned = now
+	if fresh.is_empty():
+		return
+	var net: Dictionary = fresh[0]
+	var t := Vector2i(int(net["dark"]) % map.size, int(net["dark"]) / map.size)
+	var text := ""
+	if int(net["plants"]) == 0:
+		text = "Kein Strom: Gebäude bei %d,%d ohne Kraftwerk im Netz - Stromleitung ziehen" % [t.x, t.y]
+	else:
+		text = "Stromengpass im Netz bei %d,%d: Bedarf %d MW > Leistung %d MW" % [t.x, t.y,
+			int(net["demand"]), int(net["capacity"])]
+	if fresh.size() > 1:
+		text += " (+%d weitere Netze)" % (fresh.size() - 1)
+	alert.emit(text, t)
 
 
 func _recount() -> void:
@@ -1379,12 +1448,20 @@ func _grow() -> void:
 			var i := map.idx(x, z)
 			var zn := map.zone[i]
 			if zn == Config.Zone.NONE or map.burning[i] > 0 or map.ruin[i] > 0:
+				if map.worn[i] != 0:
+					map.worn[i] = 0
+					var rw := Rect2i(x, z, 1, 1)
+					changed = rw if not any else changed.merge(rw)
+					any = true
 				continue
 			var lv := map.level[i]
 			var demand := demand_for(zn)
 			var ok := _can_grow(i)
 			var new_lv := lv
-			if zn == Config.Zone.RES and lv > 0 and happiness[i] < Config.HAPPY_LEAVE and _rng.randf() < 0.08:
+			if zn == Config.Zone.RES and lv == 3 and map.villa[i] == 1 and villa_lost(i):
+				if _rng.randf() < Config.VILLA_DECAY:
+					new_lv = 2        # Villenlage verloren -> Einfamilienhaus
+			elif zn == Config.Zone.RES and lv > 0 and happiness[i] < Config.HAPPY_LEAVE and _rng.randf() < 0.08:
 				new_lv = lv - 1       # Unzufriedenheit -> Wegzug
 			elif not ok:
 				# Ohne Straße/Strom/Erreichbarkeit verfällt Bebauung
@@ -1404,6 +1481,10 @@ func _grow() -> void:
 				map.level[i] = new_lv
 				# Wohnen Stufe 3: in Villenlage eine Villa statt Wohnblock
 				map.villa[i] = 1 if zn == Config.Zone.RES and new_lv == 3 and villa_site(i) else 0
+			# Verfall sichtbar machen, bevor das Gebäude absinkt
+			var worn := 1 if map.level[i] > 0 and decay_reason(i) != "" else 0
+			if new_lv != lv or worn != map.worn[i]:
+				map.worn[i] = worn
 				var r := Rect2i(x, z, 1, 1)
 				changed = r if not any else changed.merge(r)
 				any = true
@@ -1444,6 +1525,43 @@ func _corner_level(i: int) -> int:
 	if d <= Config.COM_CORNER_LEVEL[0]:
 		return 3
 	return 2 if d <= Config.COM_CORNER_LEVEL[1] else 1
+
+
+## Villa hat ihre Lage verloren (mit Puffer unter VILLA_LAND, damit sie nicht hin- und herspringt).
+func villa_lost(i: int) -> bool:
+	return land_value.size() > i and (land_value[i] < Config.VILLA_KEEP_LAND
+		or res_cluster[i] > Config.VILLA_MAX_NEIGHBORS)
+
+
+## Warum ein Gebäude verfällt (leer = stabil). Gleiche Bedingungen wie die Abstiege in _grow().
+func decay_reason(i: int) -> String:
+	var lv := map.level[i]
+	var zn := map.zone[i]
+	if lv == 0 or zn == Config.Zone.NONE or land_value.size() <= i:
+		return ""
+	if zn == Config.Zone.RES and lv == 3 and map.villa[i] == 1 and villa_lost(i):
+		return "Villenlage verloren (Bodenwert %d%% < %d%% oder zu dicht bebaut)" % [
+			roundi(land_value[i] * 100.0), roundi(Config.VILLA_KEEP_LAND * 100.0)]
+	if zn == Config.Zone.RES and happiness.size() > i and happiness[i] < Config.HAPPY_LEAVE:
+		return "Unzufrieden - Leute ziehen weg"
+	if not _can_grow(i):
+		if _src(i) < 0:
+			return "Keine Straße in Reichweite"
+		if powered.size() > i and powered[i] == 0:
+			return "Kein Strom"
+		return "Keine Jobs erreichbar / Weg zu lang" if zn == Config.Zone.RES else "Keine Einwohner erreichbar"
+	var mx := _max_level(i)
+	if lv > mx:
+		match zn:
+			Config.Zone.RES:
+				return "Bodenwert %d%% zu niedrig für Stufe %d" % [roundi(land_value[i] * 100.0), lv]
+			Config.Zone.COM:
+				return "Lage reicht nur für Stufe %d (Abstand Straße/Kreuzung)" % mx
+			_:
+				return "Zu wenig Industrie ringsum für Stufe %d" % lv
+	if demand_for(zn) < -0.25:
+		return "Keine Nachfrage"
+	return ""
 
 
 ## Villenlage: Top-Bodenwert in einer Kleinsiedlung.
@@ -1496,13 +1614,16 @@ func _growth_factor(i: int, zn: int) -> float:
 func _compute_services() -> void:
 	var size := map.size
 	var n := size * size
-	var s := size + 1
 	for cat: String in Config.SERVICES:
 		var f := PackedFloat32Array()
 		f.resize(n)
 		coverage[cat] = f
 	service_load = {}
 	var has_cat := {}
+	# Dienstgebäude sammeln; je Kategorie zählen, wie viele Gebäude ein Tile abdecken. Mehrere Gebäude
+	# teilen sich die Einwohner eines Tiles (sonst wäre jede Wache in dichten Vierteln einzeln überlastet).
+	var stations := []      # [Anker, Kategorie, Stufe]
+	var cover_count := {}   # Kategorie -> PackedInt32Array
 	for i in n:
 		if map.anchor[i] != i:
 			continue
@@ -1511,40 +1632,49 @@ func _compute_services() -> void:
 			continue
 		var cat: String = def["service"]
 		has_cat[cat] = true
-		var lv := map.special_level(i)
-		var r: int = Config.SERVICE_RADIUS[lv]
-		var half := (int(def["size"]) - 1) * 0.5
-		var cx := i % size
-		var cz := i / size
-		# Einwohner im Einzugsquadrat -> Auslastung; Überlast schwächt die Wirkung
-		var x0 := maxi(cx - r, 0)
-		var z0 := maxi(cz - r, 0)
-		var x1 := mini(cx + r + 1 + int(half * 2), size)
-		var z1 := mini(cz + r + 1 + int(half * 2), size)
+		stations.append([i, cat, map.special_level(i)])
+		if not cover_count.has(cat):
+			var cc := PackedInt32Array()
+			cc.resize(n)
+			cover_count[cat] = cc
+		var cnt: PackedInt32Array = cover_count[cat]
+		for j in _service_tiles(i):
+			cnt[j] += 1
+		cover_count[cat] = cnt
+	# Einwohner (Feuerwehr: + halbe Arbeitsplätze) je Tile
+	var people := PackedFloat32Array()
+	people.resize(n)
+	var work := PackedFloat32Array()
+	work.resize(n)
+	for i in n:
+		match map.zone[i]:
+			Config.Zone.RES: people[i] = map.res_capacity(i)
+			Config.Zone.COM: work[i] = Config.COM_CAPACITY[map.level[i]]
+			Config.Zone.IND: work[i] = Config.IND_CAPACITY[map.level[i]]
+	for st: Array in stations:
+		var i: int = st[0]
+		var cat: String = st[1]
+		var lv: int = st[2]
+		var cnt: PackedInt32Array = cover_count[cat]
+		var tiles := _service_tiles(i)
 		var served := 0.0
-		if _ipop.size() == s * s:
-			served = _ipop[z1 * s + x1] - _ipop[z0 * s + x1] - _ipop[z1 * s + x0] + _ipop[z0 * s + x0]
-			if cat == "fire":       # Feuerwehr schützt auch Arbeitsplätze (Gewerbe, Industrie)
-				served += Config.FIRE_JOB_WEIGHT * (_ijobs[z1 * s + x1] - _ijobs[z0 * s + x1] - _ijobs[z1 * s + x0] + _ijobs[z0 * s + x0])
+		for j in tiles:
+			var w := people[j] + (Config.FIRE_JOB_WEIGHT * work[j] if cat == "fire" else 0.0)
+			served += w / maxi(cnt[j], 1)
+		# Auslastung; Überlast schwächt die Wirkung
 		var load := served / float(Config.SERVICE_CAPACITY[lv])
 		service_load[i] = load
 		var strength := 1.0 if load <= 1.0 else 1.0 / load
 		var field: PackedFloat32Array = coverage[cat]
-		for dz in range(-r, r + 1):
-			var nz := cz + dz
-			if nz < 0 or nz >= size:
-				continue
-			for dx in range(-r, r + 1):
-				var nx := cx + dx
-				if nx < 0 or nx >= size:
-					continue
-				var d := Vector2(dx - half, dz - half).length()
-				if d > r:
-					continue
-				var v := strength * (1.0 - 0.4 * d / r)
-				var j := nz * size + nx
-				if v > field[j]:
-					field[j] = v
+		var r: int = Config.SERVICE_RADIUS[lv]
+		var half := (int(Config.SPECIALS[map.special[i]]["size"]) - 1) * 0.5
+		var cx := i % size
+		var cz := i / size
+		for j in tiles:
+			var d := Vector2(j % size - cx - half, j / size - cz - half).length()
+			var v := strength * (1.0 - 0.4 * d / r)
+			if v > field[j]:
+				field[j] = v
 		coverage[cat] = field
 
 	# Kriminalität und Zufriedenheit
@@ -1699,6 +1829,27 @@ func happiness_report() -> Array:
 
 
 ## Fehlende Dienste an einem Wohn-Tile (nur solche, die die Stadtgröße schon verlangt).
+## Tiles im Einzugskreis eines Dienstgebäudes (Radius je Ausbaustufe, ab Gebäudemitte).
+func _service_tiles(a: int) -> PackedInt32Array:
+	var size := map.size
+	var r: int = Config.SERVICE_RADIUS[map.special_level(a)]
+	var half := (int(Config.SPECIALS[map.special[a]]["size"]) - 1) * 0.5
+	var cx := a % size
+	var cz := a / size
+	var out := PackedInt32Array()
+	for dz in range(-r, r + 1 + int(half * 2)):
+		var nz := cz + dz
+		if nz < 0 or nz >= size:
+			continue
+		for dx in range(-r, r + 1 + int(half * 2)):
+			var nx := cx + dx
+			if nx < 0 or nx >= size:
+				continue
+			if Vector2(dx - half, dz - half).length() <= r:
+				out.append(nz * size + nx)
+	return out
+
+
 func missing_services(i: int) -> PackedStringArray:
 	var out := PackedStringArray()
 	for cat: String in Config.SERVICES:

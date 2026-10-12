@@ -38,8 +38,9 @@ func _on_tiles_changed(rect: Rect2i) -> void:
 
 
 func _mark_dirty(rect: Rect2i) -> void:
-	# +1 Rand: Nachbar-Seitenwände, Markierungen und Kabel hängen davon ab
-	var r := rect.grow(1)
+	# +3 Rand: Nachbar-Seitenwände, Markierungen, Kabel und die Ausrichtung von Sonderbauten
+	# (bis 3x3, Front zur Straße) hängen von Nachbar-Tiles ab
+	var r := rect.grow(3)
 	var c0 := Vector2i(maxi(r.position.x, 0) / CHUNK, maxi(r.position.y, 0) / CHUNK)
 	var c1 := Vector2i(mini(r.end.x - 1, map.size - 1) / CHUNK, mini(r.end.y - 1, map.size - 1) / CHUNK)
 	for cz in range(c0.y, c1.y + 1):
@@ -181,7 +182,14 @@ func _emit_tile(tx: int, tz: int) -> void:
 		match map.special[i]:
 			Config.Special.COAL: StructureGenerator.coal(_b, base)
 			Config.Special.WIND: StructureGenerator.wind_tower(_b, base)
-			_: StructureGenerator.service(_b, base, map.special[i], map.special_level(i))
+			_:
+				# Front (im Generator Richtung -z) zur Straße drehen
+				var s: int = Config.SPECIALS[map.special[i]]["size"]
+				var center := base + Vector3(s * B * 0.5, 0, s * B * 0.5)
+				_b.pivot = Transform3D(Basis(Vector3.UP, _front_angle(tx, tz, s)), center) \
+					* Transform3D(Basis(), -center)
+				StructureGenerator.service(_b, base, map.special[i], map.special_level(i))
+				_b.pivot = Transform3D.IDENTITY
 		return
 	if map.special[i] != Config.Special.NONE:
 		return
@@ -222,7 +230,11 @@ func _emit_tile(tx: int, tz: int) -> void:
 					_b.put(plate, base + Vector3(sx, 0, sz))
 		else:
 			_b.base = base
-			BuildingGenerator.emit(zn, lv, hash(Vector3i(tx, tz, lv)), _b.put_local, _b.prop_local, map.villa[i] == 1)
+			var worn := map.worn[i] == 1
+			var put := _put_worn.bind(absi(hash(Vector2i(tx, tz)))) if worn else _b.put_local
+			BuildingGenerator.emit(zn, lv, hash(Vector3i(tx, tz, lv)), put, _b.prop_local, map.villa[i] == 1)
+			if worn:
+				_emit_worn_props(tx, tz)
 		return
 
 	var c := base + Vector3(1.5, 0, 1.5)
@@ -238,6 +250,45 @@ func _emit_tile(tx: int, tz: int) -> void:
 			_b.put_prop("flowers2", base + Vector3(2.5, 0, 2.5), 1.0)
 			_b.put_prop("bush", base + Vector3(2.5, 0, 0.5), 2.0)
 			_b.put_prop("bush", base + Vector3(0.5, 0, 2.5), 0.5)
+
+
+## Drehwinkel, damit die Front eines s×s-Sonderbaus zur Seite mit den meisten Straßen zeigt
+## (Gleichstand: Norden, also unverändert). Front im Modell = -z.
+func _front_angle(tx: int, tz: int, s: int) -> float:
+	var counts := [0, 0, 0, 0]    # N, O, S, W
+	for k in s:
+		counts[0] += 1 if map.is_road(tx + k, tz - 1) else 0
+		counts[1] += 1 if map.is_road(tx + s, tz + k) else 0
+		counts[2] += 1 if map.is_road(tx + k, tz + s) else 0
+		counts[3] += 1 if map.is_road(tx - 1, tz + k) else 0
+	var best := 0
+	for d in range(1, 4):
+		if counts[d] > counts[best]:
+			best = d
+	return [0.0, -PI * 0.5, PI, PI * 0.5][best]
+
+
+## Verfallendes Gebäude: verwitterte Blöcke statt sauberer Fassade (deterministisch je Block).
+const WORN_KEYS := {"brick": "darkbrick", "yellowbrick": "darkbrick", "wood": "darkbrick", "log": "darkbrick",
+	"square": "stone", "greybrick": "stone", "ice": "vox_dark", "metal": "stone", "stone": "dirt"}
+
+
+func _put_worn(key: String, p: Vector3i, seed_value: int) -> void:
+	if WORN_KEYS.has(key) and absi(hash(p) + seed_value) % 100 < 35:
+		key = WORN_KEYS[key]
+	_b.put_local(key, p)
+
+
+## Ranken außen an zwei Wänden, Geröll am Rand.
+func _emit_worn_props(tx: int, tz: int) -> void:
+	var r := absi(hash(Vector2i(tz, tx)))
+	var b0 := _b.base
+	var h := 1.2 + float(r % 3) * 0.5
+	var sx := -0.05 if r % 2 == 0 else 3.05            # Wand West/Ost
+	var sz := -0.05 if (r >> 1) % 2 == 0 else 3.05     # Wand Nord/Süd
+	_b.put_box("leaves", b0 + Vector3(sx, h * 0.5, 0.6 + float((r >> 2) % 3) * 0.8), Vector3(0.1, h, 1.0))
+	_b.put_box("leaves", b0 + Vector3(0.6 + float((r >> 4) % 3) * 0.8, h * 0.4, sz), Vector3(1.0, h * 0.8, 0.1))
+	_b.put_prop("rock", b0 + Vector3(sx + (0.25 if sx < 0.0 else -0.25), 0, 2.4 - float((r >> 6) % 2) * 1.6), float(r % 360) * 0.0174)
 
 
 ## Brandruine: verkohlter Boden, Mauerreste in den Ecken.

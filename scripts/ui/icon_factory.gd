@@ -21,6 +21,7 @@ const VOXELS := {
 	"arrow_up": ["..X..", ".XXX.", "XXXXX", ".XXX.", ".XXX."],
 	"arrow_down": [".XXX.", ".XXX.", "XXXXX", ".XXX.", "..X.."],
 	"info": [".X.", "...", "XX.", ".X.", ".X.", "XXX"],
+	"bell": ["..X..", ".XXX.", ".XXX.", ".XXX.", "XXXXX", ".....", "..X.."],
 	"happy": [".XXXXX.", "XXXXXXX", "XXXXXXX", "XXXXXXX", "XXXXXXX", "XXXXXXX", ".XXXXX."],
 	"happy_eyes": [".......", "..X.X..", "..X.X..", ".......", ".X...X.", "..XXX..", "......."],
 	"pause": ["XX.XX", "XX.XX", "XX.XX", "XX.XX", "XX.XX", "XX.XX"],

@@ -46,7 +46,7 @@ const TOOLS := {
 		"hint": "Kultur  ·  verfügbar ab 1.000 Einwohnern  ·  ab 1.500 erwartet"},
 	Tool.TOWNHALL:  {"name": "Bürgerhaus", "icon": "townhall", "key": KEY_C, "group": 8, "cost": 4000,
 		"hint": "Kultur, große Reichweite  ·  2x2 Tiles  ·  verfügbar ab 2.000 Einwohnern"},
-	Tool.THEATER:   {"name": "Theater", "icon": "theater", "key": KEY_H, "group": 8, "cost": 8000,
+	Tool.THEATER:   {"name": "Theater", "icon": "theater", "key": KEY_Y, "group": 8, "cost": 8000,
 		"hint": "Großkultur  ·  2x2  ·  ab 3.000 Einw.  ·  jeden Monat Vorstellung: Besucher kaufen ringsum ein, Verkehr"},
 	Tool.STADIUM:   {"name": "Stadion", "icon": "stadium", "key": KEY_O, "group": 8, "cost": 15000,
 		"hint": "Großkultur  ·  3x3  ·  ab 5.000 Einw.  ·  Spieltag alle 3 Monate: viele Besucher, Stau ohne Bus/Bahn"},
@@ -157,6 +157,8 @@ func _upgrade_target() -> int:
 
 
 func _unhandled_input(event: InputEvent) -> void:
+	if DevTools.automated and not event.has_meta("synthetic"):
+		return      # echte Maus des Nutzers in Testläufen ignorieren
 	if event is InputEventMouseMotion:
 		var t := pick((event as InputEventMouseMotion).position)
 		if t != hover:

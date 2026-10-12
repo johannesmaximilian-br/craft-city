@@ -512,6 +512,7 @@ static func cheattest(game: Node) -> void:
 	var sim: Simulation = game.sim
 	var before := sim.money
 	var e := InputEventKey.new()
+	e.set_meta("synthetic", true)
 	e.keycode = KEY_G
 	e.pressed = true
 	e.ctrl_pressed = true
@@ -939,6 +940,213 @@ static func cardrift(game: Node, seconds: float) -> void:
 		seconds, traffic._cars.size(), roundi(100.0 * on_top / maxf(traffic._cars.size(), 1)), roundi(100.0 * top_traffic / maxf(all_traffic, 1))])
 
 
+## Verfall: Villa verliert ihre Lage (Parks weg) -> abgenutzt, später Einfamilienhaus; Wohnblock unter 55 % Bodenwert.
+static func decaytest() -> void:
+	var m := CityMap.new()
+	m.height.fill(6)
+	var s := Simulation.new()
+	s.map = m
+	for x in range(2, 30):
+		m.road[m.idx(x, 10)] = 1
+	var villa := m.idx(5, 11)
+	m.zone[villa] = Config.Zone.RES
+	m.level[villa] = 3
+	m.villa[villa] = 1
+	var parks: Array[int] = [m.idx(4, 11), m.idx(6, 11), m.idx(5, 12), m.idx(4, 12), m.idx(6, 12)]
+	for p in parks:
+		m.feature[p] = Config.Feature.PARK
+	m.height[m.idx(5, 13)] = 1
+	var block := m.idx(20, 11)
+	m.zone[block] = Config.Zone.RES
+	m.level[block] = 3
+	for x in range(26, 30):       # Arbeitsplätze, damit Wohnen "erreichbar" ist
+		for z in range(11, 14):
+			m.zone[m.idx(x, z)] = Config.Zone.IND
+			m.level[m.idx(x, z)] = 2
+	m.notify_changed(Rect2i(0, 0, m.size, m.size))
+	s.refresh()
+	s.powered.fill(1)
+	s._grow()
+	print("decaytest Villa mit Parks: Bodenwert %d%%, verfällt '%s', worn %d" % [roundi(s.land_value[villa] * 100),
+		s.decay_reason(villa), m.worn[villa]])
+	print("decaytest Wohnblock Bodenwert %d%%: verfällt '%s', worn %d" % [roundi(s.land_value[block] * 100),
+		s.decay_reason(block), m.worn[block]])
+	for p in parks:
+		m.feature[p] = Config.Feature.NONE
+	m.notify_changed(Rect2i(0, 0, m.size, m.size))
+	s.refresh()
+	s.powered.fill(1)
+	var months := 0
+	while m.level[villa] == 3 and m.villa[villa] == 1 and months < 200:
+		s._grow()
+		months += 1
+	print("decaytest Villa ohne Parks: Bodenwert %d%%, Grund '%s' -> nach %d Monaten Stufe %d, Villa %d" % [
+		roundi(s.land_value[villa] * 100), s.decay_reason(villa) if m.level[villa] == 3 else "abgestiegen", months, m.level[villa], m.villa[villa]])
+	print("decaytest Wohnblock danach: Stufe %d (abgestiegen = Verfall hat gewirkt)" % m.level[block])
+	s.free()
+
+
+## Einige Gebäude der Demo-Stadt als verfallend markieren (Screenshot).
+static func mark_worn(game: Node) -> void:
+	var map: CityMap = game.map
+	var k := 0
+	for i in map.size * map.size:
+		if map.level[i] > 0 and map.zone[i] != Config.Zone.NONE:
+			k += 1
+			if k % 2 == 0:
+				map.worn[i] = 1
+	map.notify_changed(Rect2i(0, 0, map.size, map.size), false)
+
+
+## Dienst-/Kulturbauten: Front zeigt zur Seite mit Straße (Drehung aus WorldRenderer._front_angle).
+static func fronttest(game: Node) -> void:
+	var map: CityMap = game.map
+	var renderer: WorldRenderer = game.renderer
+	var names := {0.0: "Norden", -PI * 0.5: "Osten", PI: "Süden", PI * 0.5: "Westen"}
+	for i in map.size * map.size:
+		if map.anchor[i] != i or not Config.SPECIALS[map.special[i]].has("service"):
+			continue
+		var s: int = Config.SPECIALS[map.special[i]]["size"]
+		var tx := i % map.size
+		var tz := i / map.size
+		var ang := renderer._front_angle(tx, tz, s)
+		var front := 0
+		for k in s:
+			match names[ang]:
+				"Norden": front += 1 if map.is_road(tx + k, tz - 1) else 0
+				"Osten": front += 1 if map.is_road(tx + s, tz + k) else 0
+				"Süden": front += 1 if map.is_road(tx + k, tz + s) else 0
+				"Westen": front += 1 if map.is_road(tx - 1, tz + k) else 0
+		print("fronttest %-12s bei %d,%d: Front nach %-6s, %d Straßen-Tiles vor der Front" % [
+			Config.SPECIALS[map.special[i]]["name"], tx, tz, names[ang], front])
+
+
+## Stromnetze: A versorgt, B ohne Kraftwerk (früher unsichtbar), C mit Engpass (Leitungsende fällt aus).
+static func powertest() -> void:
+	var m := CityMap.new()
+	m.height.fill(6)
+	var s := Simulation.new()
+	s.map = m
+	var msgs: Array[String] = []
+	s.alert.connect(func(t: String, _p: Vector2i) -> void: msgs.append(t))
+	var res := func(x0: int, z0: int, w: int, lv: int) -> void:
+		for x in range(x0, x0 + w):
+			m.zone[m.idx(x, z0)] = Config.Zone.RES
+			m.level[m.idx(x, z0)] = lv
+	var plant := func(x: int, z: int, sp: int) -> void:
+		m.special[m.idx(x, z)] = sp
+		m.anchor[m.idx(x, z)] = m.idx(x, z)
+	# A: Windrad (30 MW) + 10 Häuser Stufe 1 (10 MW)
+	plant.call(2, 2, Config.Special.WIND)
+	res.call(3, 2, 10, 1)
+	# B: 8 Häuser Stufe 2, kein Kraftwerk
+	res.call(3, 10, 8, 2)
+	# C: Windrad + 12 Häuser Stufe 3 (48 MW > 30 MW)
+	plant.call(2, 20, Config.Special.WIND)
+	res.call(3, 20, 12, 3)
+	s._compute_power()
+	for net: Dictionary in s.power_nets:
+		var k: int = net["key"]
+		print("powertest Netz bei %d,%d: Bedarf %d / Leistung %d MW, %d Kraftwerk, %d Gebäude ohne Strom" % [
+			k % m.size, k / m.size, int(net["demand"]), int(net["capacity"]), int(net["plants"]), int(net["unserved"])])
+	var lit := ""
+	for x in range(3, 15):
+		lit += str(s.powered[m.idx(x, 20)])
+	print("powertest Netz C versorgt (Kraftwerk links -> Leitungsende rechts): %s" % lit)
+	print("powertest gesamt: Bedarf %d, Leistung %d, geliefert %d MW" % [s.power_demand, s.power_supply, s.power_served])
+	print("powertest Meldung: %s" % [msgs])
+	print("powertest Info-Karte B: %s" % s.power_net_text(m.idx(5, 10)))
+	msgs.clear()
+	s._compute_power()
+	print("powertest zweite Berechnung ohne neues Problem -> Meldungen: %d" % msgs.size())
+	s.free()
+
+
+## Auslastung der Dienstgebäude (z.B. Feuerwehr in dichter Stadt) + Brände über 12 Monate.
+static func loadreport(game: Node) -> void:
+	var map: CityMap = game.map
+	var sim: Simulation = game.sim
+	sim.refresh()
+	var per_cat := {}
+	for a: int in sim.service_load:
+		var cat: String = Config.SPECIALS[map.special[a]]["service"]
+		if not per_cat.has(cat):
+			per_cat[cat] = []
+		per_cat[cat].append("%d%%(St.%d)" % [roundi(float(sim.service_load[a]) * 100), map.special_level(a)])
+	for cat: String in per_cat:
+		print("loadreport %-10s Auslastung je Gebäude: %s  Ø-Versorgung Einwohner %d%%" % [cat, " ".join(per_cat[cat]),
+			roundi(float(sim.city_coverage.get(cat, 0.0)) * 100)])
+	var dept: FireDept = game.fire_dept
+	var f0 := sim.fires_total
+	var alerts := [0]
+	dept.alert.connect(func(_t: String, _p: Vector2i) -> void: alerts[0] += 1)
+	for m in 12:
+		sim.tick_month()
+		dept.advance(Simulation.SECONDS_PER_MONTH[1])
+	print("loadreport Brände in 12 Monaten: %d Ausbrüche, %d gelöscht, %d abgebrannt, %d Meldungen" % [sim.fires_total - f0,
+		dept.extinguished_total, dept.burned_total, alerts[0]])
+
+
+## Echte Rechenzeit je Frame (CPU-Skript/Physik + GPU-Renderzeit) und erreichte FPS, ohne VSync-Wartezeit.
+static func gpumeasure(game: Node, seconds: float) -> void:
+	var vp_rid: RID = game.get_viewport().get_viewport_rid()
+	RenderingServer.viewport_set_measure_render_time(vp_rid, true)
+	var cpu := 0.0
+	var gpu := 0.0
+	var frames := 0
+	var t0 := Time.get_ticks_msec()
+	while Time.get_ticks_msec() - t0 < seconds * 1000.0:
+		await game.get_tree().process_frame
+		cpu += Performance.get_monitor(Performance.TIME_PROCESS) * 1000.0
+		gpu += RenderingServer.viewport_get_measured_render_time_gpu(vp_rid)
+		frames += 1
+	print("gpumeasure Tempo %d, Grenze %d" % [game.sim.speed, GraphicsSettings.fps_limit])
+	print("gpumeasure %s, max_fps %d: %.0f FPS, CPU (Skripte) Ø %.1f ms, GPU Ø %.1f ms je Frame -> GPU-Last ca. %d%%" % [
+		GraphicsSettings.NAMES[GraphicsSettings.current], Engine.max_fps, frames / seconds, cpu / frames, gpu / frames,
+		roundi(gpu / frames * frames / seconds / 10.0)])
+
+
+## Bildraten-Begrenzung: normal / Fenster im Hintergrund / Pause mit ruhender Kamera.
+static func fpstest(game: Node) -> void:
+	var limiter: FrameLimiter = game.get_node("FrameLimiter")
+	var was := DevTools.automated
+	DevTools.automated = false        # wie im echten Spiel
+	var res := []
+	for step: String in ["normal", "Hintergrund", "Pause"]:
+		match step:
+			"normal":
+				limiter._notification(Node.NOTIFICATION_APPLICATION_FOCUS_IN)
+			"Hintergrund":
+				limiter._notification(Node.NOTIFICATION_APPLICATION_FOCUS_OUT)
+			"Pause":
+				limiter._notification(Node.NOTIFICATION_APPLICATION_FOCUS_IN)
+				game.hud._set_speed(0)
+		if step == "Pause":
+			for k in 90:            # Kamera muss erst 1 s ruhen
+				await game.get_tree().process_frame
+		else:
+			for k in 3:             # Begrenzer läuft im eigenen _process (nach dem Signal)
+				await game.get_tree().process_frame
+		res.append("%s %d" % [step, Engine.max_fps])
+	game.hud._set_speed(1)
+	DevTools.automated = was
+	print("fpstest Bildraten-Grenze (Menü %d): %s" % [GraphicsSettings.fps_limit, ", ".join(res)])
+
+
+## Taste M schaltet alle Töne (Master) stumm und wieder an.
+static func mutetest(game: Node) -> void:
+	var master := AudioServer.get_bus_index("Master")
+	var before := AudioServer.is_bus_mute(master)
+	var e := InputEventKey.new()
+	e.set_meta("synthetic", true)
+	e.keycode = KEY_M
+	e.pressed = true
+	game.hud._unhandled_key_input(e)
+	var after := AudioServer.is_bus_mute(master)
+	game.hud._unhandled_key_input(e)
+	print("mutetest Master stumm: vorher %s -> M -> %s -> M -> %s" % [before, after, AudioServer.is_bus_mute(master)])
+
+
 ## Erstes freies Plätzchen spiralförmig um die Kartenmitte.
 static func _place_near_center(map: CityMap, tools: ToolController, t: ToolController.Tool) -> void:
 	var c := map.size / 2
@@ -980,6 +1188,7 @@ static func _tile_center(map: CityMap, t: Vector2i) -> Vector3:
 
 static func _mouse_move(p: Vector2) -> InputEventMouseMotion:
 	var e := InputEventMouseMotion.new()
+	e.set_meta("synthetic", true)
 	e.position = p
 	e.global_position = p
 	return e
@@ -987,6 +1196,7 @@ static func _mouse_move(p: Vector2) -> InputEventMouseMotion:
 
 static func _mouse_btn(p: Vector2, pressed: bool) -> InputEventMouseButton:
 	var e := InputEventMouseButton.new()
+	e.set_meta("synthetic", true)
 	e.button_index = MOUSE_BUTTON_LEFT
 	e.pressed = pressed
 	e.position = p
