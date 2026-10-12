@@ -4,8 +4,9 @@ importer="texture"
 type="CompressedTexture2D"
 uid="uid://b0mn20mc4jcnb"
 path.s3tc="res://.godot/imported/Lever_Left_Atlas.png-ae5c142e89c9049eb92164a03ceab1b0.s3tc.ctex"
+path.etc2="res://.godot/imported/Lever_Left_Atlas.png-ae5c142e89c9049eb92164a03ceab1b0.etc2.ctex"
 metadata={
-"imported_formats": ["s3tc_bptc"],
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
 "vram_texture": true
 }
 generator_parameters={
@@ -15,7 +16,7 @@ generator_parameters={
 [deps]
 
 source_file="res://assets/env/Lever_Left_Atlas.png"
-dest_files=["res://.godot/imported/Lever_Left_Atlas.png-ae5c142e89c9049eb92164a03ceab1b0.s3tc.ctex"]
+dest_files=["res://.godot/imported/Lever_Left_Atlas.png-ae5c142e89c9049eb92164a03ceab1b0.s3tc.ctex", "res://.godot/imported/Lever_Left_Atlas.png-ae5c142e89c9049eb92164a03ceab1b0.etc2.ctex"]
 
 [params]
 

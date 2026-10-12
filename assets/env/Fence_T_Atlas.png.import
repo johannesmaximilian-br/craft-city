@@ -4,8 +4,9 @@ importer="texture"
 type="CompressedTexture2D"
 uid="uid://o5dshx348u1c"
 path.s3tc="res://.godot/imported/Fence_T_Atlas.png-93cdaf2d6329c8cd0e691b2ac09cf9dc.s3tc.ctex"
+path.etc2="res://.godot/imported/Fence_T_Atlas.png-93cdaf2d6329c8cd0e691b2ac09cf9dc.etc2.ctex"
 metadata={
-"imported_formats": ["s3tc_bptc"],
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
 "vram_texture": true
 }
 generator_parameters={
@@ -15,7 +16,7 @@ generator_parameters={
 [deps]
 
 source_file="res://assets/env/Fence_T_Atlas.png"
-dest_files=["res://.godot/imported/Fence_T_Atlas.png-93cdaf2d6329c8cd0e691b2ac09cf9dc.s3tc.ctex"]
+dest_files=["res://.godot/imported/Fence_T_Atlas.png-93cdaf2d6329c8cd0e691b2ac09cf9dc.s3tc.ctex", "res://.godot/imported/Fence_T_Atlas.png-93cdaf2d6329c8cd0e691b2ac09cf9dc.etc2.ctex"]
 
 [params]
 

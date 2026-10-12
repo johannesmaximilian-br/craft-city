@@ -4,8 +4,9 @@ importer="texture"
 type="CompressedTexture2D"
 uid="uid://cu67nbkengbu6"
 path.s3tc="res://.godot/imported/Button_Atlas.png-56e2ab7a0ec0f022a2e7c24ed0ce6e6e.s3tc.ctex"
+path.etc2="res://.godot/imported/Button_Atlas.png-56e2ab7a0ec0f022a2e7c24ed0ce6e6e.etc2.ctex"
 metadata={
-"imported_formats": ["s3tc_bptc"],
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
 "vram_texture": true
 }
 generator_parameters={
@@ -15,7 +16,7 @@ generator_parameters={
 [deps]
 
 source_file="res://assets/env/Button_Atlas.png"
-dest_files=["res://.godot/imported/Button_Atlas.png-56e2ab7a0ec0f022a2e7c24ed0ce6e6e.s3tc.ctex"]
+dest_files=["res://.godot/imported/Button_Atlas.png-56e2ab7a0ec0f022a2e7c24ed0ce6e6e.s3tc.ctex", "res://.godot/imported/Button_Atlas.png-56e2ab7a0ec0f022a2e7c24ed0ce6e6e.etc2.ctex"]
 
 [params]
 

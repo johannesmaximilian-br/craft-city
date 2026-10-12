@@ -4,8 +4,9 @@ importer="texture"
 type="CompressedTexture2D"
 uid="uid://daydpme2r0k4k"
 path.s3tc="res://.godot/imported/Block_Snow_Atlas.png-c60149ced97aa7daedfa9029a09fcd07.s3tc.ctex"
+path.etc2="res://.godot/imported/Block_Snow_Atlas.png-c60149ced97aa7daedfa9029a09fcd07.etc2.ctex"
 metadata={
-"imported_formats": ["s3tc_bptc"],
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
 "vram_texture": true
 }
 generator_parameters={
@@ -15,7 +16,7 @@ generator_parameters={
 [deps]
 
 source_file="res://assets/blocks/Block_Snow_Atlas.png"
-dest_files=["res://.godot/imported/Block_Snow_Atlas.png-c60149ced97aa7daedfa9029a09fcd07.s3tc.ctex"]
+dest_files=["res://.godot/imported/Block_Snow_Atlas.png-c60149ced97aa7daedfa9029a09fcd07.s3tc.ctex", "res://.godot/imported/Block_Snow_Atlas.png-c60149ced97aa7daedfa9029a09fcd07.etc2.ctex"]
 
 [params]
 

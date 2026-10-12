@@ -724,6 +724,221 @@ static func taxtest(game: Node) -> void:
 	DirAccess.remove_absolute(SaveManager.path("taxtest"))
 
 
+## Große Stadt fürs Profilieren: Straßenraster über die ganze Landfläche, Zonen mit fertigen Gebäuden,
+## Kraftwerke, Dienste. Direkt in die Karte geschrieben (schnell), danach ein paar Monate Simulation.
+static func bigcity(game: Node) -> void:
+	var map: CityMap = game.map
+	var sim: Simulation = game.sim
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 11
+	for z in range(2, map.size - 2):
+		for x in range(2, map.size - 2):
+			var i := map.idx(x, z)
+			if map.is_water(x, z) or map.special[i] != Config.Special.NONE:
+				continue
+			map.feature[i] = Config.Feature.NONE
+			if (x - 2) % 7 == 0 or (z - 2) % 7 == 0:
+				map.road[i] = 1
+				map.zone[i] = Config.Zone.NONE
+				map.level[i] = 0
+				continue
+			if map.road[i] != 0 or map.rail[i] != 0:
+				continue
+			var zn := Config.Zone.RES
+			if x > 44:
+				zn = Config.Zone.IND
+			elif (x - 2) % 7 == 1 and z % 2 == 0:
+				zn = Config.Zone.COM
+			map.zone[i] = zn
+			map.level[i] = rng.randi_range(1, 3)
+	# Terrain glätten, damit Straßen verbunden sind (max. 1 Block Unterschied)
+	for i in map.size * map.size:
+		if map.road[i] != 0:
+			map.height[i] = maxi(map.height[i], Config.WATER_LEVEL)
+	map.notify_changed(Rect2i(0, 0, map.size, map.size))
+	sim.money = 500000
+	sim.population = 50000     # Freischaltungen
+	for t: ToolController.Tool in [ToolController.Tool.COAL, ToolController.Tool.COAL, ToolController.Tool.COAL,
+			ToolController.Tool.POLICE, ToolController.Tool.FIRE, ToolController.Tool.SCHOOL, ToolController.Tool.HOSPITAL]:
+		_place_near_center(map, game.tools, t)
+	game.tools.set_tool(ToolController.Tool.INSPECT)
+	sim.refresh()
+	print("bigcity Einwohner %d, Jobs %d, Straßen %d, Strom %d/%d MW" % [sim.population, sim.jobs_com + sim.jobs_ind,
+		sim.road_count, sim.power_demand, sim.power_supply])
+
+
+## Bau-Klick-Zeit: Straße und Zone setzen, Zeit für _apply messen (inkl. Neuberechnung).
+static func buildtest(game: Node) -> void:
+	var map: CityMap = game.map
+	var tools: ToolController = game.tools
+	var times := []
+	for k in 6:
+		# freies Land-Tile ohne Straße suchen
+		var t := Vector2i(-1, -1)
+		for i in range(map.size * map.size - 1, -1, -1):
+			if map.road[i] == 0 and map.zone[i] == Config.Zone.NONE and map.special[i] == Config.Special.NONE \
+					and not map.is_water(i % map.size, i / map.size) and map.rail[i] == 0 and i % 5 == k:
+				t = Vector2i(i % map.size, i / map.size)
+				break
+		tools.set_tool(ToolController.Tool.ROAD if k % 2 == 0 else ToolController.Tool.RES)
+		var start := Time.get_ticks_usec()
+		tools._apply([t] as Array[Vector2i])
+		times.append(snappedf((Time.get_ticks_usec() - start) / 1000.0, 0.1))
+	tools.set_tool(ToolController.Tool.INSPECT)
+	print("buildtest synchron  Bau-Klick (ms): %s, Einwohner %d" % [times, game.sim.population])
+	# Diagnose: Kopie synchron vs. im Thread
+	var sim: Simulation = game.sim
+	sim.async_commute = true
+	sim._request_commute()
+	WorkerThreadPool.wait_for_task_completion(sim._commute_task)
+	sim._commute_task = -1
+	var t1 := Time.get_ticks_usec()
+	sim._worker._compute_commute()
+	print("buildtest Kopie synchron: %.0f ms" % ((Time.get_ticks_usec() - t1) / 1000.0))
+	var t2 := Time.get_ticks_usec()
+	var tid := WorkerThreadPool.add_task(sim._worker._compute_commute, true)
+	WorkerThreadPool.wait_for_task_completion(tid)
+	print("buildtest Kopie im Thread (Hauptthread wartet): %.0f ms" % ((Time.get_ticks_usec() - t2) / 1000.0))
+	var th := Thread.new()
+	var t3 := Time.get_ticks_usec()
+	th.start(sim._worker._compute_commute)
+	th.wait_to_finish()
+	print("buildtest Kopie in eigenem Thread: %.0f ms" % ((Time.get_ticks_usec() - t3) / 1000.0))
+	sim.async_commute = false
+	# Wie im Spiel: Pendler im Hintergrund-Thread
+	sim.async_commute = true
+	var async_times := []
+	var frame_max := 0.0
+	var wait_frames := 0
+	for k in 3:
+		var t := Vector2i(10 + k * 2, map.size - 4)
+		tools.set_tool(ToolController.Tool.ROAD)
+		var start := Time.get_ticks_usec()
+		tools._apply([t] as Array[Vector2i])
+		async_times.append(snappedf((Time.get_ticks_usec() - start) / 1000.0, 0.1))
+		var t_wait := Time.get_ticks_usec()
+		while sim._commute_task != -1:
+			var f0 := Time.get_ticks_usec()
+			await game.get_tree().process_frame
+			frame_max = maxf(frame_max, (Time.get_ticks_usec() - f0) / 1000.0)
+			wait_frames += 1
+		if k == 0:
+			print("buildtest Hintergrund: Ergebnis nach %.0f ms" % ((Time.get_ticks_usec() - t_wait) / 1000.0))
+	# Aufteilung eines Klicks: Kartenänderungs-Signale vs. Neuberechnung
+	var t5 := Time.get_ticks_usec()
+	map.notify_changed(Rect2i(5, map.size - 4, 1, 1))
+	var t6 := Time.get_ticks_usec()
+	sim.refresh(true)
+	var t7 := Time.get_ticks_usec()
+	print("buildtest Klick-Anteile: Signale (Renderer/Verkehr/Feuerwehr) %.1f ms, Neuberechnung sofort %.1f ms" % [
+		(t6 - t5) / 1000.0, (t7 - t6) / 1000.0])
+	tools.set_tool(ToolController.Tool.INSPECT)
+	sim.async_commute = false
+	print("buildtest Hintergrund Bau-Klick (ms): %s, längster Frame beim Warten %.1f ms (%d Frames)" % [
+		async_times, frame_max, wait_frames])
+	Perf.enabled = true
+	Perf.total = {}
+	var t0 := Perf.begin()
+	game.sim.refresh()
+	Perf.end("refresh", t0)
+	Perf.enabled = false
+	var parts := []
+	for key in Perf.total:
+		parts.append("%s %.1f" % [key, Perf.total[key][0] / 1000.0])
+	print("buildtest refresh-Teile (ms): %s" % ", ".join(parts))
+
+
+## Sichtbarer Verkehr folgt der Simulation: Autos = Auto-Pendler, kaum Autos auf Straßen ohne Pendler.
+static func cartest(game: Node) -> void:
+	var sim: Simulation = game.sim
+	var map: CityMap = game.map
+	var traffic: Traffic = game.get_node("Traffic")
+	for f: int in [1, 0]:
+		sim.fare = f
+		sim.refresh()
+		traffic._rebuild_weights()
+		var empty := 0.0
+		var total := 0.0
+		var empty_old := 0.0
+		var total_old := 0.0
+		for k in traffic._road_tiles.size():
+			var tr := traffic._traffic_at(traffic._road_tiles[k])
+			total += 0.02 + tr
+			total_old += 1.0 + tr
+			if tr < 1.0:
+				empty += 0.02 + tr
+				empty_old += 1.0 + tr
+		var buses := 0
+		for g in traffic._stop_groups.size():
+			buses += traffic.target_buses(g)
+		print("cartest ÖPNV %-10s Einw. %d, Auto-Pendler %d (ÖPNV %d%%) -> Autos %d (früher nach Einwohnern: %d), Busse %d, Anteil Autos auf Straßen ohne Pendler %d%% (früher %d%%)" % [
+			Config.FARE_NAMES[f], sim.population, int(sim.car_trips), roundi(sim.transit_share * 100), traffic.target_count(),
+			sim.population / 20, buses, roundi(empty / maxf(total, 0.001) * 100), roundi(empty_old / maxf(total_old, 0.001) * 100)])
+	sim.fare = 1
+	sim.refresh()
+	var served := 0
+	for i in map.size * map.size:
+		served += sim.bus_served[i]
+	print("cartest Diagnose: Straßen im Busnetz %d von %d, Busfahrer %d, Bahnfahrer %d, ÖPNV-Wege %d, zugeordnet %d, Haltestellen %d, Bahnhöfe %d, Bahnhof-Links %d" % [
+		served, sim.road_count, int(sim.bus_riders), int(sim.rail_riders), int(sim._transit_trips),
+		int(sim.car_trips + sim._transit_trips), sim.bus_stop_count, sim.station_count, sim._road_station_links.size()])
+	for st: int in sim.station_use:
+		print("cartest Bahnhof %d,%d: %d Ein-/Aussteiger (%d%% der Kapazität)" % [st % map.size, st / map.size,
+			int(sim.station_use[st]), roundi(float(sim.station_use[st]) / Config.STATION_CAPACITY * 100)])
+
+
+## Straßen mit der höchsten Auslastung (Ort, Höhe, Pendler, Busnetz) – Stau-Analyse eines Spielstands.
+static func jamreport(game: Node) -> void:
+	var map: CityMap = game.map
+	var sim: Simulation = game.sim
+	sim.refresh()
+	var roads := []
+	for i in map.size * map.size:
+		if map.road[i] != 0:
+			roads.append(i)
+	var hi := Rect2i()
+	var first := true
+	for i: int in roads:
+		if map.height[i] >= 8:
+			var r := Rect2i(i % map.size, i / map.size, 1, 1)
+			hi = r if first else hi.merge(r)
+			first = false
+	print("jamreport Bergstraßen (Höhe >= 8): Bereich %s" % hi)
+	roads.sort_custom(func(a: int, b: int) -> bool: return sim.congestion[a] > sim.congestion[b])
+	for k in mini(20, roads.size()):
+		var i: int = roads[k]
+		print("jamreport %2d,%2d  Höhe %2d  Auslastung %3d%%  Pendler %4d  Busnetz %d  Weg zur Kreuzung %d" % [
+			i % map.size, i / map.size, map.height[i], roundi(sim.congestion[i] * 100), int(sim.traffic[i]),
+			sim.bus_served[i], sim.junction_dist[i]])
+
+
+## Nach Spielzeit: Stimmt die Verteilung der sichtbaren Autos mit dem simulierten Verkehr überein?
+## Vergleich: Anteil Autos auf den 10 % meistbefahrenen Straßen vs. deren Anteil am Verkehr.
+static func cardrift(game: Node, seconds: float) -> void:
+	var sim: Simulation = game.sim
+	var traffic: Traffic = game.get_node("Traffic")
+	game.hud._set_speed(3)
+	var t0 := Time.get_ticks_msec()
+	while Time.get_ticks_msec() - t0 < seconds * 1000.0:
+		await game.get_tree().process_frame
+	var roads: Array = traffic._road_tiles.duplicate()
+	roads.sort_custom(func(a: Vector2i, b: Vector2i) -> bool: return traffic._traffic_at(a) > traffic._traffic_at(b))
+	var top := {}
+	var top_traffic := 0.0
+	var all_traffic := 0.0
+	for k in roads.size():
+		all_traffic += traffic._traffic_at(roads[k])
+		if k < roads.size() / 10:
+			top[roads[k]] = true
+			top_traffic += traffic._traffic_at(roads[k])
+	var on_top := 0
+	for c in traffic._cars:
+		if top.has(c.from):
+			on_top += 1
+	print("cardrift nach %ds: Autos %d, auf den Top-10%%-Straßen %d%% der Autos (Verkehrsanteil dort %d%%)" % [
+		seconds, traffic._cars.size(), roundi(100.0 * on_top / maxf(traffic._cars.size(), 1)), roundi(100.0 * top_traffic / maxf(all_traffic, 1))])
+
+
 ## Erstes freies Plätzchen spiralförmig um die Kartenmitte.
 static func _place_near_center(map: CityMap, tools: ToolController, t: ToolController.Tool) -> void:
 	var c := map.size / 2

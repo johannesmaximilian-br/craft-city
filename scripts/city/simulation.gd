@@ -81,6 +81,7 @@ var station_use := {}               # Bahnhof-Tile -> Ein-/Aussteiger
 var bus_riders := 0.0
 var rail_riders := 0.0
 var transit_share := 0.0            # Anteil Pendler mit Bus/Bahn
+var car_trips := 0.0                # Pendler, die Auto fahren (für die sichtbaren Autos)
 var _transit_trips := 0.0           # Pendler mit Bus und/oder Bahn (je Pendler einmal)
 var _station_links := {}            # Gleis-Tile -> [[Straßen-Tile, Kosten], ...]
 var _road_station_links := {}       # Straßen-Tile -> [[Gleis-Knoten n+i, Kosten], ...]
@@ -106,6 +107,18 @@ var land_mix: PackedFloat32Array    # Bodenwert-Anteil aus Nachbarschaft: + Nahv
 var green_filter: PackedFloat32Array  # Anteil der Verschmutzung, den Grün im Umkreis wegfiltert (0..GREEN_FILTER_MAX)
 var _acc := 0.0
 var _ticking := false               # Monat läuft gerade (über mehrere Frames)
+
+# Pendler im Hintergrund: zweite Simulation rechnet auf einer Kartenkopie, Ergebnis wird übernommen
+var async_commute := false          # im laufenden Spiel true (main.gd); Tests rechnen synchron
+var _worker: Simulation = null
+var _commute_task := -1
+var _commute_again := false         # während der Berechnung geändert -> danach nochmal
+var _commute_discard := false       # Karte ersetzt (Laden/Neu) -> laufendes Ergebnis verwerfen
+const COMMUTE_IN := ["congestion", "road_dist", "road_src", "fare", "month", "year", "station_use"]
+const COMMUTE_OUT := ["traffic", "congestion", "commute_cost", "road_comp", "comp_has_res", "comp_has_job",
+	"bus_served", "_station_links", "_road_station_links", "rail_traffic", "station_use", "bus_riders",
+	"rail_riders", "_transit_trips", "avg_commute", "transit_share", "unreachable_workers", "avg_congestion",
+	"venue_event", "venue_jam", "car_trips"]
 var _rng := RandomNumberGenerator.new()
 var _was_brownout := false
 
@@ -119,6 +132,7 @@ func setup(city_map: CityMap) -> void:
 
 
 func _process(delta: float) -> void:
+	_poll_commute()
 	if speed == 0:
 		return
 	if _ticking:
@@ -149,6 +163,8 @@ func from_dict(d: Dictionary) -> void:
 	last_income = 0.0
 	last_expense = 0.0
 	_acc = 0.0
+	if _commute_task != -1:
+		_commute_discard = true     # Ergebnis gehört zur alten Karte
 	_happy_hist.clear()
 	refresh()
 
@@ -171,15 +187,22 @@ func spend(cost: float) -> void:
 
 
 ## Abgeleitete Daten sofort neu berechnen (z.B. nach Bauaktionen).
-func refresh() -> void:
+## staged = true (Bau-Klick im Spiel): Netz/Strom sofort, Umwelt und Dienste in den nächsten Frames.
+func refresh(staged := false) -> void:
 	var t := Perf.begin()
 	_compute_road_distance()
 	_compute_junctions()
 	_compute_power()
 	Perf.end("sim.strassen+strom", t)
 	t = Perf.begin()
-	_compute_commute()
+	_request_commute()
 	Perf.end("sim.pendler", t)
+	if staged and is_inside_tree():
+		_recount()
+		_update_demand()
+		stats_changed.emit()
+		_refresh_rest()
+		return
 	t = Perf.begin()
 	_compute_environment()
 	_recount()
@@ -189,6 +212,30 @@ func refresh() -> void:
 	t = Perf.begin()
 	stats_changed.emit()
 	Perf.end("sim.signal_stats", t)
+
+
+var _refresh_token := 0
+
+
+## Rest einer gestaffelten Neuberechnung; nur der jeweils letzte Aufruf läuft zu Ende.
+func _refresh_rest() -> void:
+	_refresh_token += 1
+	var token := _refresh_token
+	await get_tree().process_frame
+	if token != _refresh_token:
+		return
+	var t := Perf.begin()
+	_compute_environment()
+	_recount()
+	Perf.end("sim.umwelt", t)
+	await get_tree().process_frame
+	if token != _refresh_token:
+		return
+	t = Perf.begin()
+	_compute_services()
+	_update_demand()
+	stats_changed.emit()
+	Perf.end("sim.dienste", t)
 
 
 ## Ein Monat in einem Rutsch (Tests, Demo-Aufbau).
@@ -220,7 +267,7 @@ func _tick_stage(stage: String) -> void:
 			_compute_junctions()
 			_compute_power()
 		"pendler":
-			_compute_commute()
+			_request_commute()
 		"umwelt":
 			_compute_environment()
 			_recount()
@@ -270,6 +317,54 @@ func _compute_road_distance() -> void:
 				road_dist[map.idx(q.x, q.y)] = d + 1
 				road_src[map.idx(q.x, q.y)] = road_src[map.idx(p.x, p.y)]
 				queue.append(q)
+
+
+## Pendler berechnen: synchron (Tests) oder im Hintergrund-Thread (Spiel). Die Berechnung ist bei großen
+## Städten der mit Abstand teuerste Teil (Sekunden) und würde sonst bei jedem Bau-Klick/Monat einfrieren.
+func _request_commute() -> void:
+	if not async_commute:
+		_compute_commute()
+		return
+	if _commute_task != -1:
+		_commute_again = true
+		return
+	if _worker == null:
+		_worker = Simulation.new()
+		_worker.map = CityMap.new(map.size)
+	for f: String in CityMap.SAVE_FIELDS:
+		_worker.map.set(f, (map.get(f) as Variant).duplicate())
+	_worker.map._wide_dirty = true
+	for f: String in COMMUTE_IN:
+		var v: Variant = get(f)
+		_worker.set(f, v.duplicate() if v is PackedFloat32Array or v is PackedInt32Array else v)
+	_commute_task = WorkerThreadPool.add_task(_worker._compute_commute, true, "Pendler")
+
+
+## Fertiges Hintergrund-Ergebnis übernehmen (Hauptthread).
+func _poll_commute() -> void:
+	if _commute_task == -1 or not WorkerThreadPool.is_task_completed(_commute_task):
+		return
+	WorkerThreadPool.wait_for_task_completion(_commute_task)
+	_commute_task = -1
+	if _commute_discard:
+		_commute_discard = false
+	else:
+		for f: String in COMMUTE_OUT:
+			var v: Variant = _worker.get(f)
+			set(f, v.duplicate() if v is Dictionary or v is PackedFloat32Array or v is PackedInt32Array
+				or v is PackedByteArray else v)
+		traffic_changed.emit()
+		stats_changed.emit()
+	if _commute_again:
+		_commute_again = false
+		_request_commute()
+
+
+func _exit_tree() -> void:
+	if _commute_task != -1:
+		WorkerThreadPool.wait_for_task_completion(_commute_task)
+	if _worker != null:
+		_worker.free()
 
 
 ## Weg entlang der Straße zur nächsten Kreuzung, Ecke oder zum Straßenende (BFS über Straßen).
@@ -391,6 +486,7 @@ func _compute_commute() -> void:
 	_via_rail.resize(2 * n)
 	rail_traffic.resize(n)
 	rail_traffic.fill(0.0)
+	var prev_station := station_use     # Vormonat: Überfüllung wirkt schon in der ersten Etappe
 	station_use = {}
 	bus_riders = 0.0
 	_transit_trips = 0.0
@@ -400,49 +496,166 @@ func _compute_commute() -> void:
 	var src_assigned := {}
 	var run := 0
 	var unreachable := 0.0
+	# Nachbarn einmal vorberechnen (4 Plätze je Knoten, -1 = leer): keine Allokation in der Suche
+	var adj := PackedInt32Array()
+	adj.resize(8 * n)
+	adj.fill(-1)
+	for i in n:
+		var x := i % map.size
+		var z := i / map.size
+		var k := 0
+		var kr := 0
+		for d: Vector2i in DIRS:
+			if map.roads_connected(x, z, x + d.x, z + d.y):
+				adj[i * 4 + k] = map.idx(x + d.x, z + d.y)
+				k += 1
+			if map.rails_connected(x, z, x + d.x, z + d.y):
+				adj[(n + i) * 4 + kr] = n + map.idx(x + d.x, z + d.y)
+				kr += 1
+	var jobs_total := 0.0
+	for i in n:
+		jobs_total += jobs_left[i]
+	# Dijkstra mit Heap direkt in Packed-Arrays (lazy deletion), lokale Referenzen für Tempo
+	var dist := _dist
+	var visit := _visit
+	var hops := _hops
+	# _parent/_via_rail als Member: _record_trip liest sie (lokaler Alias würde beim Schreiben kopieren)
+	var hp := PackedFloat32Array()
+	var hv := PackedInt32Array()
+	hp.resize(16 * n)
+	hv.resize(16 * n)
+	var cv := PackedInt32Array([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
+	var cd := PackedFloat32Array([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
+	var ch := PackedInt32Array([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
 	for round_i in ASSIGN_ROUNDS:
 		sources.shuffle()
-		var last_round := round_i == ASSIGN_ROUNDS - 1
 		for s: int in sources:
-			run += 1
 			var w: float = workers[s] / ASSIGN_ROUNDS
-			var heap := MinHeap.new()
-			_dist[s] = 0.0
-			_visit[s] = run
+			if jobs_total <= 0.001:
+				unreachable += w        # nirgends mehr freie Jobs -> Suche sparen
+				continue
+			run += 1
+			dist[s] = 0.0
+			visit[s] = run
 			_parent[s] = -1
-			_hops[s] = 0
+			hops[s] = 0
 			_via_rail[s] = 0
-			heap.push(0.0, s)
-			while not heap.is_empty() and w > 0.001:
-				var d := heap.top_priority()
-				var u := heap.pop()
-				if d > _dist[u]:
+			var hn := 1
+			hp[0] = 0.0
+			hv[0] = s
+			while hn > 0 and w > 0.001:
+				var d := hp[0]
+				var u := hv[0]
+				# pop
+				hn -= 1
+				hp[0] = hp[hn]
+				hv[0] = hv[hn]
+				var pi := 0
+				while true:
+					var l := pi * 2 + 1
+					if l >= hn:
+						break
+					var m := l
+					if l + 1 < hn and hp[l + 1] < hp[l]:
+						m = l + 1
+					if hp[m] >= hp[pi]:
+						break
+					var tp := hp[pi]
+					hp[pi] = hp[m]
+					hp[m] = tp
+					var tv := hv[pi]
+					hv[pi] = hv[m]
+					hv[m] = tv
+					pi = m
+				if d > dist[u]:
 					continue
 				if u < n and jobs_left[u] > 0.0:
 					var take := minf(w, jobs_left[u])
 					jobs_left[u] -= take
+					jobs_total -= take
 					w -= take
 					src_assigned[s] = src_assigned.get(s, 0.0) + take
 					src_cost[s] = src_cost.get(s, 0.0) + take * d
 					_record_trip(u, s, take)
-				if _hops[u] >= MAX_HOPS:
+				if hops[u] >= MAX_HOPS:
 					continue
+				# Kandidaten sammeln: [Knoten, Kosten, Hop-Zuwachs]
+				var cn := 0
 				if u < n:
-					for v in _road_neighbors(u):
+					for k in 4:
+						var v := adj[u * 4 + k]
+						if v < 0:
+							break
 						# Auslastung: aktueller Verkehr + etwas Erinnerung an den Vormonat
 						var ratio := minf(traffic[v] / cap[v] + prev[v] * 0.3, 4.0)
-						_relax(heap, u, v, d + inv_speed[v] * (1.0 + CONGESTION_COST * ratio * ratio), 1, run)
+						cv[cn] = v
+						cd[cn] = d + inv_speed[v] * (1.0 + CONGESTION_COST * ratio * ratio)
+						ch[cn] = 1
+						cn += 1
 					if _road_station_links.has(u):
-						for l: Array in _road_station_links[u]:
-							_relax(heap, u, l[0], d + l[1], 0, run)
+						for lk: Array in _road_station_links[u]:
+							var cc := _crowd_cost(int(lk[0]) - n, prev_station)
+							if cc == INF:
+								continue
+							if cn >= cv.size():
+								cv.resize(cn * 2)
+								cd.resize(cn * 2)
+								ch.resize(cn * 2)
+							cv[cn] = lk[0]
+							cd[cn] = d + float(lk[1]) + cc
+							ch[cn] = 0
+							cn += 1
 				else:
+					for k in 4:
+						var v := adj[u * 4 + k]
+						if v < 0:
+							break
+						var r := rail_traffic[v - n] / Config.RAIL_CAPACITY
+						cv[cn] = v
+						cd[cn] = d + Config.RAIL_COST * (1.0 + r * r)
+						ch[cn] = 0
+						cn += 1
 					var t := u - n
-					for v in _rail_neighbors(t):
-						var r := rail_traffic[v] / Config.RAIL_CAPACITY
-						_relax(heap, u, n + v, d + Config.RAIL_COST * (1.0 + r * r), 0, run)
 					if _station_links.has(t):
-						for l: Array in _station_links[t]:
-							_relax(heap, u, l[0], d + l[1], 0, run)
+						var crowd := _crowd_cost(t, prev_station)
+						for lk: Array in (_station_links[t] if crowd != INF else []):
+							if cn >= cv.size():
+								cv.resize(cn * 2)
+								cd.resize(cn * 2)
+								ch.resize(cn * 2)
+							cv[cn] = lk[0]
+							cd[cn] = d + float(lk[1]) + crowd
+							ch[cn] = 0
+							cn += 1
+				# relax + push
+				for c in cn:
+					var v := cv[c]
+					var nd := cd[c]
+					if visit[v] == run and nd >= dist[v]:
+						continue
+					visit[v] = run
+					dist[v] = nd
+					_parent[v] = u
+					hops[v] = hops[u] + ch[c]
+					_via_rail[v] = 1 if _via_rail[u] == 1 or v >= n else 0
+					if hn >= hp.size():
+						hp.resize(hp.size() * 2)
+						hv.resize(hv.size() * 2)
+					var ci := hn
+					hp[ci] = nd
+					hv[ci] = v
+					hn += 1
+					while ci > 0:
+						var up := (ci - 1) / 2
+						if hp[up] <= hp[ci]:
+							break
+						var tp := hp[up]
+						hp[up] = hp[ci]
+						hp[ci] = tp
+						var tv := hv[up]
+						hv[up] = hv[ci]
+						hv[ci] = tv
+						ci = up
 			unreachable += w
 	var total_cost := 0.0
 	var total_assigned := 0.0
@@ -453,6 +666,7 @@ func _compute_commute() -> void:
 	unreachable_workers = int(unreachable)
 	avg_commute = total_cost / total_assigned if total_assigned > 0.0 else 0.0
 	transit_share = _transit_trips / total_assigned if total_assigned > 0.0 else 0.0
+	car_trips = maxf(total_assigned - _transit_trips, 0.0)
 
 	_add_venue_traffic()
 	# Auslastung; Anzeige = Stau, den Pendler im Schnitt erleben (verkehrsgewichtet)
@@ -532,17 +746,6 @@ func _add_venue_traffic() -> void:
 			traffic[r] += per_road
 
 
-func _relax(heap: MinHeap, u: int, v: int, nd: float, hop_inc: int, run: int) -> void:
-	if _visit[v] == run and nd >= _dist[v]:
-		return
-	_visit[v] = run
-	_dist[v] = nd
-	_parent[v] = u
-	_hops[v] = _hops[u] + hop_inc
-	_via_rail[v] = 1 if _via_rail[u] == 1 or v >= map.size * map.size else 0
-	heap.push(nd, v)
-
-
 ## Pfad vom Ziel u zurück zur Quelle s verbuchen: Bahnfahrt -> Gleis-Last + Bahnhofs-Nutzung,
 ## sonst Straßenlast (mit Busanteil, wenn Start und Ziel an Haltestellen liegen).
 func _record_trip(u: int, s: int, take: float) -> void:
@@ -577,6 +780,16 @@ func _record_trip(u: int, s: int, take: float) -> void:
 	while v != -1:
 		traffic[v] += car
 		v = _parent[v]
+
+
+## Überfüllter Bahnhof: Wegkosten-Aufschlag aus Ein-/Aussteigern (laufender Monat + Rest vom Vormonat).
+func _crowd_cost(station: int, prev: Dictionary) -> float:
+	var now := float(station_use.get(station, 0.0))
+	if now >= Config.STATION_CAPACITY * Config.STATION_HARD_LIMIT:
+		return INF       # dicht
+	var load := (now + float(prev.get(station, 0.0)) * 0.3) / Config.STATION_CAPACITY
+	load = minf(load, 4.0)
+	return Config.STATION_CROWD_COST * load * load
 
 
 ## Bahn als zweites Netz: Knoten n+i = Gleis-Tile i. Bahnhöfe verbinden Gleis und Straßen
@@ -952,56 +1165,6 @@ func _road_neighbors(i: int) -> Array[int]:
 	return out
 
 
-## Min-Heap für Dijkstra (Priorität float, Wert int).
-class MinHeap:
-	var _p := PackedFloat32Array()
-	var _v := PackedInt32Array()
-
-	func is_empty() -> bool:
-		return _v.is_empty()
-
-	func top_priority() -> float:
-		return _p[0]
-
-	func push(p: float, v: int) -> void:
-		_p.append(p)
-		_v.append(v)
-		var i := _v.size() - 1
-		while i > 0:
-			var up := (i - 1) / 2
-			if _p[up] <= _p[i]:
-				break
-			_swap(i, up)
-			i = up
-
-	func pop() -> int:
-		var out := _v[0]
-		var last := _v.size() - 1
-		_swap(0, last)
-		_p.resize(last)
-		_v.resize(last)
-		var i := 0
-		while true:
-			var l := i * 2 + 1
-			var r := l + 1
-			var m := i
-			if l < last and _p[l] < _p[m]: m = l
-			if r < last and _p[r] < _p[m]: m = r
-			if m == i:
-				break
-			_swap(i, m)
-			i = m
-		return out
-
-	func _swap(a: int, b: int) -> void:
-		var tp := _p[a]
-		_p[a] = _p[b]
-		_p[b] = tp
-		var tv := _v[a]
-		_v[a] = _v[b]
-		_v[b] = tv
-
-
 func tile_power_use(i: int) -> int:
 	var zn := map.zone[i]
 	if zn == Config.Zone.NONE:
@@ -1287,6 +1450,12 @@ func _corner_level(i: int) -> int:
 func villa_site(i: int) -> bool:
 	return land_value.size() > i and land_value[i] >= Config.VILLA_LAND \
 		and res_cluster.size() > i and res_cluster[i] <= Config.VILLA_MAX_NEIGHBORS
+
+
+## Bus- oder Bahnanschluss (Haltestelle in 3 Tiles bzw. Bahnhof zu Fuß/per Zubringer) am Straßenanschluss.
+func has_transit(i: int) -> bool:
+	var src := _src(i)
+	return src >= 0 and bus_served.size() > src and (bus_served[src] == 1 or _road_station_links.has(src))
 
 
 ## Belebte Lage für Läden: Hauptstraße, Bushaltestelle oder Bahnhof in der Nähe.

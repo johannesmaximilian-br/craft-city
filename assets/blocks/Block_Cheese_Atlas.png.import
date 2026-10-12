@@ -4,8 +4,9 @@ importer="texture"
 type="CompressedTexture2D"
 uid="uid://dm1ymmsmxrfmc"
 path.s3tc="res://.godot/imported/Block_Cheese_Atlas.png-aded937cb27b1faf6ed9c826be7a4544.s3tc.ctex"
+path.etc2="res://.godot/imported/Block_Cheese_Atlas.png-aded937cb27b1faf6ed9c826be7a4544.etc2.ctex"
 metadata={
-"imported_formats": ["s3tc_bptc"],
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
 "vram_texture": true
 }
 generator_parameters={
@@ -15,7 +16,7 @@ generator_parameters={
 [deps]
 
 source_file="res://assets/blocks/Block_Cheese_Atlas.png"
-dest_files=["res://.godot/imported/Block_Cheese_Atlas.png-aded937cb27b1faf6ed9c826be7a4544.s3tc.ctex"]
+dest_files=["res://.godot/imported/Block_Cheese_Atlas.png-aded937cb27b1faf6ed9c826be7a4544.s3tc.ctex", "res://.godot/imported/Block_Cheese_Atlas.png-aded937cb27b1faf6ed9c826be7a4544.etc2.ctex"]
 
 [params]
 

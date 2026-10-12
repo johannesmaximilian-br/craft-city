@@ -4,8 +4,9 @@ importer="texture"
 type="CompressedTexture2D"
 uid="uid://0oco5upyd3sc"
 path.s3tc="res://.godot/imported/Crystal_Big_Atlas.png-d4323db0c27c9444de2582e5795ef998.s3tc.ctex"
+path.etc2="res://.godot/imported/Crystal_Big_Atlas.png-d4323db0c27c9444de2582e5795ef998.etc2.ctex"
 metadata={
-"imported_formats": ["s3tc_bptc"],
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
 "vram_texture": true
 }
 generator_parameters={
@@ -15,7 +16,7 @@ generator_parameters={
 [deps]
 
 source_file="res://assets/env/Crystal_Big_Atlas.png"
-dest_files=["res://.godot/imported/Crystal_Big_Atlas.png-d4323db0c27c9444de2582e5795ef998.s3tc.ctex"]
+dest_files=["res://.godot/imported/Crystal_Big_Atlas.png-d4323db0c27c9444de2582e5795ef998.s3tc.ctex", "res://.godot/imported/Crystal_Big_Atlas.png-d4323db0c27c9444de2582e5795ef998.etc2.ctex"]
 
 [params]
 

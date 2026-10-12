@@ -4,8 +4,9 @@ importer="texture"
 type="CompressedTexture2D"
 uid="uid://ded0ke5x1erk4"
 path.s3tc="res://.godot/imported/Raccoon_Atlas.png-a47231c8fa6a2d5a112f734eba7413c4.s3tc.ctex"
+path.etc2="res://.godot/imported/Raccoon_Atlas.png-a47231c8fa6a2d5a112f734eba7413c4.etc2.ctex"
 metadata={
-"imported_formats": ["s3tc_bptc"],
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
 "vram_texture": true
 }
 generator_parameters={
@@ -15,7 +16,7 @@ generator_parameters={
 [deps]
 
 source_file="res://assets/animals/Raccoon_Atlas.png"
-dest_files=["res://.godot/imported/Raccoon_Atlas.png-a47231c8fa6a2d5a112f734eba7413c4.s3tc.ctex"]
+dest_files=["res://.godot/imported/Raccoon_Atlas.png-a47231c8fa6a2d5a112f734eba7413c4.s3tc.ctex", "res://.godot/imported/Raccoon_Atlas.png-a47231c8fa6a2d5a112f734eba7413c4.etc2.ctex"]
 
 [params]
 

@@ -4,8 +4,9 @@ importer="texture"
 type="CompressedTexture2D"
 uid="uid://dmed0kias3kx2"
 path.s3tc="res://.godot/imported/Axe_Gold_Atlas.png-80281fa7042fdaca29726c4d543d5a44.s3tc.ctex"
+path.etc2="res://.godot/imported/Axe_Gold_Atlas.png-80281fa7042fdaca29726c4d543d5a44.etc2.ctex"
 metadata={
-"imported_formats": ["s3tc_bptc"],
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
 "vram_texture": true
 }
 generator_parameters={
@@ -15,7 +16,7 @@ generator_parameters={
 [deps]
 
 source_file="res://assets/tools/Axe_Gold_Atlas.png"
-dest_files=["res://.godot/imported/Axe_Gold_Atlas.png-80281fa7042fdaca29726c4d543d5a44.s3tc.ctex"]
+dest_files=["res://.godot/imported/Axe_Gold_Atlas.png-80281fa7042fdaca29726c4d543d5a44.s3tc.ctex", "res://.godot/imported/Axe_Gold_Atlas.png-80281fa7042fdaca29726c4d543d5a44.etc2.ctex"]
 
 [params]
 

@@ -4,8 +4,9 @@ importer="texture"
 type="CompressedTexture2D"
 uid="uid://y2tnt1h53fpx"
 path.s3tc="res://.godot/imported/Block_GreyBricks_Atlas.png-1de9bd8732eb9e13d06febd614377121.s3tc.ctex"
+path.etc2="res://.godot/imported/Block_GreyBricks_Atlas.png-1de9bd8732eb9e13d06febd614377121.etc2.ctex"
 metadata={
-"imported_formats": ["s3tc_bptc"],
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
 "vram_texture": true
 }
 generator_parameters={
@@ -15,7 +16,7 @@ generator_parameters={
 [deps]
 
 source_file="res://assets/blocks/Block_GreyBricks_Atlas.png"
-dest_files=["res://.godot/imported/Block_GreyBricks_Atlas.png-1de9bd8732eb9e13d06febd614377121.s3tc.ctex"]
+dest_files=["res://.godot/imported/Block_GreyBricks_Atlas.png-1de9bd8732eb9e13d06febd614377121.s3tc.ctex", "res://.godot/imported/Block_GreyBricks_Atlas.png-1de9bd8732eb9e13d06febd614377121.etc2.ctex"]
 
 [params]
 

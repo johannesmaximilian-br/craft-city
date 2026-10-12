@@ -4,8 +4,9 @@ importer="texture"
 type="CompressedTexture2D"
 uid="uid://dhwme22gsvskx"
 path.s3tc="res://.godot/imported/Grass_Small_Atlas.png-b9776e980d40342e5a385508df6e56e7.s3tc.ctex"
+path.etc2="res://.godot/imported/Grass_Small_Atlas.png-b9776e980d40342e5a385508df6e56e7.etc2.ctex"
 metadata={
-"imported_formats": ["s3tc_bptc"],
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
 "vram_texture": true
 }
 generator_parameters={
@@ -15,7 +16,7 @@ generator_parameters={
 [deps]
 
 source_file="res://assets/env/Grass_Small_Atlas.png"
-dest_files=["res://.godot/imported/Grass_Small_Atlas.png-b9776e980d40342e5a385508df6e56e7.s3tc.ctex"]
+dest_files=["res://.godot/imported/Grass_Small_Atlas.png-b9776e980d40342e5a385508df6e56e7.s3tc.ctex", "res://.godot/imported/Grass_Small_Atlas.png-b9776e980d40342e5a385508df6e56e7.etc2.ctex"]
 
 [params]
 

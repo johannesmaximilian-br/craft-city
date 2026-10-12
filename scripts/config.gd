@@ -23,6 +23,9 @@ const UPKEEP_STATION := 15.0
 const BUS_RANGE := 3                    # Einzugsbereich Haltestelle (Tiles)
 const BUS_TRAFFIC := 0.1                # Straßenlast je Busfahrer (1 Bus ersetzt ~10 Autos)
 const STATION_WALK := 4                 # Fußweg zum Bahnhof (Tiles)
+const STATION_CAPACITY := 1500.0        # Ein-/Aussteiger je Bahnhof und Monat
+const STATION_CROWD_COST := 3.0         # Wegkosten-Aufschlag am Bahnhof: k * Auslastung^2 (Auslastung max 4)
+const STATION_HARD_LIMIT := 1.5         # ab 150 % Ein-/Aussteiger im Monat ist der Bahnhof dicht (Pendler weichen aus)
 const STATION_TRANSFER := 4.0           # Umsteige-/Wartezeit in Wegkosten
 const WALK_COST := 1.3                  # Wegkosten je Tile zu Fuß
 const RAIL_COST := 0.3                  # Wegkosten je Gleis-Tile (schnell)
@@ -186,7 +189,7 @@ const IND_CAPACITY := [0, 12, 30, 60]   # Jobs
 const ROAD_ACCESS_RANGE := 3            # max. Abstand Zone -> Straße (Tiles)
 
 # Verkehr (rein visuell): 1 sichtbares Auto pro N Einwohner, gedeckelt
-const CARS_PER_POP := 20
+const CAR_TRIPS_PER_CAR := 11.0         # sichtbares Auto je so vielen Auto-Pendlern (Bus/Bahn-Fahrer fahren nicht Auto)
 const MAX_CARS_PER_ROAD_TILE := 0.6
 const MAX_CARS := 600
 

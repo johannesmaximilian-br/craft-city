@@ -4,8 +4,9 @@ importer="texture"
 type="CompressedTexture2D"
 uid="uid://cxifvyjlhnbgi"
 path.s3tc="res://.godot/imported/Pickaxe_Gold_Atlas.png-1c6943de4dbb0e3a69cd5472bf831ef1.s3tc.ctex"
+path.etc2="res://.godot/imported/Pickaxe_Gold_Atlas.png-1c6943de4dbb0e3a69cd5472bf831ef1.etc2.ctex"
 metadata={
-"imported_formats": ["s3tc_bptc"],
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
 "vram_texture": true
 }
 generator_parameters={
@@ -15,7 +16,7 @@ generator_parameters={
 [deps]
 
 source_file="res://assets/tools/Pickaxe_Gold_Atlas.png"
-dest_files=["res://.godot/imported/Pickaxe_Gold_Atlas.png-1c6943de4dbb0e3a69cd5472bf831ef1.s3tc.ctex"]
+dest_files=["res://.godot/imported/Pickaxe_Gold_Atlas.png-1c6943de4dbb0e3a69cd5472bf831ef1.s3tc.ctex", "res://.godot/imported/Pickaxe_Gold_Atlas.png-1c6943de4dbb0e3a69cd5472bf831ef1.etc2.ctex"]
 
 [params]
 

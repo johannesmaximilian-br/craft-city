@@ -4,8 +4,9 @@ importer="texture"
 type="CompressedTexture2D"
 uid="uid://dl8lnjk8sg5y7"
 path.s3tc="res://.godot/imported/Pickaxe_Diamond_Atlas.png-c9d57bc17fd0d146a1bfd84ae79cb9d0.s3tc.ctex"
+path.etc2="res://.godot/imported/Pickaxe_Diamond_Atlas.png-c9d57bc17fd0d146a1bfd84ae79cb9d0.etc2.ctex"
 metadata={
-"imported_formats": ["s3tc_bptc"],
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
 "vram_texture": true
 }
 generator_parameters={
@@ -15,7 +16,7 @@ generator_parameters={
 [deps]
 
 source_file="res://assets/tools/Pickaxe_Diamond_Atlas.png"
-dest_files=["res://.godot/imported/Pickaxe_Diamond_Atlas.png-c9d57bc17fd0d146a1bfd84ae79cb9d0.s3tc.ctex"]
+dest_files=["res://.godot/imported/Pickaxe_Diamond_Atlas.png-c9d57bc17fd0d146a1bfd84ae79cb9d0.s3tc.ctex", "res://.godot/imported/Pickaxe_Diamond_Atlas.png-c9d57bc17fd0d146a1bfd84ae79cb9d0.etc2.ctex"]
 
 [params]
 

@@ -4,8 +4,9 @@ importer="texture"
 type="CompressedTexture2D"
 uid="uid://i1s6oeinlqmt"
 path.s3tc="res://.godot/imported/Shovel_Gold_Atlas.png-4e5aef5e3a71b1f04a761ca6f4a6f509.s3tc.ctex"
+path.etc2="res://.godot/imported/Shovel_Gold_Atlas.png-4e5aef5e3a71b1f04a761ca6f4a6f509.etc2.ctex"
 metadata={
-"imported_formats": ["s3tc_bptc"],
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
 "vram_texture": true
 }
 generator_parameters={
@@ -15,7 +16,7 @@ generator_parameters={
 [deps]
 
 source_file="res://assets/tools/Shovel_Gold_Atlas.png"
-dest_files=["res://.godot/imported/Shovel_Gold_Atlas.png-4e5aef5e3a71b1f04a761ca6f4a6f509.s3tc.ctex"]
+dest_files=["res://.godot/imported/Shovel_Gold_Atlas.png-4e5aef5e3a71b1f04a761ca6f4a6f509.s3tc.ctex", "res://.godot/imported/Shovel_Gold_Atlas.png-4e5aef5e3a71b1f04a761ca6f4a6f509.etc2.ctex"]
 
 [params]
 

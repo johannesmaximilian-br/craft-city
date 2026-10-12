@@ -42,6 +42,11 @@ $G --path . -- --demo --cam=32,32,60 --screenshot=/pfad/bild.png          # Scre
   (Wachstum, Brände) → Autos/Züge/Hauptstraßen-Cache werden dann nicht neu berechnet. Bauwerkzeuge melden immer `infra=true`.
 - **Simulation verteilt:** Monat = `TICK_STAGES` (je Frame eine Etappe, je ≤ ~9 ms). `tick_month()` = synchron (Tests/Demo),
   `refresh()` = alles sofort (nach Bauaktionen). Neue teure Berechnungen als eigene Etappe einhängen.
+- **Pendler asynchron:** im Spiel (`sim.async_commute = true`, gesetzt in `main.gd`) rechnet eine zweite
+  `Simulation`-Instanz (`_worker`) `_compute_commute` per `WorkerThreadPool` auf einer Kopie aller `SAVE_FIELDS`;
+  Eingaben `COMMUTE_IN`, Ergebnisse `COMMUTE_OUT` werden in `_poll_commute` (Hauptthread) übernommen. Neues Feld,
+  das die Pendler-Berechnung liest/schreibt ⇒ in diese Listen eintragen. DevTools schaltet für Tests auf synchron
+  (deterministisch) und erst vor `--profile`/Screenshot wieder auf async. `refresh(staged)` vom Bauwerkzeug.
 - **Pendler-Graph:** Knoten 0..n-1 Straßen-Tiles, n..2n-1 Gleis-Tiles; Bahnhöfe verbinden per Fuß/Zubringerbus.
   Incremental assignment in 3 Etappen (sonst nutzt niemand Parallelstraßen). Kosten: `(1 + 2·Auslastung²)/Tempo`,
   Abbruch über Weglänge (`MAX_HOPS`), nicht über Staukosten (sonst verschwindet Überlast als "unerreichbar").
@@ -102,6 +107,12 @@ $G --path . -- --demo --cam=32,32,60 --screenshot=/pfad/bild.png          # Scre
 - Button mit Text + `expand_icon = true` ⇒ Icon schrumpft auf 0 → `Hud._set_btn_icon()` (feste `icon_max_width`).
 - Kompilierfehler in einem Dev-Test ⇒ `main.gd` lädt nicht, Fenster bleibt offen und `--quit` greift nie (Befehl hängt).
   Erst `--headless --import` prüfen. Neue Funktion nie mitten in eine bestehende einfügen (Rumpf-Rest landet in der neuen).
+- GDScript im Thread + parallel GDScript im Hauptthread: viele Allokationen (Arrays je Schritt, `RefCounted.new()`)
+  bremsen sich gegenseitig massiv (gemessen 17×). Heiße Schleifen allokationsfrei schreiben.
+- Lokaler Alias eines Member-Packed-Arrays (`var p := _parent`) kopiert beim ersten Schreiben → Hilfsfunktionen, die den
+  Member lesen, sehen alte Daten. Nur aliasen, was ausschließlich lokal genutzt wird.
+- `git stash` springt hier auf den ersten Commit zurück (alles andere ist uncommittet) → kein Vergleichsstand.
+- Export: Vorlage enthält nur `universal`, und `textures/vram_compression/import_etc2_astc` muss an sein.
 - Beim Ersetzen von Code per Skript nicht über Blockgrenzen schneiden (einmal ist so ein Config-Block verloren gegangen).
 
 ## Stil & Design (vom Nutzer gewünscht)
@@ -114,6 +125,10 @@ $G --path . -- --demo --cam=32,32,60 --screenshot=/pfad/bild.png          # Scre
   Ansichten (V) machen Felder sichtbar. Neue Mechaniken immer mit Anzeige + Test + README-Abschnitt.
 
 ## Offene Punkte / Ideen
+
+- Bahnhofs-Kapazität ist umgesetzt (Aufschlag + hartes Limit 150 %). Gleis-Kapazität (`RAIL_CAPACITY`) wirkt weiter nur
+  weich. Pendler, die nirgends hinkommen, zählen nur als `unreachable_workers` (kein Wachstums-Malus) — ggf. später.
+- Nutzer-Spielstände analysieren: Datei nach Scratchpad **kopieren**, dann `--loadfile=<kopie>` (+ `--jamreport`, `--cartest`).
 
 Siehe README → Roadmap. Zusätzlich: Brand-Balance im echten Spiel beobachten (Brenndauer 10 s, Ausbreitung 25 %), Balance der Dienstkosten beobachten,
 `--lanetest` hat in der Demo oft wenige Messungen (wenig Verkehr auf der Hauptstraße).

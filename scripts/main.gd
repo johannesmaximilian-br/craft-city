@@ -37,6 +37,7 @@ func _ready() -> void:
 	sim.name = "Simulation"
 	add_child(sim)
 	sim.setup(map)
+	sim.async_commute = true     # Pendler im Hintergrund-Thread (DevTools schaltet für Tests ab)
 
 	var world_size := float(map.size * Config.TILE_BLOCKS)
 	cam = CityCamera.new()

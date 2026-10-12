@@ -4,8 +4,9 @@ importer="texture"
 type="CompressedTexture2D"
 uid="uid://dymayp35p75vv"
 path.s3tc="res://.godot/imported/Fence_Corner_Atlas.png-9963a3ba3cbb1506cae2baf29e7417fc.s3tc.ctex"
+path.etc2="res://.godot/imported/Fence_Corner_Atlas.png-9963a3ba3cbb1506cae2baf29e7417fc.etc2.ctex"
 metadata={
-"imported_formats": ["s3tc_bptc"],
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
 "vram_texture": true
 }
 generator_parameters={
@@ -15,7 +16,7 @@ generator_parameters={
 [deps]
 
 source_file="res://assets/env/Fence_Corner_Atlas.png"
-dest_files=["res://.godot/imported/Fence_Corner_Atlas.png-9963a3ba3cbb1506cae2baf29e7417fc.s3tc.ctex"]
+dest_files=["res://.godot/imported/Fence_Corner_Atlas.png-9963a3ba3cbb1506cae2baf29e7417fc.s3tc.ctex", "res://.godot/imported/Fence_Corner_Atlas.png-9963a3ba3cbb1506cae2baf29e7417fc.etc2.ctex"]
 
 [params]
 

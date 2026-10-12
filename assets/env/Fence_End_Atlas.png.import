@@ -4,8 +4,9 @@ importer="texture"
 type="CompressedTexture2D"
 uid="uid://blag55lt45fw1"
 path.s3tc="res://.godot/imported/Fence_End_Atlas.png-90ac294089897e55c84287fe57f1f4ca.s3tc.ctex"
+path.etc2="res://.godot/imported/Fence_End_Atlas.png-90ac294089897e55c84287fe57f1f4ca.etc2.ctex"
 metadata={
-"imported_formats": ["s3tc_bptc"],
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
 "vram_texture": true
 }
 generator_parameters={
@@ -15,7 +16,7 @@ generator_parameters={
 [deps]
 
 source_file="res://assets/env/Fence_End_Atlas.png"
-dest_files=["res://.godot/imported/Fence_End_Atlas.png-90ac294089897e55c84287fe57f1f4ca.s3tc.ctex"]
+dest_files=["res://.godot/imported/Fence_End_Atlas.png-90ac294089897e55c84287fe57f1f4ca.s3tc.ctex", "res://.godot/imported/Fence_End_Atlas.png-90ac294089897e55c84287fe57f1f4ca.etc2.ctex"]
 
 [params]
 

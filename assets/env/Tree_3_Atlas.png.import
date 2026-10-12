@@ -4,8 +4,9 @@ importer="texture"
 type="CompressedTexture2D"
 uid="uid://e4hfe2nouonv"
 path.s3tc="res://.godot/imported/Tree_3_Atlas.png-bc467966f8b2d03be0b4a9b65b1e8fac.s3tc.ctex"
+path.etc2="res://.godot/imported/Tree_3_Atlas.png-bc467966f8b2d03be0b4a9b65b1e8fac.etc2.ctex"
 metadata={
-"imported_formats": ["s3tc_bptc"],
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
 "vram_texture": true
 }
 generator_parameters={
@@ -15,7 +16,7 @@ generator_parameters={
 [deps]
 
 source_file="res://assets/env/Tree_3_Atlas.png"
-dest_files=["res://.godot/imported/Tree_3_Atlas.png-bc467966f8b2d03be0b4a9b65b1e8fac.s3tc.ctex"]
+dest_files=["res://.godot/imported/Tree_3_Atlas.png-bc467966f8b2d03be0b4a9b65b1e8fac.s3tc.ctex", "res://.godot/imported/Tree_3_Atlas.png-bc467966f8b2d03be0b4a9b65b1e8fac.etc2.ctex"]
 
 [params]
 

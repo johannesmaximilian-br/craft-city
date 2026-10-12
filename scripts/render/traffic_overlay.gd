@@ -4,8 +4,9 @@ extends MultiMeshInstance3D
 ## Taste V schaltet durch, Ansicht-Button oben wählt per Liste. Mit einem Dienst-Werkzeug in der Hand wird automatisch dessen
 ## Versorgung gezeigt (grün = versorgt, rot = nicht versorgt).
 
-enum Mode { OFF, TRAFFIC, POLLUTION, LAND, CRIME, HAPPY }
-const MODE_NAMES := ["", "Verkehr", "Verschmutzung", "Bodenwert", "Kriminalität", "Zufriedenheit"]
+enum Mode { OFF, TRAFFIC, POLLUTION, LAND, CRIME, HAPPY, TRANSIT }
+const MODE_NAMES := ["", "Verkehr", "Verschmutzung", "Bodenwert", "Kriminalität", "Zufriedenheit", "ÖPNV"]
+const BUS_ROUTE := Color(0.25, 0.55, 1.0, 0.75)
 
 const B := Config.TILE_BLOCKS
 const GREEN := Color(0.3, 0.85, 0.35, 0.7)
@@ -88,6 +89,15 @@ func _rebuild() -> void:
 				if sim.happiness.size() > i and map.level[i] > 0 and map.zone[i] == Config.Zone.RES:
 					items.append(i)
 					colors.append(ramp(1.0 - sim.happiness[i]))
+			Mode.TRANSIT:
+				# Straßen im Busnetz blau; Gebäude grün mit Bus-/Bahnanschluss, rot ohne
+				if map.road[i] != 0:
+					if sim.bus_served.size() > i and sim.bus_served[i] == 1:
+						items.append(i)
+						colors.append(BUS_ROUTE)
+				elif map.zone[i] != Config.Zone.NONE:
+					items.append(i)
+					colors.append(GREEN if sim.has_transit(i) else RED)
 			Mode.TRAFFIC:
 				if map.road[i] != 0:
 					items.append(i)

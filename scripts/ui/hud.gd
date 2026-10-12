@@ -451,7 +451,9 @@ func _fill_popup() -> void:
 			"Ø %.1f bei Wohnhäusern" % avg[0],
 			"Ø %d%% bei Wohnhäusern" % roundi(avg[1] * 100.0),
 			"Ø %d%%  ·  Arbeitslos %d%%" % [roundi(avg[2] * 100.0), roundi(sim.unemployment * 100.0)],
-			"Stadt %d%%" % roundi(sim.city_happiness * 100.0)]
+			"Stadt %d%%" % roundi(sim.city_happiness * 100.0),
+			"Anteil %d%%  ·  Bus %d  ·  Bahn %d  ·  Wohnungen mit Anschluss %d%%" % [roundi(sim.transit_share * 100.0),
+				int(sim.bus_riders), int(sim.rail_riders), roundi(avg[3] * 100.0)]]
 		for m in TrafficOverlay.MODE_NAMES.size():
 			var label: String = TrafficOverlay.MODE_NAMES[m] if m > 0 else "Aus"
 			var b := _text_button(_popup_col, "%s:  %s" % [label, stats[m]], _pick_view.bind(m), "")
@@ -481,6 +483,8 @@ func _pick_view(m: int) -> void:
 func _city_averages() -> Array:
 	var sum := [0.0, 0.0, 0.0]
 	var cnt := 0
+	var pop := 0.0
+	var pop_transit := 0.0
 	if sim.land_value.size() == map.size * map.size:
 		for i in map.size * map.size:
 			if map.zone[i] == Config.Zone.RES and map.level[i] > 0:
@@ -488,7 +492,10 @@ func _city_averages() -> Array:
 				sum[1] += sim.land_value[i]
 				sum[2] += sim.crime[i]
 				cnt += 1
-	return [sum[0] / maxi(cnt, 1), sum[1] / maxi(cnt, 1), sum[2] / maxi(cnt, 1)]
+				pop += map.res_capacity(i)
+				if sim.has_transit(i):
+					pop_transit += map.res_capacity(i)
+	return [sum[0] / maxi(cnt, 1), sum[1] / maxi(cnt, 1), sum[2] / maxi(cnt, 1), pop_transit / maxf(pop, 1.0)]
 
 
 ## Tooltip der Zufriedenheit: die drei größten Minuspunkte.
@@ -873,7 +880,9 @@ func _on_hover(t: Vector2i) -> void:
 				lines.append("x " + b)
 	elif map.transit[i] == Config.Transit.STATION:
 		title = "Bahnhof"
-		lines.append("%d Ein-/Aussteiger/Monat" % int(sim.station_use.get(i, 0.0)))
+		var use := float(sim.station_use.get(i, 0.0))
+		lines.append("%d Ein-/Aussteiger/Monat  ·  Kapazität %d (%d%%)%s" % [int(use), int(Config.STATION_CAPACITY),
+			roundi(use / Config.STATION_CAPACITY * 100.0), "  - überfüllt!" if use > Config.STATION_CAPACITY else ""])
 		lines.append("Bahn gesamt: %d Fahrgäste" % int(sim.rail_riders))
 	elif map.road[i] != 0:
 		var wide := map.wide_partner(t.x, t.y) != Vector2i.ZERO

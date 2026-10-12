@@ -4,7 +4,15 @@ SimCity-artiger Städtebau im Blockstil. Godot 4.7, GDScript, Assets: [Quaterniu
 
 ## Starten
 
-Projekt in Godot öffnen → F5. Dev-Flags (nach `--`):
+- **Als Mac-App (empfohlen zum Spielen):** `build/Cube City.app` doppelklicken. Release-Build, ~35 % schnellere Simulation als im Editor. Spielstände sind dieselben wie im Editor.
+  Neu bauen (Export-Vorlagen 4.7.2 müssen installiert sein, Profil `export_presets.cfg`, Universal, ad-hoc signiert):
+  ```bash
+  /Applications/Godot.app/Contents/MacOS/Godot --headless --path . --export-release "macOS" "build/Cube City.app"
+  ```
+- **Ohne Editor aus dem Quellcode:** `/Applications/Godot.app/Contents/MacOS/Godot --path .`
+- **Im Editor:** Projekt öffnen → F5.
+
+Dev-Flags (nach `--`, funktionieren auch mit der App: `"build/Cube City.app/Contents/MacOS/Cube City" -- --demo`):
 
 ```bash
 /Applications/Godot.app/Contents/MacOS/Godot --path . -- --demo --screenshot=shot.png
@@ -27,7 +35,7 @@ Projekt in Godot öffnen → F5. Dev-Flags (nach `--`):
 | P | Pause |
 | Tab, Klick auf Brand-Anzeige | reihum zu laufenden Bränden springen (sonst zum Ort der letzten Meldung) |
 | Klick auf Meldung mit `>` | Kamera fährt zum Ort der Meldung |
-| V | Ansicht: Verkehr → Verschmutzung → Bodenwert → Kriminalität → Zufriedenheit → aus |
+| V | Ansicht: Verkehr → Verschmutzung → Bodenwert → Kriminalität → Zufriedenheit → ÖPNV → aus |
 | Ansicht-Button (oben, Balken-Symbol) | Liste aller Ansichten mit Kennzahlen (Stau, ÖPNV, Ø Verschmutzung/Bodenwert/Kriminalität, Arbeitslose); Button zeigt aktive Ansicht |
 | Zufriedenheit (oben, Smiley) | Hover: größte Minuspunkte · Klick: Aufschlüsselung mit Tipps, was fehlt |
 | Esc | Menü: Speichern / Laden / Neue Stadt |
@@ -44,15 +52,22 @@ Projekt in Godot öffnen → F5. Dev-Flags (nach `--`):
 - **Pendler**: 55 % der Einwohner fahren monatlich zum nächsten freien Job (Dijkstra, Stau verteuert Wege).
   Wohnen braucht erreichbare Jobs (auch per Bahn), Gewerbe/Industrie erreichbare Einwohner. Fahrzeit > 40 blockiert Wohnwachstum.
 - **Stau** senkt Bodenwert und bremst Autos sichtbar.
+- **Sichtbarer Verkehr** folgt der Simulation: 1 Auto je 11 Auto-Pendler (Bus-/Bahnfahrer fahren nicht Auto), Autos erscheinen fast nur auf Straßen mit Pendlern (reine Bahn-Vorstädte bleiben ruhig), 1 Bus je 120 Fahrgäste/Monat. Jedes Auto fährt 8–30 Tiles und taucht dann neu nach Pendler-Gewicht auf (sonst sammeln sich Zufallsfahrer in Nebenecken wie Serpentinen). Tests `--cartest`, `--cardrift=Sek` (nach 20 s: 22 % der Autos auf den Top-10-%-Straßen bei 28 % Verkehrsanteil; vorher 11 %).
+- **Bahnhofs-Kapazität**: 1.500 Ein-/Aussteiger je Bahnhof und Monat. Darüber wird der Weg über diesen Bahnhof teurer (Aufschlag 3 × Auslastung²), ab 150 % ist er für den Monat dicht → Pendler weichen auf andere Bahnhöfe, Bus oder Auto aus. Info-Karte des Bahnhofs zeigt die Auslastung („überfüllt!“). Mehr Bahnhöfe = mehr Kapazität.
+- **Ansicht ÖPNV** (V bzw. Ansicht-Liste): Straßen im Busnetz blau, Gebäude mit Bus-/Bahnanschluss grün, ohne rot; Liste zeigt Anteil, Bus-/Bahnfahrer und Anteil Wohnungen mit Anschluss.
 - Spielstände: `user://saves/*.citysave` (macOS: `~/Library/Application Support/Godot/app_userdata/Cube City/saves/`).
 
 ## Entwicklung & Tests
+
+**VS Code:** Erweiterung *godot-tools*; `.vscode/settings.json` zeigt auf `/Applications/Godot.app/Contents/MacOS/Godot` und startet den Sprachserver headless (`godotTools.lsp.headless`) → Gehe-zu-Definition/Autovervollständigung auch ohne offenen Godot-Editor. Läuft der Editor parallel, nutzt die Erweiterung dessen Server.
+
+**`.import`-Dateien** neben den Assets sind Godots Import-Einstellungen je Datei und gehören ins Repo; die importierten Daten selbst liegen in `.godot/` (ignoriert).
 
 Dev-Werkzeuge liegen getrennt vom Spielcode in `scripts/dev/` und laufen nur mit Flags (nach `--`):
 
 - `dev_tools.gd` — wertet Flags aus: `--demo`, `--cam=x,z,dist`, `--ignite=x,z[,sek]` (Gebäude anzünden, Brand vorspulen, Kamera hin), `--ruin=x,z` (sofort abbrennen), `--overlay[=1..5]`, `--popup=view|happy`, `--menu`, `--flyout`, `--screenshot=pfad`, `--quit`
 - `demo_city.gd` — reproduzierbare Teststadt (Zonen, Strom, ÖPNV, 4-spurige Straße mit Verjüngung)
-- `dev_tests.gd` — `--selftest` (Timing, Speichern/Laden, Audio), `--dragtest` (echtes Maus-Ziehen), `--lanetest` (Rechtsverkehr auf Hauptstraßen), `--widetest` (Hauptstraßen-Erkennung), `--profile[=Sek,Tempo]` (Frame-Zeiten + Ruckler-Ursachen), `--gfx=0..2`, `--nowarmup`, `--servicetest`, `--tool=<name>`, `--traffictest` (Korridor: Straße/Parallelstraße/Hauptstraße/Bus/Bahn), `--pickcheck`, `--firetest` (Brand an der Wache gelöscht, ohne Wache abgebrannt + Ruine), `--bustest` (Vorstadt mit eigenem Straßennetz bekommt Busse), `--happytest` (Aufschlüsselung, Warnung bei Steuer hoch / Polizei weg), `--cheattest` (Geld-Cheat per Tastenereignis), `--greentest` (Grüngürtel gegen Verschmutzung, Terraforming reißt Straße ab), `--venuetest` (Stadion/Theater: Besucherverkehr, Kundschaft), `--zonetest` (Ladenzeile, Ballung, Nachbarschaft), `--taxtest` (Steuern je Zone, ÖPNV-Tarif)
+- `dev_tests.gd` — `--selftest` (Timing, Speichern/Laden, Audio), `--dragtest` (echtes Maus-Ziehen), `--lanetest` (Rechtsverkehr auf Hauptstraßen), `--widetest` (Hauptstraßen-Erkennung), `--profile[=Sek,Tempo]` (Frame-Zeiten + Ruckler-Ursachen), `--gfx=0..2`, `--nowarmup`, `--servicetest`, `--tool=<name>`, `--traffictest` (Korridor: Straße/Parallelstraße/Hauptstraße/Bus/Bahn), `--pickcheck`, `--firetest` (Brand an der Wache gelöscht, ohne Wache abgebrannt + Ruine), `--bustest` (Vorstadt mit eigenem Straßennetz bekommt Busse), `--happytest` (Aufschlüsselung, Warnung bei Steuer hoch / Polizei weg), `--cheattest` (Geld-Cheat per Tastenereignis), `--greentest` (Grüngürtel gegen Verschmutzung, Terraforming reißt Straße ab), `--venuetest` (Stadion/Theater: Besucherverkehr, Kundschaft), `--zonetest` (Ladenzeile, Ballung, Nachbarschaft), `--taxtest` (Steuern je Zone, ÖPNV-Tarif), `--cartest` (Autos/Busse je Tarif, Diagnose ÖPNV, Bahnhofs-Auslastung), `--cardrift=Sek`, `--jamreport` (meistbelastete Straßen), `--loadfile=pfad` (Spielstand-Kopie laden), `--bigcity` (ganze Karte bebauen), `--buildtest` (Bau-Klick-Zeit, Pendler synchron/Hintergrund)
 
 ```bash
 /Applications/Godot.app/Contents/MacOS/Godot --path . -- --demo --selftest --dragtest --traffictest --quit
@@ -161,7 +176,10 @@ Test (`--traffictest`, Korridor mit 1.500 Pendlern):
 
 ## Performance
 
-- **Simulationsmonat auf 4 Frames verteilt** (Netz → Pendler → Umwelt → Wachstum), je ≤ 9 ms; Pendler/Umwelt nur einmal pro Monat.
+- **Simulationsmonat auf 5 Frames verteilt** (Netz → Pendler → Umwelt → Dienste → Wachstum); Pendler/Umwelt nur einmal pro Monat.
+- **Pendler im Hintergrund-Thread:** die teuerste Berechnung (Dijkstra je Wohnstraße, 3 Etappen) läuft auf einer Kartenkopie; das Ergebnis wird übernommen, sobald es fertig ist. Bau-Klicks und Monate frieren nicht mehr ein. Die Suche arbeitet ohne Allokationen (vorberechnete Nachbarn, Heap in Packed-Arrays) und bricht ab, wenn keine Jobs mehr frei sind.
+- **Bau-Klick gestaffelt:** Straßen/Strom sofort, Umwelt und Dienste in den 2 folgenden Frames.
+- Messung Riesenstadt (`--demo --bigcity --buildtest`, ganze Karte bebaut, 43.000 Einw.): Pendler vorher 4,4 s je Bau-Klick und Monat → jetzt 0,86 s im Hintergrund (App: 0,55 s); Bau-Klick 31 ms (App: 20 ms); `--profile=15,3` App: Ø 8,6 ms, kein Ruckler > 25 ms.
 - **Wachstum ≠ Netzänderung:** Gebäudestufen lösen keine Karten-Scans (Autos, Züge, Hauptstraßen) aus.
 - **Chunk-Neubau** mit Zeitbudget (4 ms/Frame), MultiMesh-Daten als ein Block statt je Instanz.
 - **Shader-Aufwärmen** beim Start: jedes Material einmal rendern → kein Kompilier-Ruckler, wenn später z.B. der erste Bus erscheint.

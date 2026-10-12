@@ -4,8 +4,9 @@ importer="texture"
 type="CompressedTexture2D"
 uid="uid://xtaub6o11yvk"
 path.s3tc="res://.godot/imported/Bamboo_Atlas.png-a31480b30a5faeecd5c56a3a662f9fe3.s3tc.ctex"
+path.etc2="res://.godot/imported/Bamboo_Atlas.png-a31480b30a5faeecd5c56a3a662f9fe3.etc2.ctex"
 metadata={
-"imported_formats": ["s3tc_bptc"],
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
 "vram_texture": true
 }
 generator_parameters={
@@ -15,7 +16,7 @@ generator_parameters={
 [deps]
 
 source_file="res://assets/env/Bamboo_Atlas.png"
-dest_files=["res://.godot/imported/Bamboo_Atlas.png-a31480b30a5faeecd5c56a3a662f9fe3.s3tc.ctex"]
+dest_files=["res://.godot/imported/Bamboo_Atlas.png-a31480b30a5faeecd5c56a3a662f9fe3.s3tc.ctex", "res://.godot/imported/Bamboo_Atlas.png-a31480b30a5faeecd5c56a3a662f9fe3.etc2.ctex"]
 
 [params]
 

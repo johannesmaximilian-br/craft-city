@@ -4,8 +4,9 @@ importer="texture"
 type="CompressedTexture2D"
 uid="uid://cuopba0414i4a"
 path.s3tc="res://.godot/imported/Block_Blank_Atlas.png-5e9ce2d7dc2a4ab211b923963d7196bf.s3tc.ctex"
+path.etc2="res://.godot/imported/Block_Blank_Atlas.png-5e9ce2d7dc2a4ab211b923963d7196bf.etc2.ctex"
 metadata={
-"imported_formats": ["s3tc_bptc"],
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
 "vram_texture": true
 }
 generator_parameters={
@@ -15,7 +16,7 @@ generator_parameters={
 [deps]
 
 source_file="res://assets/blocks/Block_Blank_Atlas.png"
-dest_files=["res://.godot/imported/Block_Blank_Atlas.png-5e9ce2d7dc2a4ab211b923963d7196bf.s3tc.ctex"]
+dest_files=["res://.godot/imported/Block_Blank_Atlas.png-5e9ce2d7dc2a4ab211b923963d7196bf.s3tc.ctex", "res://.godot/imported/Block_Blank_Atlas.png-5e9ce2d7dc2a4ab211b923963d7196bf.etc2.ctex"]
 
 [params]
 

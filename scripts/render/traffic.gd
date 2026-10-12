@@ -22,7 +22,11 @@ var _stop_groups: Array = []                # je Straßennetz mit >= 2 Haltestel
 var _rng := RandomNumberGenerator.new()
 
 const BUS_COLOR := Color("ffc21a")
-const BUS_RIDERS_PER_BUS := 40.0
+# Autos fahren eine "Fahrt" (zufällige Länge) und tauchen dann neu nach Pendler-Gewicht auf.
+# Sonst sammeln sich Zufallsfahrer mit der Zeit in schwer verlassbaren Ecken (lange Serpentinen).
+const TRIP_MIN := 8
+const TRIP_MAX := 30
+const BUS_RIDERS_PER_BUS := 120.0       # Fahrgäste/Monat je sichtbarem Bus (ein Bus fährt viele Runden)
 const MAX_BUSES := 40
 
 
@@ -36,6 +40,7 @@ class Car:
 	var lane := 0           # Hauptstraße: 0 = innere (Mittellinie), 1 = äußere Spur
 	var fresh := true
 	var is_bus := false
+	var ttl := 0            # Auto: verbleibende Tiles bis zur Neuverteilung
 	var group := -1         # Bus: Index in _stop_groups (eigenes Straßennetz)
 
 
@@ -109,7 +114,7 @@ func _rebuild_weights() -> void:
 	_spawn_cdf.resize(_road_tiles.size())
 	var acc := 0.0
 	for k in _road_tiles.size():
-		acc += 1.0 + _traffic_at(_road_tiles[k])
+		acc += 0.02 + _traffic_at(_road_tiles[k])    # leere Straßen (z.B. reine Bahn-Vorstadt) fast ohne Autos
 		_spawn_cdf[k] = acc
 
 
@@ -124,9 +129,10 @@ func _congestion_at(p: Vector2i) -> float:
 
 
 func target_count() -> int:
-	var by_pop := sim.population / Config.CARS_PER_POP
+	# Nur Auto-Pendler: wer Bus/Bahn fährt, erscheint nicht als Auto
+	var by_trips := int(sim.car_trips / Config.CAR_TRIPS_PER_CAR)
 	var by_road := int(_road_tiles.size() * Config.MAX_CARS_PER_ROAD_TILE)
-	return mini(mini(by_pop, by_road), Config.MAX_CARS)
+	return mini(mini(by_trips, by_road), Config.MAX_CARS)
 
 
 func _neighbors(p: Vector2i) -> Array[Vector2i]:
@@ -168,6 +174,7 @@ func _spawn(car: Car) -> void:
 	car.to = nb[_rng.randi() % nb.size()]
 	car.t = _rng.randf()
 	car.fresh = true
+	car.ttl = _rng.randi_range(TRIP_MIN, TRIP_MAX)
 
 
 func _next(car: Car) -> Vector2i:
@@ -263,6 +270,11 @@ func _move_all(list: Array[Car], mm: MultiMesh, step: float, delta: float) -> vo
 			var nxt := _next(car)
 			car.from = car.to
 			car.to = nxt
+			if not car.is_bus:
+				car.ttl -= 1
+				if car.ttl <= 0:
+					_spawn(car)
+					break
 		var target := _lane_pos(car)
 		var d := Vector2(car.to - car.from)
 		var yaw := atan2(-d.y, d.x)

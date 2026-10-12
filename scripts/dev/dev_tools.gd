@@ -4,11 +4,14 @@ extends RefCounted
 ##
 ##   --demo                 Teststadt bauen (DemoCity)
 ##   --cam=x,z,dist         Kamera auf Tile x,z mit Abstand dist
-##   --overlay[=1..5]       Ansicht: 1 Verkehr, 2 Verschmutzung, 3 Bodenwert, 4 Kriminalität, 5 Zufriedenheit
+##   --overlay[=1..6]       Ansicht: 1 Verkehr, 2 Verschmutzung, 3 Bodenwert, 4 Kriminalität, 5 Zufriedenheit, 6 ÖPNV
 ##   --popup=view|happy     Ansicht-Liste bzw. Zufriedenheits-Karte aufklappen
 ##   --menu / --flyout      Menü bzw. Strom-Werkzeuggruppe öffnen
-##   --selftest --dragtest --lanetest --traffictest --pickcheck --firetest --bustest --happytest --cheattest --greentest --venuetest --zonetest --taxtest
+##   --selftest --dragtest --lanetest --traffictest --pickcheck --firetest --bustest --happytest --cheattest --greentest --venuetest --zonetest --taxtest --cartest
 ##   --venues               Theater + Stadion in die Demo-Stadt setzen (Screenshots)
+##   --loadfile=pfad        Spielstand-Datei laden (z.B. Kopie eines Nutzer-Spielstands)
+##   --bigcity              ganze Karte bebauen (Performance)
+##   --buildtest            Bau-Klick-Zeit messen
 ##   --villas               kleine Villensiedlung setzen (Screenshot)   Tests (DevTests)
 ##   --ignite=x,z[,sek]     Gebäude nahe x,z anzünden, Brand sek vorspulen
 ##   --ruin=x,z             Gebäude nahe x,z sofort abbrennen (Brandruine)
@@ -30,8 +33,16 @@ static func value(prefix: String) -> String:
 static func run(game: Node) -> void:
 	if OS.get_cmdline_user_args().is_empty():
 		return
+	# Tests/Demo-Aufbau rechnen Pendler synchron (deterministisch, Ergebnis sofort lesbar)
+	game.sim.async_commute = false
 	if has("--demo"):
 		DemoCity.build(game)
+	if value("--loadfile") != "":
+		# --loadfile=/pfad/datei.citysave: Spielstand-Kopie laden (Slots bleiben unberührt)
+		var err := SaveManager.load_file(value("--loadfile"), game.map, game.sim)
+		print("loadfile %s: %s, Einw. %d" % [value("--loadfile"), error_string(err), game.sim.population])
+	if has("--bigcity"):
+		DevTests.bigcity(game)
 	var cam_arg := value("--cam")
 	if cam_arg != "":
 		var v := cam_arg.split_floats(",")
@@ -80,10 +91,16 @@ static func run(game: Node) -> void:
 		DevTests.taxtest(game)
 	if has("--venuetest"):
 		DevTests.venuetest(game)
+	if has("--buildtest"):
+		await DevTests.buildtest(game)
 	if has("--villas"):
 		DevTests.place_villas(game)
 	if has("--venues"):
 		DevTests.place_venues(game)
+	if has("--jamreport"):
+		DevTests.jamreport(game)
+	if has("--cartest"):
+		DevTests.cartest(game)
 	if has("--greentest"):
 		DevTests.greentest(game)
 	if has("--cheattest"):
@@ -104,6 +121,10 @@ static func run(game: Node) -> void:
 		await DevTests.lanetest(game)
 	if has("--pickcheck"):
 		await DevTests.pickcheck(game)
+	# Ab hier wie im echten Spiel: Pendler im Hintergrund
+	game.sim.async_commute = true
+	if value("--cardrift") != "":
+		await DevTests.cardrift(game, float(value("--cardrift")))
 	if has("--profile") or value("--profile") != "":
 		# --profile oder --profile=Sekunden,Tempo
 		var p := value("--profile").split_floats(",") if value("--profile") != "" else PackedFloat64Array()

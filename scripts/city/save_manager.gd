@@ -29,7 +29,12 @@ static func save(slot: String, map: CityMap, sim: Simulation, city_name := "Cube
 
 
 static func load_slot(slot: String, map: CityMap, sim: Simulation) -> Error:
-	var f := FileAccess.open_compressed(path(slot), FileAccess.READ, FileAccess.COMPRESSION_ZSTD)
+	return load_file(path(slot), map, sim)
+
+
+## Beliebige Datei laden (Dev: Kopie eines Spielstands analysieren, ohne den Slot anzufassen).
+static func load_file(file: String, map: CityMap, sim: Simulation) -> Error:
+	var f := FileAccess.open_compressed(file, FileAccess.READ, FileAccess.COMPRESSION_ZSTD)
 	if f == null:
 		return ERR_FILE_NOT_FOUND
 	var meta: Variant = f.get_var()

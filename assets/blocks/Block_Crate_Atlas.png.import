@@ -4,8 +4,9 @@ importer="texture"
 type="CompressedTexture2D"
 uid="uid://c616d3dreyklr"
 path.s3tc="res://.godot/imported/Block_Crate_Atlas.png-a790ed3b863381b2b64749565b807fbe.s3tc.ctex"
+path.etc2="res://.godot/imported/Block_Crate_Atlas.png-a790ed3b863381b2b64749565b807fbe.etc2.ctex"
 metadata={
-"imported_formats": ["s3tc_bptc"],
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
 "vram_texture": true
 }
 generator_parameters={
@@ -15,7 +16,7 @@ generator_parameters={
 [deps]
 
 source_file="res://assets/blocks/Block_Crate_Atlas.png"
-dest_files=["res://.godot/imported/Block_Crate_Atlas.png-a790ed3b863381b2b64749565b807fbe.s3tc.ctex"]
+dest_files=["res://.godot/imported/Block_Crate_Atlas.png-a790ed3b863381b2b64749565b807fbe.s3tc.ctex", "res://.godot/imported/Block_Crate_Atlas.png-a790ed3b863381b2b64749565b807fbe.etc2.ctex"]
 
 [params]
 

@@ -386,7 +386,7 @@ func _apply(tiles: Array[Vector2i]) -> void:
 		rect = rect.merge(Rect2i(t, Vector2i.ONE))
 	sim.spend(total)
 	map.notify_changed(rect)
-	sim.refresh()
+	sim.refresh(sim.async_commute)   # im Spiel gestaffelt, in Tests sofort
 	applied.emit(tool)
 
 
@@ -429,7 +429,7 @@ func _upgrade(a: int) -> void:
 	sim.spend(cost)
 	var s: int = Config.SPECIALS[sp]["size"]
 	map.notify_changed(Rect2i(a % map.size, a / map.size, s, s))
-	sim.refresh()
+	sim.refresh(sim.async_commute)   # im Spiel gestaffelt, in Tests sofort
 	message.emit("%s ausgebaut auf Stufe %d" % [Config.SPECIALS[sp]["name"], lv + 1])
 	applied.emit(tool)
 
