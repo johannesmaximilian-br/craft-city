@@ -1,6 +1,6 @@
-class_name TrafficOverlay
+class_name MapOverlay
 extends MultiMeshInstance3D
-## Karten-Ansichten: Verkehr, Verschmutzung, Bodenwert, Kriminalität, Zufriedenheit.
+## Karten-Ansichten: Verkehr, Verschmutzung, Bodenwert, Kriminalität, Zufriedenheit, ÖPNV, Strom.
 ## Taste V schaltet durch, Ansicht-Button oben wählt per Liste. Mit einem Dienst-Werkzeug in der Hand wird automatisch dessen
 ## Versorgung gezeigt (grün = versorgt, rot = nicht versorgt).
 
@@ -10,6 +10,9 @@ const MODE_NAMES := ["", "Verkehr", "Verschmutzung", "Bodenwert", "Kriminalität
 const NET_COLORS := [Color(0.3, 0.55, 1.0, 0.6), Color(0.3, 0.85, 0.4, 0.6), Color(0.75, 0.45, 1.0, 0.6),
 	Color(0.2, 0.85, 0.85, 0.6), Color(1.0, 0.75, 0.2, 0.6), Color(0.95, 0.5, 0.8, 0.6)]
 const BUS_ROUTE := Color(0.25, 0.55, 1.0, 0.75)
+# Deckkraft-Faktor: Gelände/Straßen durchscheinend, Dächer etwas kräftiger (kleinere Fläche)
+const GROUND_ALPHA := 0.30
+const ROOF_ALPHA := 0.40
 
 const B := Config.TILE_BLOCKS
 const GREEN := Color(0.3, 0.85, 0.35, 0.7)
@@ -169,7 +172,7 @@ func _rebuild() -> void:
 		var i := items[k]
 		var pos := Vector3((i % map.size) * B + B * 0.5, map.height[i] + 0.06, (i / map.size) * B + B * 0.5)
 		multimesh.set_instance_transform(g, Transform3D(Basis(), pos))
-		multimesh.set_instance_color(g, colors[k].srgb_to_linear())
+		multimesh.set_instance_color(g, _tint(colors[k], GROUND_ALPHA))
 	var rm := _roofs.multimesh
 	rm.instance_count = roofs.size()
 	for r in roofs.size():
@@ -180,4 +183,11 @@ func _rebuild() -> void:
 			top = 2.6
 		var pos := Vector3((i % map.size) * B + B * 0.5, map.height[i] + top + 0.15, (i / map.size) * B + B * 0.5)
 		rm.set_instance_transform(r, Transform3D(Basis(), pos))
-		rm.set_instance_color(r, colors[k].srgb_to_linear())
+		rm.set_instance_color(r, _tint(colors[k], ROOF_ALPHA))
+
+
+## Instanzfarbe: sRGB -> linear (sonst blass) und Deckkraft reduzieren, damit die Stadt durchscheint.
+static func _tint(c: Color, alpha: float) -> Color:
+	var l := c.srgb_to_linear()
+	l.a = c.a * alpha
+	return l

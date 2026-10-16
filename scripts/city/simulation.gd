@@ -164,6 +164,8 @@ func from_dict(d: Dictionary) -> void:
 		tax[Config.Zone.COM] = d["tax_rate"]
 	fare = d.get("fare", 1)
 	congestion = d.get("congestion", PackedFloat32Array())
+	if congestion.size() != map.size * map.size:
+		congestion = PackedFloat32Array()     # z.B. alter kleinerer Spielstand, in größere Karte eingebettet
 	last_income = 0.0
 	last_expense = 0.0
 	_acc = 0.0
@@ -229,9 +231,17 @@ func _refresh_rest() -> void:
 	if token != _refresh_token:
 		return
 	var t := Perf.begin()
-	_compute_environment()
-	_recount()
+	_env_begin()
+	_env_rows(0, map.size / 2)
 	Perf.end("sim.umwelt", t)
+	await get_tree().process_frame
+	if token != _refresh_token:
+		return
+	t = Perf.begin()
+	_env_rows(map.size / 2, map.size)
+	_env_end()
+	_recount()
+	Perf.end("sim.umwelt2", t)
 	await get_tree().process_frame
 	if token != _refresh_token:
 		return
@@ -258,31 +268,44 @@ func _tick_spread() -> void:
 	_ticking = false
 
 
-## Etappen eines Monats. Pendler und Umwelt nur einmal pro Monat (teuer);
-## nach dem Wachstum werden nur Strom, Zählung und Nachfrage aktualisiert.
-const TICK_STAGES := ["netz", "pendler", "umwelt", "dienste", "wachstum"]
+## Etappen eines Monats, je Frame eine (im Spiel); teure Teile (Umwelt, Wachstum) zeilenweise halbiert.
+## Pendler laufen im Hintergrund-Thread. Nach dem Wachstum: Strom, Zählung, Nachfrage, Budget.
+const TICK_STAGES := ["netz", "strom", "pendler", "umwelt", "umwelt2", "zaehlen", "dienste", "wachsen", "wachsen2",
+	"strom2", "abschluss"]
 
 
 func _tick_stage(stage: String) -> void:
 	var t := Perf.begin()
+	var half := map.size / 2
 	match stage:
 		"netz":
-			_compute_road_distance()
-			_compute_junctions()
+			_timed("sim.n.strassenabstand", _compute_road_distance)
+			_timed("sim.n.kreuzungen", _compute_junctions)
+		"strom":
 			_compute_power()
 		"pendler":
 			_request_commute()
 		"umwelt":
-			_compute_environment()
+			_env_begin()
+			_env_rows(0, half)
+		"umwelt2":
+			_env_rows(half, map.size)
+			_env_end()
+		"zaehlen":
 			_recount()
 		"dienste":
 			_compute_services()
 			_update_demand()
 			_check_happiness()
-		"wachstum":
+		"wachsen":
 			_fires()
-			_grow()
+			_grow_rows(0, half)
+		"wachsen2":
+			_grow_rows(half, map.size)
+			_grow_finish()
+		"strom2":
 			_compute_power()
+		"abschluss":
 			_recount()
 			_update_demand()
 			_budget()
@@ -294,33 +317,58 @@ func _tick_stage(stage: String) -> void:
 	Perf.end("sim." + stage, t)
 
 
+func _timed(label: String, f: Callable) -> void:
+	var t := Perf.begin()
+	f.call()
+	Perf.end(label, t)
+
+
 func _compute_road_distance() -> void:
-	# Multi-Source-BFS von allen Straßen-Tiles
-	var n := map.size * map.size
-	road_dist.resize(n)
-	road_dist.fill(99)
-	road_src.resize(n)
-	road_src.fill(-1)
-	var queue: Array[Vector2i] = []
-	for z in map.size:
-		for x in map.size:
-			if map.road[map.idx(x, z)] != 0:
-				road_dist[map.idx(x, z)] = 0
-				road_src[map.idx(x, z)] = map.idx(x, z)
-				queue.append(Vector2i(x, z))
+	# Multi-Source-BFS von allen Straßen-Tiles (lokale Packed-Arrays: in GDScript deutlich schneller)
+	var size := map.size
+	var n := size * size
+	var road := map.road
+	var dist := PackedInt32Array()
+	dist.resize(n)
+	dist.fill(99)
+	var src := PackedInt32Array()
+	src.resize(n)
+	src.fill(-1)
+	var queue := PackedInt32Array()
+	for i in n:
+		if road[i] != 0:
+			dist[i] = 0
+			src[i] = i
+			queue.append(i)
+	var limit := Config.ROAD_ACCESS_RANGE
 	var head := 0
 	while head < queue.size():
-		var p: Vector2i = queue[head]
+		var u := queue[head]
 		head += 1
-		var d := road_dist[map.idx(p.x, p.y)]
-		if d >= Config.ROAD_ACCESS_RANGE:
+		var d := dist[u]
+		if d >= limit:
 			continue
-		for dir: Vector2i in DIRS:
-			var q := p + dir
-			if map.in_bounds(q.x, q.y) and road_dist[map.idx(q.x, q.y)] > d + 1:
-				road_dist[map.idx(q.x, q.y)] = d + 1
-				road_src[map.idx(q.x, q.y)] = road_src[map.idx(p.x, p.y)]
-				queue.append(q)
+		var x := u % size
+		var z := u / size
+		# Reihenfolge wie DIRS: +x, -x, +z, -z
+		if x + 1 < size and dist[u + 1] > d + 1:
+			dist[u + 1] = d + 1
+			src[u + 1] = src[u]
+			queue.append(u + 1)
+		if x > 0 and dist[u - 1] > d + 1:
+			dist[u - 1] = d + 1
+			src[u - 1] = src[u]
+			queue.append(u - 1)
+		if z + 1 < size and dist[u + size] > d + 1:
+			dist[u + size] = d + 1
+			src[u + size] = src[u]
+			queue.append(u + size)
+		if z > 0 and dist[u - size] > d + 1:
+			dist[u - size] = d + 1
+			src[u - size] = src[u]
+			queue.append(u - size)
+	road_dist = dist
+	road_src = src
 
 
 ## Pendler berechnen: synchron (Tests) oder im Hintergrund-Thread (Spiel). Die Berechnung ist bei großen
@@ -348,6 +396,7 @@ func _request_commute() -> void:
 func _poll_commute() -> void:
 	if _commute_task == -1 or not WorkerThreadPool.is_task_completed(_commute_task):
 		return
+	var t := Perf.begin()
 	WorkerThreadPool.wait_for_task_completion(_commute_task)
 	_commute_task = -1
 	if _commute_discard:
@@ -357,8 +406,13 @@ func _poll_commute() -> void:
 			var v: Variant = _worker.get(f)
 			set(f, v.duplicate() if v is Dictionary or v is PackedFloat32Array or v is PackedInt32Array
 				or v is PackedByteArray else v)
+		Perf.end("sim.pendler_uebernehmen", t)
+		t = Perf.begin()
 		traffic_changed.emit()
+		Perf.end("signal.verkehr_geaendert", t)
+		t = Perf.begin()
 		stats_changed.emit()
+		Perf.end("signal.werte_geaendert", t)
 	if _commute_again:
 		_commute_again = false
 		_request_commute()
@@ -374,37 +428,60 @@ func _exit_tree() -> void:
 ## Weg entlang der Straße zur nächsten Kreuzung, Ecke oder zum Straßenende (BFS über Straßen).
 ## Hauptstraßen-Partner zählt nicht als Abzweig.
 func _compute_junctions() -> void:
-	var n := map.size * map.size
-	junction_dist.resize(n)
-	junction_dist.fill(99)
-	var queue := PackedInt32Array()
+	var size := map.size
+	var n := size * size
+	var road := map.road
+	var height := map.height
+	if map._wide_dirty:
+		map._compute_wide()
+	var wide := map._wide
+	# Nachbarn je Straßen-Tile als Bitmaske (1 +x, 2 -x, 4 +z, 8 -z), verbunden = Straße + max. 1 Block Höhe
+	var mask := PackedByteArray()
+	mask.resize(n)
 	for i in n:
-		if map.road[i] == 0:
+		if road[i] == 0:
 			continue
-		var x := i % map.size
-		var z := i / map.size
-		var partner := map.wide_partner(x, z)
-		var dirs: Array[Vector2i] = []
-		for d: Vector2i in DIRS:
-			if d != partner and map.roads_connected(x, z, x + d.x, z + d.y):
-				dirs.append(d)
-		var straight := dirs.size() == 2 and dirs[0] == -dirs[1]
-		if not straight:
-			junction_dist[i] = 0
+		var x := i % size
+		var z := i / size
+		var h := height[i]
+		var m := 0
+		if x + 1 < size and road[i + 1] != 0 and absi(height[i + 1] - h) <= 1: m |= 1
+		if x > 0 and road[i - 1] != 0 and absi(height[i - 1] - h) <= 1: m |= 2
+		if z + 1 < size and road[i + size] != 0 and absi(height[i + size] - h) <= 1: m |= 4
+		if z > 0 and road[i - size] != 0 and absi(height[i - size] - h) <= 1: m |= 8
+		mask[i] = m
+	var jd := PackedInt32Array()
+	jd.resize(n)
+	jd.fill(99)
+	var queue := PackedInt32Array()
+	const PARTNER_BIT := [0, 1, 2, 4, 8]     # _wide-Code (WIDE_DIRS) -> Bit des Partner-Nachbarn
+	for i in n:
+		if road[i] == 0:
+			continue
+		var m: int = mask[i] & ~int(PARTNER_BIT[wide[i]])
+		# gerade Strecke = genau zwei gegenüberliegende Nachbarn
+		if m != 3 and m != 12:
+			jd[i] = 0
 			queue.append(i)
 	var head := 0
 	while head < queue.size():
 		var u := queue[head]
 		head += 1
-		var ux := u % map.size
-		var uz := u / map.size
-		for d: Vector2i in DIRS:
-			if not map.roads_connected(ux, uz, ux + d.x, uz + d.y):
-				continue
-			var v := map.idx(ux + d.x, uz + d.y)
-			if junction_dist[v] > junction_dist[u] + 1:
-				junction_dist[v] = junction_dist[u] + 1
-				queue.append(v)
+		var m := mask[u]
+		var d := jd[u] + 1
+		if m & 1 and jd[u + 1] > d:
+			jd[u + 1] = d
+			queue.append(u + 1)
+		if m & 2 and jd[u - 1] > d:
+			jd[u - 1] = d
+			queue.append(u - 1)
+		if m & 4 and jd[u + size] > d:
+			jd[u + size] = d
+			queue.append(u + size)
+		if m & 8 and jd[u - size] > d:
+			jd[u - size] = d
+			queue.append(u - size)
+	junction_dist = jd
 
 
 ## Pendler: Arbeitskräfte je Straßen-Anschluss werden in ASSIGN_ROUNDS Etappen
@@ -946,7 +1023,18 @@ func _reaches(i: int, need_jobs: bool) -> bool:
 
 
 ## Verschmutzung, Bodenwert, Kundschaft. Nachbarschafts-Summen per Integralbild (O(n)).
+## Umwelt in Teilen, damit sie im Spiel über mehrere Frames laufen kann:
+## _env_begin (Verschmutzung + Integralbilder), _env_rows (Bodenwert usw. je Zeilenbereich), _env_end.
 func _compute_environment() -> void:
+	_env_begin()
+	_env_rows(0, map.size)
+	_env_end()
+
+
+var _env_int: Array = []      # Integralbilder aus _env_begin: [iw, it, ip, ipop, icom, iind, ires]
+
+
+func _env_begin() -> void:
 	var size := map.size
 	var n := size * size
 	# Lokale Referenzen: spart in GDScript den Member-/Map-Zugriff je Iteration
@@ -1016,6 +1104,7 @@ func _compute_environment() -> void:
 			ires[o] = ires[up] + rres
 	_ipop = ipop
 	_ijobs = ijobs
+	_env_int = [iw, it, ip, ipop, icom, iind, ires]
 
 	land_value.resize(n)
 	customers.resize(n)
@@ -1025,13 +1114,30 @@ func _compute_environment() -> void:
 	ind_cluster.resize(n)
 	res_cluster.resize(n)
 	land_mix.resize(n)
+
+
+func _env_rows(z_from: int, z_to: int) -> void:
+	var size := map.size
+	var s := size + 1
+	var zone := map.zone
+	var level := map.level
+	var road := map.road
+	var height := map.height
+	var feature := map.feature
+	var iw: PackedFloat32Array = _env_int[0]
+	var it: PackedFloat32Array = _env_int[1]
+	var ip: PackedFloat32Array = _env_int[2]
+	var ipop: PackedFloat32Array = _env_int[3]
+	var icom: PackedFloat32Array = _env_int[4]
+	var iind: PackedFloat32Array = _env_int[5]
+	var ires: PackedFloat32Array = _env_int[6]
 	var gr := Config.GREEN_FILTER_RANGE
 	var kr := Config.IND_CLUSTER_RANGE
 	var sr := Config.RES_SHOP_RANGE
 	var dr := Config.RES_DULL_RANGE
 	var cr := Config.COM_CUSTOMER_RANGE
 	var range_ok := Config.ROAD_ACCESS_RANGE
-	for z in size:
+	for z in range(z_from, z_to):
 		var z0 := maxi(z - 3, 0) * s
 		var z1 := mini(z + 4, size) * s
 		var cz0 := maxi(z - cr, 0) * s
@@ -1100,6 +1206,10 @@ func _compute_environment() -> void:
 			var rx0 := maxi(x - 4, 0)
 			var rx1 := mini(x + 5, size)
 			res_nearby[i] = ipop[rz1 + rx1] - ipop[rz0 + rx1] - ipop[rz1 + rx0] + ipop[rz0 + rx0]
+
+
+func _env_end() -> void:
+	var size := map.size
 	# Besucher von Theater/Stadion kaufen im Umkreis ein
 	for a in venues():
 		var bonus := venue_visitors(a) * Config.VENUE_SHOP_SHARE
@@ -1198,81 +1308,117 @@ func _compute_power() -> void:
 	power_demand = 0
 	power_served = 0
 	power_nets = []
+	# Vorberechnet je Tile (statt Funktionsaufrufen in den Schleifen): leitet? Verbrauch? Kraftwerks-Leistung?
+	var size := map.size
+	var cond := PackedByteArray()
+	cond.resize(n)
+	var use := PackedInt32Array()
+	use.resize(n)
+	var anchor := map.anchor
+	var special := map.special
+	var zone := map.zone
+	var line := map.power_line
+	var special_use := PackedByteArray()      # 1 = Sonderbau mit eigenem Verbrauch (Dienst)
+	special_use.resize(n)
+	for i in n:
+		cond[i] = 1 if line[i] == 1 or zone[i] != Config.Zone.NONE or special[i] != Config.Special.NONE else 0
+		use[i] = tile_power_use(i) if zone[i] != Config.Zone.NONE or anchor[i] == i else 0
+		if special[i] != Config.Special.NONE and int(Config.SPECIALS[special[i]].get("use", 0)) > 0:
+			special_use[i] = 1
+	var net := power_net
+	var pw := powered
+	var visit := PackedInt32Array()           # Lauf-Nummer (Netz + 1) statt Dictionary je Netz
+	visit.resize(n)
+	var comp := PackedInt32Array()
+	var q := PackedInt32Array()
 	for start in n:
-		if power_net[start] != -1 or not map.conducts(start):
+		if net[start] != -1 or cond[start] == 0:
 			continue
 		# 1) Netz-Komponente sammeln
 		var id := power_nets.size()
-		var comp: Array[int] = [start]
-		power_net[start] = id
+		comp.resize(0)
+		comp.append(start)
+		net[start] = id
 		var head := 0
 		var plants: Array[int] = []
 		var capacity := 0
 		var demand := 0
 		while head < comp.size():
-			var i: int = comp[head]
+			var i := comp[head]
 			head += 1
-			if map.anchor[i] == i:
-				var pw: int = Config.SPECIALS[map.special[i]]["power"]
-				capacity += pw
-				if pw > 0:
+			if anchor[i] == i:
+				var p: int = Config.SPECIALS[special[i]]["power"]
+				capacity += p
+				if p > 0:
 					plants.append(i)
-			demand += tile_power_use(i)
-			var x := i % map.size
-			var z := i / map.size
-			for dir: Vector2i in DIRS:
-				var nx: int = x + dir.x
-				var nz: int = z + dir.y
-				if not map.in_bounds(nx, nz):
-					continue
-				var j := map.idx(nx, nz)
-				if power_net[j] == -1 and map.conducts(j):
-					power_net[j] = id
-					comp.append(j)
+			demand += use[i]
+			var x := i % size
+			var z := i / size
+			if x + 1 < size and net[i + 1] == -1 and cond[i + 1] == 1:
+				net[i + 1] = id
+				comp.append(i + 1)
+			if x > 0 and net[i - 1] == -1 and cond[i - 1] == 1:
+				net[i - 1] = id
+				comp.append(i - 1)
+			if z + 1 < size and net[i + size] == -1 and cond[i + size] == 1:
+				net[i + size] = id
+				comp.append(i + size)
+			if z > 0 and net[i - size] == -1 and cond[i - size] == 1:
+				net[i - size] = id
+				comp.append(i - size)
 		# 2) Versorgen in BFS-Reihenfolge ab den Kraftwerken
 		var left := capacity
 		var unserved := 0
 		var dark := -1          # ein Gebäude ohne Strom (für Meldung/Kamera)
 		if not plants.is_empty():
+			var stamp := id + 1
 			# Dienste (Polizei, Krankenhaus ...) zuerst versorgen, Wohnen/Gewerbe/Industrie bekommen den Rest
 			var reserved := {}
 			for i in comp:
-				if map.zone[i] == Config.Zone.NONE and map.anchor[i] == i:
-					var su := tile_power_use(i)
+				if zone[i] == Config.Zone.NONE and anchor[i] == i:
+					var su := use[i]
 					if su > 0 and su <= left:
 						left -= su
-						powered[i] = 1
+						pw[i] = 1
 						reserved[i] = true
-			var visited := {}
-			var q: Array[int] = []
+			# Startpunkte: alle Tiles der Kraftwerke (1x1 oder 2x2), je Kraftwerk in Komponenten-Reihenfolge
+			var plant_set := {}
 			for p in plants:
-				# Kraftwerke sind 1x1 oder 2x2: alle Tiles des Kraftwerks als Startpunkte
-				for k in comp:
-					if map.anchor[k] == p and not visited.has(k):
-						visited[k] = true
+				plant_set[p] = []
+			for k in comp:
+				if anchor[k] >= 0 and plant_set.has(anchor[k]):
+					(plant_set[anchor[k]] as Array).append(k)
+			q.resize(0)
+			for p in plants:
+				for k: int in plant_set[p]:
+					if visit[k] != stamp:
+						visit[k] = stamp
 						q.append(k)
 			head = 0
 			while head < q.size():
-				var i: int = q[head]
+				var i := q[head]
 				head += 1
-				var use := 0 if reserved.has(i) else tile_power_use(i)
-				if use > left:
+				var u := 0 if reserved.has(i) else use[i]
+				if u > left:
 					continue
-				left -= use
-				powered[i] = 1
-				var x := i % map.size
-				var z := i / map.size
-				for dir: Vector2i in DIRS:
-					var nx: int = x + dir.x
-					var nz: int = z + dir.y
-					if not map.in_bounds(nx, nz):
-						continue
-					var j := map.idx(nx, nz)
-					if not visited.has(j) and map.conducts(j):
-						visited[j] = true
-						q.append(j)
+				left -= u
+				pw[i] = 1
+				var x := i % size
+				var z := i / size
+				if x + 1 < size and visit[i + 1] != stamp and cond[i + 1] == 1:
+					visit[i + 1] = stamp
+					q.append(i + 1)
+				if x > 0 and visit[i - 1] != stamp and cond[i - 1] == 1:
+					visit[i - 1] = stamp
+					q.append(i - 1)
+				if z + 1 < size and visit[i + size] != stamp and cond[i + size] == 1:
+					visit[i + size] = stamp
+					q.append(i + size)
+				if z > 0 and visit[i - size] != stamp and cond[i - size] == 1:
+					visit[i - size] = stamp
+					q.append(i - size)
 		for i in comp:
-			if tile_power_use(i) > 0 and powered[i] == 0:
+			if use[i] > 0 and pw[i] == 0:
 				unserved += 1
 				if dark < 0:
 					dark = i
@@ -1280,13 +1426,15 @@ func _compute_power() -> void:
 		# Dienste nur, wenn ihr Ursprungs-Tile oben Strom bekommen hat
 		if not plants.is_empty():
 			for i in comp:
-				if map.special[i] != Config.Special.NONE and int(Config.SPECIALS[map.special[i]].get("use", 0)) == 0:
-					powered[i] = 1
+				if special[i] != Config.Special.NONE and special_use[i] == 0:
+					pw[i] = 1
 		power_supply += capacity
 		power_demand += demand
 		power_served += capacity - left
 		power_nets.append({"capacity": capacity, "demand": demand, "plants": plants.size(),
 			"unserved": unserved, "dark": dark, "key": start})
+	power_net = net
+	powered = pw
 	# Restliche Tiles eines Dienstbaus übernehmen den Zustand ihres Ursprungs-Tiles
 	for i in n:
 		var a := map.anchor[i]
@@ -1352,22 +1500,40 @@ func _recount() -> void:
 	bus_stop_count = 0
 	station_count = 0
 	special_upkeep = 0.0
+	var zone := map.zone
+	var level := map.level
+	var villa := map.villa
+	var road := map.road
+	var line := map.power_line
+	var rail := map.rail
+	var transit := map.transit
+	var feature := map.feature
+	var anchor := map.anchor
+	var res_cap: Array = Config.RES_CAPACITY
+	var com_cap: Array = Config.COM_CAPACITY
+	var ind_cap: Array = Config.IND_CAPACITY
 	for i in map.size * map.size:
-		var lv := map.level[i]
-		match map.zone[i]:
-			Config.Zone.RES:
-				population += map.res_capacity(i)
-				villa_count += 1 if map.villa[i] == 1 and lv == 3 else 0
-			Config.Zone.COM: jobs_com += Config.COM_CAPACITY[lv]
-			Config.Zone.IND: jobs_ind += Config.IND_CAPACITY[lv]
-		road_count += 1 if map.road[i] != 0 else 0
-		line_count += map.power_line[i]
-		rail_count += 1 if map.rail[i] != 0 else 0
-		bus_stop_count += 1 if map.transit[i] == Config.Transit.BUS_STOP else 0
-		station_count += 1 if map.transit[i] == Config.Transit.STATION else 0
-		if map.feature[i] == Config.Feature.PARK:
+		var lv := level[i]
+		var zn := zone[i]
+		if zn == Config.Zone.RES:
+			if villa[i] == 1 and lv == 3:
+				population += Config.VILLA_POP
+				villa_count += 1
+			else:
+				population += res_cap[lv]
+		elif zn == Config.Zone.COM:
+			jobs_com += com_cap[lv]
+		elif zn == Config.Zone.IND:
+			jobs_ind += ind_cap[lv]
+		if road[i] != 0: road_count += 1
+		line_count += line[i]
+		if rail[i] != 0: rail_count += 1
+		var tr := transit[i]
+		if tr == Config.Transit.BUS_STOP: bus_stop_count += 1
+		elif tr == Config.Transit.STATION: station_count += 1
+		if feature[i] == Config.Feature.PARK:
 			park_count += 1
-		if map.anchor[i] == i:
+		if anchor[i] == i:
 			var lvl := map.special_level(i) if Config.SPECIALS[map.special[i]].has("service") else 1
 			special_upkeep += Config.SPECIALS[map.special[i]]["upkeep"] * Config.UPKEEP_LEVEL[lvl]
 
@@ -1465,9 +1631,19 @@ func _can_grow(i: int) -> bool:
 
 
 func _grow() -> void:
-	var changed := Rect2i()
-	var any := false
-	for z in map.size:
+	_grow_rows(0, map.size)
+	_grow_finish()
+
+
+var _grow_changed := Rect2i()
+var _grow_any := false
+
+
+## Wachstum für einen Zeilenbereich (im Spiel auf 2 Frames verteilt); _grow_finish meldet die Änderungen.
+func _grow_rows(z_from: int, z_to: int) -> void:
+	var changed := _grow_changed
+	var any := _grow_any
+	for z in range(z_from, z_to):
 		for x in map.size:
 			var i := map.idx(x, z)
 			var zn := map.zone[i]
@@ -1505,15 +1681,28 @@ func _grow() -> void:
 				map.level[i] = new_lv
 				# Wohnen Stufe 3: in Villenlage eine Villa statt Wohnblock
 				map.villa[i] = 1 if zn == Config.Zone.RES and new_lv == 3 and villa_site(i) else 0
-			# Verfall sichtbar machen, bevor das Gebäude absinkt
-			var worn := 1 if map.level[i] > 0 and decay_reason(i) != "" else 0
+			# Verfall sichtbar machen, bevor das Gebäude absinkt (gleiche Bedingungen wie decay_reason)
+			var worn := 0
+			if new_lv > 0:
+				var mx := _max_level(i)
+				if (zn == Config.Zone.RES and new_lv == 3 and map.villa[i] == 1 and villa_lost(i)) \
+						or (zn == Config.Zone.RES and happiness[i] < Config.HAPPY_LEAVE) \
+						or not ok or new_lv > mx or demand < -0.25:
+					worn = 1
 			if new_lv != lv or worn != map.worn[i]:
 				map.worn[i] = worn
 				var r := Rect2i(x, z, 1, 1)
 				changed = r if not any else changed.merge(r)
 				any = true
-	if any:
-		map.notify_changed(changed, false)    # nur Gebäudestufen
+	_grow_changed = changed
+	_grow_any = any
+
+
+func _grow_finish() -> void:
+	if _grow_any:
+		map.notify_changed(_grow_changed, false)    # nur Gebäudestufen
+	_grow_any = false
+	_grow_changed = Rect2i()
 
 
 ## Höchste erreichbare Stufe (Wohnen: begrenzt durch Bodenwert).

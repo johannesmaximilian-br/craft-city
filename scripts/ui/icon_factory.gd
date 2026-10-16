@@ -54,6 +54,28 @@ func get_icon(icon_name: String) -> Texture2D:
 
 # ---------------------------------------------------------------- Szeneninhalt
 
+## App-Icon (1024 px): Mini-Insel aus der Stadt auf blauem, abgerundetem Grund.
+func render_app_icon(path: String) -> void:
+	var tex := _render("app", 1024)
+	for k in 4:
+		await get_tree().process_frame
+	var fg := tex.get_image()
+	var img := Image.create(1024, 1024, false, Image.FORMAT_RGBA8)
+	var top := Color("8fd0ff")
+	var bottom := Color("3a8fd9")
+	var r := 180.0          # Eckenradius (macOS-typisch ~ 18 %)
+	var m := 40.0           # Rand
+	for y in 1024:
+		var col := top.lerp(bottom, float(y) / 1023.0)
+		for x in 1024:
+			var dx := maxf(maxf(m + r - x, x - (1023.0 - m - r)), 0.0)
+			var dy := maxf(maxf(m + r - y, y - (1023.0 - m - r)), 0.0)
+			var inside := x >= m and x <= 1023.0 - m and y >= m and y <= 1023.0 - m and dx * dx + dy * dy <= r * r
+			img.set_pixel(x, y, col if inside else Color(0, 0, 0, 0))
+	img.blend_rect(fg, Rect2i(0, 0, 1024, 1024), Vector2i(0, 0))
+	img.save_png(path)
+
+
 func _content(icon_name: String) -> Node3D:
 	var b := BlockBatch.new(lib)
 	var root := Node3D.new()
@@ -94,6 +116,23 @@ func _content(icon_name: String) -> Node3D:
 			b.base = Vector3(0, 1, 0)
 			var zone: int = {"res": Config.Zone.RES, "com": Config.Zone.COM, "ind": Config.Zone.IND}[icon_name]
 			BuildingGenerator.emit(zone, 2, 7, b.put_local, b.prop_local)
+		"app":
+			# Insel 9x9 Blöcke: Gras + Erdschicht, Hochhaus, Haus, Fabrik, Bäume, Straße
+			for z in 9:
+				for x in 9:
+					b.put("dirt", Vector3(x, 0, z))
+					b.put("grass" if not (z == 4) else "asphalt", Vector3(x, 1, z))
+			b.base = Vector3(0, 2, 0)
+			BuildingGenerator.emit(Config.Zone.COM, 2, 3, b.put_local, b.prop_local)
+			b.base = Vector3(6, 2, 0)
+			BuildingGenerator.emit(Config.Zone.RES, 2, 5, b.put_local, b.prop_local)
+			b.base = Vector3(6, 2, 6)
+			BuildingGenerator.emit(Config.Zone.RES, 3, 9, b.put_local, b.prop_local)
+			b.put_prop("tree1", Vector3(1.5, 2, 7.5), 0.4)
+			b.put_prop("tree2", Vector3(3.6, 2, 6.4), 1.3)
+			b.put_prop("bush", Vector3(4.5, 2, 1.5), 0.0)
+			for x in 9:
+				b.put("marking", Vector3(x + 0.375, 2.0, 4.375))
 		"coal":
 			_ground(b, 6)
 			StructureGenerator.coal(b, Vector3(0, 1, 0))
@@ -188,9 +227,9 @@ func _pose(n: Node) -> void:
 
 # ---------------------------------------------------------------- Rendern
 
-func _render(icon_name: String) -> Texture2D:
+func _render(icon_name: String, px := SIZE) -> Texture2D:
 	var vp := SubViewport.new()
-	vp.size = Vector2i(SIZE, SIZE)
+	vp.size = Vector2i(px, px)
 	vp.transparent_bg = true
 	vp.own_world_3d = true
 	vp.msaa_3d = Viewport.MSAA_4X

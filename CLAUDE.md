@@ -42,7 +42,10 @@ $G --path . -- --demo --cam=32,32,60 --screenshot=/pfad/bild.png          # Scre
   Renderer/Fahrzeuge/HUD lesen nur. Alle Spielwerte in `config.gd`.
 - **Änderungen melden:** `map.notify_changed(rect, infra := true)`. `infra=false` nur bei reinen Gebäudestufen
   (Wachstum, Brände) → Autos/Züge/Hauptstraßen-Cache werden dann nicht neu berechnet. Bauwerkzeuge melden immer `infra=true`.
-- **Simulation verteilt:** Monat = `TICK_STAGES` (je Frame eine Etappe, je ≤ ~9 ms). `tick_month()` = synchron (Tests/Demo),
+- **Kartengröße 128×128** (`Config.MAP_SIZE`). Kleinere alte Saves bettet `CityMap._embed` mittig ein (Anker-Indizes
+  umrechnen!, Höhen am Rand angleichen); Sim-Arrays aus dem Save mit falscher Größe werden verworfen.
+- **Simulation verteilt:** Monat = `TICK_STAGES` (je Frame eine Etappe, Ziel ≤ ~16 ms bei 128×128). Umwelt
+  (`_env_begin/_env_rows/_env_end`) und Wachstum (`_grow_rows/_grow_finish`) sind zeilenweise teilbar. `tick_month()` = synchron (Tests/Demo),
   `refresh()` = alles sofort (nach Bauaktionen). Neue teure Berechnungen als eigene Etappe einhängen.
 - **Pendler asynchron:** im Spiel (`sim.async_commute = true`, gesetzt in `main.gd`) rechnet eine zweite
   `Simulation`-Instanz (`_worker`) `_compute_commute` per `WorkerThreadPool` auf einer Kopie aller `SAVE_FIELDS`;
@@ -122,9 +125,13 @@ $G --path . -- --demo --cam=32,32,60 --screenshot=/pfad/bild.png          # Scre
 - **Reichweiten-Vorschau:** `ToolController.range_preview(tile)` (Tile → Farbe) bildet die Regeln aus
   `_build_transit_links` (BUS_RANGE, STATION_WALK, Zubringer) und `_service_tiles` nach — bei Regeländerung dort mitziehen.
   Eigene MultiMesh `_range` (render_priority 1, über der Ansichts-Einfärbung).
-- **Ansichten (`TrafficOverlay`):** Boden-Tiles als flache Platte am Boden, **bebaute Tiles** (Zone mit Gebäude,
+- **Ansichten (`MapOverlay`):** Boden-Tiles als flache Platte am Boden, **bebaute Tiles** (Zone mit Gebäude,
   Sonderbau) auf geschätzter Dachhöhe (`ROOF` je Zone/Stufe) in eigener MultiMesh `_roofs` ohne Tiefentest — am Boden
-  lagen sie im Gebäude und waren unsichtbar (Kriminalität/Zufriedenheit). Farben `.srgb_to_linear()`.
+  lagen sie im Gebäude und waren unsichtbar (Kriminalität/Zufriedenheit). Farben über `_tint()`: sRGB→linear und
+  Deckkraft × `GROUND_ALPHA` 0.35 / `ROOF_ALPHA` 0.6 (Nutzer: Stadt soll durchscheinen).
+- **App-Icon/Startbild:** `assets/app/icon.png` (+ `.icns` per `iconutil`, im Export-Profil und `config/macos_native_icon`)
+  wird mit `--appicon=pfad.png` aus `IconFactory` gerendert, `assets/app/splash.png` mit `--demo --splash --cam=33,33,62
+  --screenshot=…`. Vollbild beim Start über `GraphicsSettings.apply_window()`, nie bei Läufen mit Dev-Flags.
 - **Speichern:** neue Map-Felder in `CityMap.SAVE_FIELDS` eintragen; fehlende Felder alter Saves werden genullt.
   `SaveManager.save` rotiert vorher Sicherungen (`<slot>.bak1..3`, nur Spieler-Slots). Tests, die Spieler-Slots
   benutzen wollen, stellen `SaveManager.dir` auf einen eigenen Ordner um (siehe `savetest`).
@@ -160,6 +167,9 @@ $G --path . -- --demo --cam=32,32,60 --screenshot=/pfad/bild.png          # Scre
   Menü-Testfenster die Grafikeinstellung des Nutzers umgestellt). `Window.unfocusable` hilft auf macOS nicht. Der alte Fehlschlag „dragtest Straße 0 Tiles“
   kam daher.
 - Export: Vorlage enthält nur `universal`, und `textures/vram_compression/import_etc2_astc` muss an sein.
+- **Performance-Änderungen an der Simulation** immer mit `--loadfile=build/backups/megacity_2026-10-12.citysave --determinism`
+  vorher/nachher vergleichen (Prüfsummen müssen gleich bleiben). Fester Zufall braucht `seed()` **vor** jeder
+  Neuberechnung und leere Vorgeschichte (`congestion`, `station_use`), sonst streut das Ergebnis.
 - Beim Ersetzen von Code per Skript nicht über Blockgrenzen schneiden (einmal ist so ein Config-Block verloren gegangen).
 
 ## Stil & Design (vom Nutzer gewünscht)

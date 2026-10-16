@@ -8,7 +8,7 @@ extends Node3D
 
 @export var pan_speed := 60.0
 @export var min_dist := 12.0
-@export var max_dist := 180.0
+@export var max_dist := 280.0     # 128er-Karte ganz überblicken
 
 var camera: Camera3D
 var bounds := Rect2(0, 0, 192, 192)

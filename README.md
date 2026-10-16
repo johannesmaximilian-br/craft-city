@@ -39,6 +39,7 @@ Dev-Flags (nach `--`, funktionieren auch mit der App: `"build/Cube City.app/Cont
 | Glocke (oben links, Zahl = ungelesen) | Verlauf der letzten 20 Warnungen |
 | I | Info-Karte: kompakt ↔ alle Details (Gebäude · Dienst/Verkehr · Versorgung · Lage · Wachstum) |
 | H | HUD aus-/einblenden (Werkzeugleiste bleibt) |
+| F11 oder Ctrl+Cmd+F | Vollbild an/aus (Start im Vollbild, Einstellung wird gespeichert; auch im Menü) |
 | V | Ansicht: Verkehr → Verschmutzung → Bodenwert → Kriminalität → Zufriedenheit → ÖPNV → Strom → aus |
 | Ansicht-Button (oben, Balken-Symbol) | Liste aller Ansichten mit Kennzahlen (Stau, ÖPNV, Ø Verschmutzung/Bodenwert/Kriminalität, Arbeitslose); Button zeigt aktive Ansicht |
 | Zufriedenheit (oben, Smiley) | Hover: größte Minuspunkte · Klick: Aufschlüsselung mit Tipps, was fehlt |
@@ -62,7 +63,7 @@ Dev-Flags (nach `--`, funktionieren auch mit der App: `"build/Cube City.app/Cont
 - **Stromnetze sind getrennt:** alles Zusammenhängende ist ein Netz und bekommt nur die Leistung seiner eigenen Kraftwerke. Ein neues Kraftwerk ohne Verbindung hilft einem anderen Netz nicht.
 - **Dienst- und Kulturbauten brauchen Strom** (Stufe 1: Bibliothek/Polizei/Feuerwehr 1 MW, Schule/Kino 2, Bürgerhaus 3, Krankenhaus/Theater 5, Stadion 12; Stufe 2 ×1,5, Stufe 3 ×2). Ohne Strom arbeiten sie nicht: keine Versorgung, Feuerwache rückt nicht aus („Feuerwache ohne Strom“), keine Veranstaltungen; Blitz-Symbol, Info-Karte „x Kein Strom“. Im Netz werden sie **bevorzugt** versorgt (vor Wohnen/Gewerbe/Industrie). Ein Dienstbau zwischen Straßen ohne angrenzende Zone braucht eine Stromleitung.
 - Im Netz wird vom Kraftwerk aus Tile für Tile versorgt; reicht die Leistung nicht, fällt das **Leitungsende** zuerst aus (Blitz-Symbol, kein Wachstum, Verfall).
-- Anzeige oben: Bedarf aller Gebäude (auch nicht angeschlossener) / Leistung aller Kraftwerke, **rot sobald irgendwo ein Gebäude ohne Strom ist**; Tooltip listet die Netze (Bedarf/Leistung/Kraftwerke/Engpass). Meldung mit Ort: „Kein Strom: … ohne Kraftwerk im Netz“ bzw. „Stromengpass im Netz bei x,z“. Info-Karte: Netz des Tiles. **Ansicht Strom** (V): jedes Netz in eigener Farbe, Gebäude ohne Strom rot, Kraftwerke weiß. Test `--powertest`, `--powerreport` (Dienste ohne Strom eines Spielstands).
+- Anzeige oben: Bedarf aller Gebäude (auch nicht angeschlossener) / Leistung aller Kraftwerke, **rot sobald irgendwo ein Gebäude ohne Strom ist**; Tooltip listet die Netze (Bedarf/Leistung/Kraftwerke/Engpass). Meldung mit Ort: „Kein Strom: … ohne Kraftwerk im Netz“ bzw. „Stromengpass im Netz bei x,z“. Info-Karte: Netz des Tiles. **Ansicht Strom** (V): jedes Netz in eigener Farbe, Gebäude ohne Strom rot, Kraftwerke weiß. Test `--powertest`, `--powerreport` (Dienste ohne Strom eines Spielstands), `--determinism` (Prüfsummen nach 12 Monaten mit festem Zufall).
 - Kohlekraftwerk senkt Bodenwert von Wohngebieten in der Nähe.
 - **Pendler**: 55 % der Einwohner fahren monatlich zum nächsten freien Job (Dijkstra, Stau verteuert Wege).
   Wohnen braucht erreichbare Jobs (auch per Bahn), Gewerbe/Industrie erreichbare Einwohner. Fahrzeit > 40 blockiert Wohnwachstum.
@@ -71,6 +72,7 @@ Dev-Flags (nach `--`, funktionieren auch mit der App: `"build/Cube City.app/Cont
 - **Bahnhofs-Kapazität**: 1.500 Ein-/Aussteiger je Bahnhof und Monat. Darüber wird der Weg über diesen Bahnhof teurer (Aufschlag 3 × Auslastung²), ab 150 % ist er für den Monat dicht → Pendler weichen auf andere Bahnhöfe, Bus oder Auto aus. Info-Karte des Bahnhofs zeigt die Auslastung („überfüllt!“). Mehr Bahnhöfe = mehr Kapazität.
 - **Reichweite beim Bauen:** Mit Haltestelle oder Bahnhof in der Hand zeigt die Karte automatisch die ÖPNV-Ansicht, dazu unter dem Cursor die Reichweite: **blau** die Straßen, die ins Busnetz kommen bzw. im Fußweg zum Bahnhof liegen (inkl. ganzem Busnetz, wenn eine Haltestelle nahe dem Bahnhof steht), **hellgrün** Gebäude, die dadurch neu Anschluss bekommen. Dienst-/Kulturbauten zeigen den **Rand ihres Einzugskreises** (weiß), beim Ausbau den Radius der nächsten Stufe. Test `--rangetest`.
 - **Ansicht ÖPNV** (V bzw. Ansicht-Liste): Straßen im Busnetz blau, Gebäude mit Bus-/Bahnanschluss grün, ohne rot; Liste zeigt Anteil, Bus-/Bahnfahrer und Anteil Wohnungen mit Anschluss.
+- **Alte 64×64-Spielstände** werden beim Laden mittig in eine neu erzeugte 128er-Landschaft gesetzt (Ränder über 8 Tiles in der Höhe angeglichen); gespeichert wird dann als 128er-Stand, die alte Version bleibt als Sicherung.
 - **Spielstände + Einstellungen** liegen im eigenen Datenordner des Spiels (gleich für Editor und Mac-App, kein Godot nötig):
   macOS `~/Library/Application Support/Cube City/` · Windows `%APPDATA%\Cube City\` · Linux `~/.local/share/Cube City/`,
   darin `saves/*.citysave` (Schnellspeicher F5/F9 + Slot 1–3) und `settings.cfg`. Menü: **„Spielstand-Ordner öffnen“**.
@@ -87,7 +89,7 @@ Dev-Werkzeuge liegen getrennt vom Spielcode in `scripts/dev/` und laufen nur mit
 
 - `dev_tools.gd` — wertet Flags aus: `--demo`, `--cam=x,z,dist`, `--ignite=x,z[,sek]` (Gebäude anzünden, Brand vorspulen, Kamera hin), `--ruin=x,z` (sofort abbrennen), `--overlay[=1..5]`, `--popup=view|happy`, `--menu`, `--flyout`, `--screenshot=pfad`, `--quit`
 - `demo_city.gd` — reproduzierbare Teststadt (Zonen, Strom, ÖPNV, 4-spurige Straße mit Verjüngung)
-- `dev_tests.gd` — `--selftest` (Timing, Speichern/Laden, Audio), `--dragtest` (echtes Maus-Ziehen), `--lanetest` (Rechtsverkehr auf Hauptstraßen), `--widetest` (Hauptstraßen-Erkennung), `--profile[=Sek,Tempo]` (Frame-Zeiten + Ruckler-Ursachen), `--gfx=0..2`, `--nowarmup`, `--servicetest`, `--tool=<name>`, `--traffictest` (Korridor: Straße/Parallelstraße/Hauptstraße/Bus/Bahn), `--pickcheck`, `--firetest` (Brand an der Wache gelöscht, ohne Wache abgebrannt + Ruine), `--bustest` (Vorstadt mit eigenem Straßennetz bekommt Busse), `--happytest` (Aufschlüsselung, Warnung bei Steuer hoch / Polizei weg), `--cheattest` (Geld-Cheat per Tastenereignis), `--greentest` (Grüngürtel gegen Verschmutzung, Terraforming reißt Straße ab), `--venuetest` (Stadion/Theater: Besucherverkehr, Kundschaft), `--zonetest` (Ladenzeile, Ballung, Nachbarschaft), `--taxtest` (Steuern je Zone, ÖPNV-Tarif), `--cartest` (Autos/Busse je Tarif, Diagnose ÖPNV, Bahnhofs-Auslastung), `--cardrift=Sek`, `--jamreport` (meistbelastete Straßen), `--loadfile=pfad` (Spielstand-Kopie laden), `--focus=x,z` (Kamera auf Tile), `--fronttest`, `--hover=x,z [--detail]`, `--notify`, `--hidehud`, `--fpstest`, `--mutetest`, `--savetest`, `--uiscale=f`, `--zoomtest`, `--rangetest`, `--menu --asksave=slot`, `--gpumeasure=Sek,fps [--pause]`, `--popup=view|happy|log`, `--loadreport` (Auslastung der Dienste + Brände in 12 Monaten), `--powertest`, `--bigcity` (ganze Karte bebauen), `--buildtest` (Bau-Klick-Zeit, Pendler synchron/Hintergrund)
+- `dev_tests.gd` — `--selftest` (Timing, Speichern/Laden, Audio), `--dragtest` (echtes Maus-Ziehen), `--lanetest` (Rechtsverkehr auf Hauptstraßen), `--widetest` (Hauptstraßen-Erkennung), `--profile[=Sek,Tempo]` (Frame-Zeiten + Ruckler-Ursachen), `--gfx=0..2`, `--nowarmup`, `--servicetest`, `--tool=<name>`, `--traffictest` (Korridor: Straße/Parallelstraße/Hauptstraße/Bus/Bahn), `--pickcheck`, `--firetest` (Brand an der Wache gelöscht, ohne Wache abgebrannt + Ruine), `--bustest` (Vorstadt mit eigenem Straßennetz bekommt Busse), `--happytest` (Aufschlüsselung, Warnung bei Steuer hoch / Polizei weg), `--cheattest` (Geld-Cheat per Tastenereignis), `--greentest` (Grüngürtel gegen Verschmutzung, Terraforming reißt Straße ab), `--venuetest` (Stadion/Theater: Besucherverkehr, Kundschaft), `--zonetest` (Ladenzeile, Ballung, Nachbarschaft), `--taxtest` (Steuern je Zone, ÖPNV-Tarif), `--cartest` (Autos/Busse je Tarif, Diagnose ÖPNV, Bahnhofs-Auslastung), `--cardrift=Sek`, `--jamreport` (meistbelastete Straßen), `--loadfile=pfad` (Spielstand-Kopie laden), `--focus=x,z` (Kamera auf Tile), `--fronttest`, `--hover=x,z [--detail]`, `--notify`, `--hidehud`, `--fpstest`, `--mutetest`, `--savetest`, `--uiscale=f`, `--zoomtest`, `--rangetest`, `--appicon=pfad.png` (App-Icon rendern), `--splash` (+ `--screenshot`, Startbild), `--menu --asksave=slot`, `--gpumeasure=Sek,fps [--pause]`, `--popup=view|happy|log`, `--loadreport` (Auslastung der Dienste + Brände in 12 Monaten), `--powertest`, `--bigcity` (ganze Karte bebauen), `--buildtest` (Bau-Klick-Zeit, Pendler synchron/Hintergrund)
 
 ```bash
 /Applications/Godot.app/Contents/MacOS/Godot --path . -- --demo --selftest --dragtest --traffictest --quit
@@ -199,7 +201,9 @@ Test (`--traffictest`, Korridor mit 1.500 Pendlern):
 
 ## Performance
 
-- **Simulationsmonat auf 5 Frames verteilt** (Netz → Pendler → Umwelt → Dienste → Wachstum); Pendler/Umwelt nur einmal pro Monat.
+- **Simulationsmonat auf 11 Frames verteilt** (Straßen → Strom → Pendler → Umwelt ½ → Umwelt ½ → Zählen → Dienste → Wachstum ½ → Wachstum ½ → Strom → Abschluss); Umwelt und Wachstum zeilenweise halbiert.
+- **Heiße Schleifen** (Straßenabstand, Kreuzungen, Strom, Hauptstraßen-Erkennung, Zählung, Verkehrs-Neuaufbau, Blitz-Marker) rechnen mit lokalen Arrays statt Funktionsaufrufen je Tile. `--determinism` (12 Monate mit festem Zufall) prüft, dass Optimierungen das Ergebnis nicht verändern.
+- Messung **128×128 mit Megacity** (17.600 Einw.): Ruckler > 25 ms im laufenden Spiel 74 → 5, schwerste Etappe ~20 ms; Bau-Klick 66 → 28 ms; Pendler 1,9 s im Hintergrund; ganz herausgezoomt weiter ~117 Bilder/s.
 - **Pendler im Hintergrund-Thread:** die teuerste Berechnung (Dijkstra je Wohnstraße, 3 Etappen) läuft auf einer Kartenkopie; das Ergebnis wird übernommen, sobald es fertig ist. Bau-Klicks und Monate frieren nicht mehr ein. Die Suche arbeitet ohne Allokationen (vorberechnete Nachbarn, Heap in Packed-Arrays) und bricht ab, wenn keine Jobs mehr frei sind.
 - **Bau-Klick gestaffelt:** Straßen/Strom sofort, Umwelt und Dienste in den 2 folgenden Frames.
 - Messung Riesenstadt (`--demo --bigcity --buildtest`, ganze Karte bebaut, 43.000 Einw.): Pendler vorher 4,4 s je Bau-Klick und Monat → jetzt 0,86 s im Hintergrund (App: 0,55 s); Bau-Klick 31 ms (App: 20 ms); `--profile=15,3` App: Ø 8,6 ms, kein Ruckler > 25 ms.
@@ -227,7 +231,7 @@ python3 tools/audio/gen_audio.py sfx ambient  # nur Effekte + Loops (~3 s)
 
 ## Aufbau
 
-1 Tile = 3×3 Blöcke (1 Block = 1 Welteinheit), Höhe in Blockschritten, Karte 64×64 Tiles. Alle Spielwerte in `scripts/config.gd`.
+1 Tile = 3×3 Blöcke (1 Block = 1 Welteinheit), Höhe in Blockschritten, Karte 128×128 Tiles (bis Okt. 2026: 64×64). Alle Spielwerte in `scripts/config.gd`.
 
 | Datei | Aufgabe |
 |---|---|
@@ -243,7 +247,7 @@ python3 tools/audio/gen_audio.py sfx ambient  # nur Effekte + Loops (~3 s)
 | `render/block_library.gd` / `block_batch.gd` | Meshes laden/normalisieren; Instanzen sammeln → MultiMesh |
 | `render/building_generator.gd` / `structure_generator.gd` | Zonen-Gebäude bzw. Sonderbauten/Gleise/Masten aus Blöcken |
 | `render/traffic.gd` / `trains.gd` | Autos+Busse / Züge (rein visuell) |
-| `render/traffic_overlay.gd` | Ansichten (V) + Versorgungsansicht |
+| `render/map_overlay.gd` | Karten-Ansichten (V: Verkehr, Verschmutzung, Bodenwert, Kriminalität, Zufriedenheit, ÖPNV, Strom) + Versorgungsansicht der Dienste |
 | `render/status_markers.gd` | Blitz-Marker (kein Strom) |
 | `render/fire_fx.gd` | Flammen, Rauch, Wasserstrahl, Löschzüge mit Blaulicht, Rauch über Ruinen |
 | `render/graphics_settings.gd` / `shader_warmup.gd` | Grafikstufen / Shader vorkompilieren |

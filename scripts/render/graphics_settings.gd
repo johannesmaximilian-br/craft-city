@@ -17,6 +17,7 @@ const FPS_OPTIONS := [30, 60, 0]          # 0 = unbegrenzt
 static var fps_limit := 60
 const UI_SCALES := [0.7, 0.85, 1.0, 1.15]
 static var ui_scale := 1.0
+static var fullscreen := true
 
 
 static func load_saved() -> void:
@@ -26,6 +27,7 @@ static func load_saved() -> void:
 		vsync = cfg.get_value("graphics", "vsync", true)
 		fps_limit = cfg.get_value("graphics", "fps_limit", 60)
 		ui_scale = cfg.get_value("graphics", "ui_scale", 1.0)
+		fullscreen = cfg.get_value("graphics", "fullscreen", true)
 
 
 static func save() -> void:
@@ -35,7 +37,17 @@ static func save() -> void:
 	cfg.set_value("graphics", "vsync", vsync)
 	cfg.set_value("graphics", "fps_limit", fps_limit)
 	cfg.set_value("graphics", "ui_scale", ui_scale)
+	cfg.set_value("graphics", "fullscreen", fullscreen)
 	cfg.save(SETTINGS_PATH)
+
+
+## Vollbild an/aus (Testläufe mit Dev-Flags bleiben immer im Fenster).
+static func apply_window() -> void:
+	if not OS.get_cmdline_user_args().is_empty():
+		return
+	var want := DisplayServer.WINDOW_MODE_FULLSCREEN if fullscreen else DisplayServer.WINDOW_MODE_WINDOWED
+	if DisplayServer.window_get_mode() != want:
+		DisplayServer.window_set_mode(want)
 
 
 static func apply(viewport: Viewport, env: Environment, sun: DirectionalLight3D) -> void:

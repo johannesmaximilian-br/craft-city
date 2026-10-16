@@ -1,7 +1,7 @@
 class_name Config
 ## Globale Konstanten: Kartengröße, Kosten, Simulationswerte.
 
-const MAP_SIZE := 64
+const MAP_SIZE := 128
 const TILE_BLOCKS := 3          # Blöcke pro Tile-Kante (1 Block = 1 Welteinheit)
 const WATER_LEVEL := 3          # Tiles mit Höhe < WATER_LEVEL sind Wasser
 const MAX_HEIGHT := 14
@@ -169,7 +169,7 @@ const POWER_USE := {
 
 const START_MONEY := 20000.0
 const CHEAT_MONEY := 50000.0          # Strg/Cmd + Shift + G
-const START_YEAR := 2000
+const START_YEAR := 1980
 
 # Baukosten pro Tile
 const COST_POWERLINE := 5

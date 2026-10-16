@@ -43,6 +43,22 @@ static func dragtest(game: Node) -> void:
 		[ToolController.Tool.RES, Vector2i(c - 12, c + 13), Vector2i(c - 9, c + 15)],
 		[ToolController.Tool.ROAD, Vector2i(c - 12, c + 17), Vector2i(c - 6, c + 19)],
 	]
+	# Testfläche einebnen und freiräumen (Landschaft der Demo hängt von der Kartengröße ab)
+	var area := Rect2i(c - 13, c + 12, 9, 9)
+	var flat := maxi(map.h(c, c), Config.WATER_LEVEL + 1)
+	for z in range(area.position.y, area.end.y):
+		for x in range(area.position.x, area.end.x):
+			var i := map.idx(x, z)
+			map.height[i] = flat
+			map.feature[i] = Config.Feature.NONE
+			map.zone[i] = Config.Zone.NONE
+			map.level[i] = 0
+			map.road[i] = 0
+			map.special[i] = Config.Special.NONE
+			map.anchor[i] = -1
+	map.notify_changed(area)
+	for k in 3:
+		await game.get_tree().process_frame
 	# Echte Eingabe-Pipeline nötig (Test-Ereignisse sind als synthetic markiert); Nutzer-Eingaben bleiben dank Meta gesperrt
 	game.get_viewport().gui_disable_input = false
 	for cs in cases:
@@ -837,6 +853,19 @@ static func buildtest(game: Node) -> void:
 	var t6 := Time.get_ticks_usec()
 	sim.refresh(true)
 	var t7 := Time.get_ticks_usec()
+	var hparts := []
+	map._wide_dirty = true
+	for pair: Array in [["wide", func(): map._compute_wide()],
+			["renderer", func(): game.renderer._on_infra_changed()],
+			["verkehr", func(): game.get_node("Traffic")._on_map_changed(Rect2i())],
+			["feuerwehr", func(): game.fire_dept._collect_stations()],
+			["feuer_sync", func(): game.fire_dept._sync(Rect2i(5, map.size - 4, 1, 1))],
+			["marker", func(): game.get_node("StatusMarkers")._rebuild()],
+			["overlay", func(): game.get_node("MapOverlay")._rebuild()]]:
+		var tp := Time.get_ticks_usec()
+		(pair[1] as Callable).call()
+		hparts.append("%s %.1f" % [pair[0], (Time.get_ticks_usec() - tp) / 1000.0])
+	print("buildtest Signal-Empfänger (ms): %s" % ", ".join(hparts))
 	print("buildtest Klick-Anteile: Signale (Renderer/Verkehr/Feuerwehr) %.1f ms, Neuberechnung sofort %.1f ms" % [
 		(t6 - t5) / 1000.0, (t7 - t6) / 1000.0])
 	tools.set_tool(ToolController.Tool.INSPECT)
@@ -1258,6 +1287,39 @@ static func powerreport(game: Node) -> void:
 					i / map.size, int(net.get("demand", 0)), int(net.get("capacity", 0)), int(net.get("plants", 0))])
 	print("powerreport Bedarf %d / Leistung %d MW (davon Dienste %d MW), Dienste ohne Strom: %s" % [sim.power_demand,
 		sim.power_supply, svc_use, dark])
+
+
+## Prüfsummen nach 12 Monaten mit festem Zufall (synchron): vor/nach Optimierungen vergleichen.
+static func determinism(game: Node) -> void:
+	var map: CityMap = game.map
+	var sim: Simulation = game.sim
+	sim.speed = 0                     # kein paralleler Monatstakt
+	if sim._commute_task != -1:       # Startberechnung im Hintergrund abwarten (nutzt globalen Zufall)
+		WorkerThreadPool.wait_for_task_completion(sim._commute_task)
+		sim._commute_task = -1
+	sim.congestion = PackedFloat32Array()   # Vorgeschichte (Stau, Bahnhofs-Andrang) vom Laden verwerfen
+	sim.station_use = {}
+	seed(1)
+	sim.refresh()
+	sim._rng.seed = 1
+	game.fire_dept._rng.seed = 1
+	seed(1)
+	var trace := []
+	for m in 12:
+		seed(100 + m)               # globaler Zufall je Monat fest (andere Stellen verbrauchen ihn nebenbei)
+		sim.tick_month()
+		trace.append("%d:%d/%d" % [m, sim.population, int(sim.avg_commute * 10)])
+	print("determinism Verlauf ", trace)
+	var rd := 0
+	var pw := 0
+	var jd := 0
+	for i in map.size * map.size:
+		rd += sim.road_dist[i] * (i % 97 + 1)
+		pw += sim.powered[i] * (i % 89 + 1)
+		jd += sim.junction_dist[i] * (i % 83 + 1)
+	print("determinism Einw %d Jobs %d/%d level %d worn %d villa %d road_dist %d powered %d junction %d power %d/%d/%d" % [
+		sim.population, sim.jobs_com, sim.jobs_ind, hash(map.level), hash(map.worn), hash(map.villa), rd, pw, jd,
+		sim.power_demand, sim.power_supply, sim.power_served])
 
 
 ## Erstes freies Plätzchen spiralförmig um die Kartenmitte.

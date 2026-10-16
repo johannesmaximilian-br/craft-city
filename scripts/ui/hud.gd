@@ -5,7 +5,7 @@ extends CanvasLayer
 signal save_requested(slot: String)
 signal load_requested(slot: String)
 signal new_city_requested
-signal overlay_selected(mode: int)   # TrafficOverlay.Mode
+signal overlay_selected(mode: int)   # MapOverlay.Mode
 signal graphics_changed
 signal focus_requested(tile: Vector2i)
 
@@ -58,6 +58,7 @@ var _menu: PanelContainer
 var _slot_labels := {}
 var _root: Control
 var _scale_buttons: Array[Button] = []
+var _fs_btn: Button
 var _confirm_row: HBoxContainer
 var _confirm_label: Label
 var _confirm_slot := ""
@@ -390,6 +391,10 @@ func _build_menu(root: Control) -> void:
 		b.custom_minimum_size.x = 110
 		b.set_pressed_no_signal(p == GraphicsSettings.current)
 		_gfx_buttons.append(b)
+	_fs_btn = _text_button(gfx_row, "Vollbild", toggle_fullscreen, "Vollbild an/aus [F11]")
+	_fs_btn.toggle_mode = true
+	_fs_btn.custom_minimum_size.x = 130
+	_fs_btn.set_pressed_no_signal(GraphicsSettings.fullscreen)
 	var vs := _text_button(gfx_row, "VSync", func(): _toggle_vsync(), "Bildsynchronisation (verhindert Tearing)")
 	vs.toggle_mode = true
 	vs.custom_minimum_size.x = 100
@@ -454,6 +459,14 @@ func _set_graphics(p: int) -> void:
 	for k in _gfx_buttons.size():
 		_gfx_buttons[k].set_pressed_no_signal(k == p)
 	graphics_changed.emit()
+
+
+func toggle_fullscreen() -> void:
+	GraphicsSettings.fullscreen = DisplayServer.window_get_mode() != DisplayServer.WINDOW_MODE_FULLSCREEN
+	GraphicsSettings.save()
+	DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_FULLSCREEN if GraphicsSettings.fullscreen
+		else DisplayServer.WINDOW_MODE_WINDOWED)
+	_fs_btn.set_pressed_no_signal(GraphicsSettings.fullscreen)
 
 
 func _set_ui_scale(v: float) -> void:
@@ -558,7 +571,7 @@ func _refresh_slots() -> void:
 
 
 func _toggle_overlay() -> void:
-	overlay_selected.emit((_overlay_mode + 1) % TrafficOverlay.MODE_NAMES.size())
+	overlay_selected.emit((_overlay_mode + 1) % MapOverlay.MODE_NAMES.size())
 
 
 ## Vom Spiel nach dem Umschalten aufgerufen ("" = aus).
@@ -628,8 +641,8 @@ func _fill_popup() -> void:
 				int(sim.bus_riders), int(sim.rail_riders), roundi(avg[3] * 100.0)],
 			"%d Netze  ·  %d / %d MW  ·  %d Gebäude ohne Strom" % [_power_net_count(), sim.power_demand,
 				sim.power_supply, _dark_buildings()]]
-		for m in TrafficOverlay.MODE_NAMES.size():
-			var label: String = TrafficOverlay.MODE_NAMES[m] if m > 0 else "Aus"
+		for m in MapOverlay.MODE_NAMES.size():
+			var label: String = MapOverlay.MODE_NAMES[m] if m > 0 else "Aus"
 			var b := _text_button(_popup_col, "%s:  %s" % [label, stats[m]], _pick_view.bind(m), "")
 			b.alignment = HORIZONTAL_ALIGNMENT_LEFT
 			b.toggle_mode = true
@@ -815,6 +828,9 @@ func _unhandled_key_input(event: InputEvent) -> void:
 	if k.keycode == KEY_G and k.shift_pressed and (k.ctrl_pressed or k.meta_pressed):
 		cheat_money()
 		return
+	if k.keycode == KEY_F and k.ctrl_pressed and k.meta_pressed:     # macOS-üblich: Ctrl+Cmd+F
+		toggle_fullscreen()
+		return
 	for t in ToolController.TOOLS:
 		if ToolController.TOOLS[t]["key"] == k.keycode:
 			_select_tool(t)
@@ -827,6 +843,8 @@ func _unhandled_key_input(event: InputEvent) -> void:
 			jump_to_fire()
 		KEY_I:
 			toggle_info_detail()
+		KEY_F11:
+			toggle_fullscreen()
 		KEY_H:
 			toggle_hud()
 		KEY_M:
@@ -1017,6 +1035,12 @@ func jump_to_fire() -> void:
 
 
 func _refresh() -> void:
+	var tp := Perf.begin()
+	_refresh_inner()
+	Perf.end("hud.aktualisieren", tp)
+
+
+func _refresh_inner() -> void:
 	_money.text = "$ %s" % _fmt(int(sim.money))
 	_money.add_theme_color_override("font_color", UiTheme.BAD if sim.money < 0 else UiTheme.TEXT)
 	var delta := sim.last_income - sim.last_expense

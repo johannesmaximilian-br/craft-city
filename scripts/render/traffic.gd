@@ -67,13 +67,26 @@ func setup(city_map: CityMap, simulation: Simulation, lib: BlockLibrary) -> void
 func _on_map_changed(_rect: Rect2i) -> void:
 	_road_tiles.clear()
 	_stop_tiles.clear()
-	for z in map.size:
-		for x in map.size:
+	# Straßen-Tiles mit mind. einem befahrbaren Nachbarn (lokale Arrays statt Funktionsaufruf je Tile)
+	var size := map.size
+	var road := map.road
+	var h := map.height
+	var transit := map.transit
+	for i in size * size:
+		if road[i] == 0:
+			continue
+		var x := i % size
+		var z := i / size
+		var hi := h[i]
+		var linked := (x + 1 < size and road[i + 1] != 0 and absi(h[i + 1] - hi) <= 1) \
+			or (x > 0 and road[i - 1] != 0 and absi(h[i - 1] - hi) <= 1) \
+			or (z + 1 < size and road[i + size] != 0 and absi(h[i + size] - hi) <= 1) \
+			or (z > 0 and road[i - size] != 0 and absi(h[i - size] - hi) <= 1)
+		if linked:
 			var p := Vector2i(x, z)
-			if map.is_road(x, z) and not _neighbors(p).is_empty():
-				_road_tiles.append(p)
-				if map.transit[map.idx(x, z)] == Config.Transit.BUS_STOP:
-					_stop_tiles.append(p)
+			_road_tiles.append(p)
+			if transit[i] == Config.Transit.BUS_STOP:
+				_stop_tiles.append(p)
 	_group_stops()
 	_rebuild_weights()
 	# Busse neu verteilen (Netze können sich geändert haben), Autos auf entfernten Straßen neu setzen

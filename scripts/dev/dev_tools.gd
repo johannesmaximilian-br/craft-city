@@ -9,6 +9,7 @@ extends RefCounted
 ##   --hover=x,z [--detail] Info-Karte für Tile zeigen (ausführlich)
 ##   --notify               Beispiel-Warnungen in die Meldungsleiste
 ##   --uiscale=f            HUD-Größe (0.7 / 0.85 / 1.0 / 1.15)
+##   --appicon=pfad.png     App-Icon rendern
 ##   --menu / --flyout      Menü bzw. Strom-Werkzeuggruppe öffnen
 ##   --selftest --dragtest --lanetest --traffictest --pickcheck --firetest --bustest --happytest --cheattest --greentest --venuetest --zonetest --taxtest --cartest
 ##   --venues               Theater + Stadion in die Demo-Stadt setzen (Screenshots)
@@ -129,6 +130,8 @@ static func run(game: Node) -> void:
 		DevTests.fronttest(game)
 	if has("--loadreport"):
 		DevTests.loadreport(game)
+	if has("--determinism"):
+		DevTests.determinism(game)
 	if has("--powerreport"):
 		DevTests.powerreport(game)
 	if has("--powertest"):
@@ -214,6 +217,30 @@ static func run(game: Node) -> void:
 		game.hud.show_message("Ansicht: Strom")
 	if has("--hidehud"):
 		game.hud.toggle_hud()
+	if has("--splash"):
+		# Startbild: HUD aus, großer Titel (mit --screenshot=pfad aufnehmen)
+		game.hud.visible = false
+		game.get_node("StatusMarkers").visible = false
+		var title := Label.new()
+		title.text = "CUBE CITY"
+		title.add_theme_font_override("font", UiTheme.font(true))
+		title.add_theme_font_size_override("font_size", 120)
+		title.add_theme_color_override("font_color", Color("fbf3e2"))
+		title.add_theme_color_override("font_outline_color", Color("6b4423"))
+		title.add_theme_constant_override("outline_size", 28)
+		title.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.35))
+		title.add_theme_constant_override("shadow_offset_y", 10)
+		title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		title.set_anchors_preset(Control.PRESET_CENTER_TOP)
+		title.position = Vector2(-500, 90)
+		title.size = Vector2(1000, 160)
+		var layer := CanvasLayer.new()
+		layer.layer = 10
+		layer.add_child(title)
+		game.add_child(layer)
+	if value("--appicon") != "":
+		# --appicon=pfad.png: App-Icon (1024 px) rendern
+		await game.get_node("Icons").render_app_icon(value("--appicon"))
 	if has("--menu"):
 		game.hud.toggle_menu()
 		if value("--asksave") != "":

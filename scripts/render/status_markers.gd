@@ -37,19 +37,30 @@ func _process(delta: float) -> void:
 
 func _rebuild() -> void:
 	_points.clear()
-	for z in map.size:
-		for x in map.size:
-			var i := map.idx(x, z)
-			if sim.powered.size() <= i or sim.powered[i] == 1:
-				continue
-			# Dienst-/Kulturbau ohne Strom: ein Blitz über dem Ursprungs-Tile
-			if map.zone[i] == Config.Zone.NONE:
-				if map.anchor[i] == i and sim.tile_power_use(i) > 0:
-					var s: int = Config.SPECIALS[map.special[i]]["size"]
-					_points.append(Vector3(x * B + s * B * 0.5, map.height[i] + 7.0, z * B + s * B * 0.5))
-				continue
-			# Leere Zonen nur jedes 2. Tile, damit es nicht überladen wirkt
-			if map.level[i] == 0 and (x + z) % 2 == 1:
-				continue
-			_points.append(Vector3(x * B + B * 0.5, map.height[i] + (LEVEL_OFFSET[map.level[i]] if map.villa[i] == 0 else LEVEL_OFFSET[1] + 1.0), z * B + B * 0.5))
+	var size := map.size
+	var zone := map.zone
+	var level := map.level
+	var villa := map.villa
+	var height := map.height
+	var anchor := map.anchor
+	var pw := sim.powered
+	if pw.size() != size * size:
+		multimesh.instance_count = 0
+		return
+	for i in size * size:
+		if pw[i] == 1:
+			continue
+		var x := i % size
+		var z := i / size
+		# Dienst-/Kulturbau ohne Strom: ein Blitz über dem Ursprungs-Tile
+		if zone[i] == Config.Zone.NONE:
+			if anchor[i] == i and sim.tile_power_use(i) > 0:
+				var s: int = Config.SPECIALS[map.special[i]]["size"]
+				_points.append(Vector3(x * B + s * B * 0.5, height[i] + 7.0, z * B + s * B * 0.5))
+			continue
+		# Leere Zonen nur jedes 2. Tile, damit es nicht überladen wirkt
+		if level[i] == 0 and (x + z) % 2 == 1:
+			continue
+		var off: float = LEVEL_OFFSET[level[i]] if villa[i] == 0 else LEVEL_OFFSET[1] + 1.0
+		_points.append(Vector3(x * B + B * 0.5, height[i] + off, z * B + B * 0.5))
 	multimesh.instance_count = _points.size()

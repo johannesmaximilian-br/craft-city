@@ -92,8 +92,8 @@ func _ready() -> void:
 	hud.focus_requested.connect(func(t: Vector2i): cam.focus_tile(t, map.h(t.x, t.y)))
 	sim.stats_changed.connect(func(): renderer.sim_speed = sim.speed)
 
-	var overlay := TrafficOverlay.new()
-	overlay.name = "TrafficOverlay"
+	var overlay := MapOverlay.new()
+	overlay.name = "MapOverlay"
 	add_child(overlay)
 	overlay.setup(map, sim)
 	hud.overlay_selected.connect(func(m: int): hud.set_overlay_mode(m, overlay.set_mode(m)))
@@ -184,6 +184,7 @@ func _setup_environment() -> void:
 	environment = env
 	GraphicsSettings.load_saved()
 	apply_graphics()
+	GraphicsSettings.apply_window()
 
 
 func apply_graphics() -> void:

@@ -128,60 +128,64 @@ var _wide_dirty := true
 func _compute_wide() -> void:
 	_wide_dirty = false
 	var n := size * size
-	_wide.resize(n)
-	_wide.fill(0)
+	var wide := PackedByteArray()
+	wide.resize(n)
 	var len_x := PackedInt32Array()
+	len_x.resize(n)
 	var off_x := PackedInt32Array()
+	off_x.resize(n)
 	var len_z := PackedInt32Array()
+	len_z.resize(n)
 	var off_z := PackedInt32Array()
-	for a: PackedInt32Array in [len_x, off_x, len_z, off_z]:
-		a.resize(n)
-	# Läufe (zusammenhängende Straßenstücke) je Zeile und Spalte
+	off_z.resize(n)
+	var rd := road
+	var hg := height
+	# Läufe (zusammenhängende Straßenstücke) je Zeile und Spalte; verbunden = beide Straße, max. 1 Block Höhe
 	for z in size:
+		var row := z * size
 		var x := 0
 		while x < size:
-			if not is_road(x, z):
+			if rd[row + x] == 0:
 				x += 1
 				continue
 			var start := x
-			while roads_connected(x, z, x + 1, z):
+			while x + 1 < size and rd[row + x + 1] != 0 and absi(hg[row + x + 1] - hg[row + x]) <= 1:
 				x += 1
 			for k in range(start, x + 1):
-				len_x[idx(k, z)] = x - start + 1
-				off_x[idx(k, z)] = k - start
+				len_x[row + k] = x - start + 1
+				off_x[row + k] = k - start
 			x += 1
 	for x in size:
 		var z := 0
 		while z < size:
-			if not is_road(x, z):
+			if rd[z * size + x] == 0:
 				z += 1
 				continue
 			var start := z
-			while roads_connected(x, z, x, z + 1):
+			while z + 1 < size and rd[(z + 1) * size + x] != 0 and absi(hg[(z + 1) * size + x] - hg[z * size + x]) <= 1:
 				z += 1
 			for k in range(start, z + 1):
-				len_z[idx(x, k)] = z - start + 1
-				off_z[idx(x, k)] = k - start
+				len_z[k * size + x] = z - start + 1
+				off_z[k * size + x] = k - start
 			z += 1
-	for z in size:
-		for x in size:
-			var i := idx(x, z)
-			if road[i] == 0:
-				continue
-			var travel_x := len_x[i] >= 2 and len_x[i] >= len_z[i]
-			var travel_z := len_z[i] >= 2 and len_z[i] > len_x[i]
-			if travel_x and len_z[i] >= 2:
-				var dz := 1 if off_z[i] % 2 == 0 else -1
-				if off_z[i] + dz < len_z[i]:
-					var j := idx(x, z + dz)
-					if len_x[j] >= 2 and len_x[j] >= len_z[j]:
-						_wide[i] = 3 if dz == 1 else 4
-			elif travel_z and len_x[i] >= 2:
-				var dx := 1 if off_x[i] % 2 == 0 else -1
-				if off_x[i] + dx < len_x[i]:
-					var j := idx(x + dx, z)
-					if len_z[j] >= 2 and len_z[j] > len_x[j]:
-						_wide[i] = 1 if dx == 1 else 2
+	for i in n:
+		if rd[i] == 0:
+			continue
+		var lx := len_x[i]
+		var lz := len_z[i]
+		if lx >= 2 and lx >= lz and lz >= 2:
+			var dz := 1 if off_z[i] % 2 == 0 else -1
+			if off_z[i] + dz < lz:
+				var j := i + dz * size
+				if len_x[j] >= 2 and len_x[j] >= len_z[j]:
+					wide[i] = 3 if dz == 1 else 4
+		elif lz >= 2 and lz > lx and lx >= 2:
+			var dx := 1 if off_x[i] % 2 == 0 else -1
+			if off_x[i] + dx < lx:
+				var j := i + dx
+				if len_z[j] >= 2 and len_z[j] > len_x[j]:
+					wide[i] = 1 if dx == 1 else 2
+	_wide = wide
 
 
 ## Ausbaustufe 1..3 des Sonderbaus, zu dem Tile i gehört.
@@ -215,7 +219,11 @@ func to_dict() -> Dictionary:
 
 ## Überschreibt die Daten in-place (Referenzen auf diese Map bleiben gültig).
 func from_dict(d: Dictionary) -> bool:
-	if d.get("size", -1) != size:
+	var old_size: int = d.get("size", -1)
+	if old_size > 0 and old_size < size:
+		_embed(d, old_size)
+		return true
+	if old_size != size:
 		return false
 	for f: String in SAVE_FIELDS:
 		if d.has(f):
@@ -231,6 +239,48 @@ func from_dict(d: Dictionary) -> bool:
 			road[i] = 1
 	notify_changed(Rect2i(0, 0, size, size))
 	return true
+
+
+const EMBED_SEED := 4242     # Landschaft rund um eingebettete alte (kleinere) Spielstände
+const EMBED_BLEND := 8       # Tiles, über die Höhen am Rand angeglichen werden
+
+
+## Kleineren Spielstand (z.B. 64x64) mittig in eine neu erzeugte Landschaft dieser Größe setzen.
+func _embed(d: Dictionary, old: int) -> void:
+	generate(EMBED_SEED)
+	var off := (size - old) / 2
+	var remap := func(i: int) -> int:
+		return (i / old + off) * size + i % old + off
+	for f: String in SAVE_FIELDS:
+		if not d.has(f):
+			continue
+		var src: Variant = d[f]
+		var dst: Variant = get(f)
+		for oz in old:
+			for ox in old:
+				var v: int = src[oz * old + ox]
+				if f == "anchor" and v >= 0:
+					v = remap.call(v)
+				dst[(oz + off) * size + ox + off] = v
+		set(f, dst)
+	for i in road.size():
+		if road[i] > 1:
+			road[i] = 1
+	# Höhen am Rand der alten Karte sanft in die neue Landschaft überführen (keine Klippen)
+	var inner := Rect2i(off, off, old, old)
+	for z in size:
+		for x in size:
+			if inner.has_point(Vector2i(x, z)):
+				continue
+			var nx := clampi(x, off, off + old - 1)
+			var nz := clampi(z, off, off + old - 1)
+			var dist := maxi(absi(x - nx), absi(z - nz))
+			if dist > EMBED_BLEND:
+				continue
+			var i := idx(x, z)
+			var t := float(dist) / float(EMBED_BLEND + 1)
+			height[i] = roundi(lerpf(float(height[idx(nx, nz)]), float(height[i]), t))
+	notify_changed(Rect2i(0, 0, size, size))
 
 
 func generate(seed_value: int) -> void:
