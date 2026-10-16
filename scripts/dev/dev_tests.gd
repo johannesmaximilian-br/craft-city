@@ -390,6 +390,9 @@ static func _fire_industry_only() -> void:
 	m.special[st] = Config.Special.FIRE
 	m.anchor[st] = st
 	m.slevel[st] = 1
+	var wind := m.idx(7, 14)         # Feuerwache braucht Strom
+	m.special[wind] = Config.Special.WIND
+	m.anchor[wind] = wind
 	m.notify_changed(Rect2i(0, 0, m.size, m.size))
 	s.refresh()
 	var dept := FireDept.new()
@@ -1062,6 +1065,14 @@ static func powertest() -> void:
 	msgs.clear()
 	s._compute_power()
 	print("powertest zweite Berechnung ohne neues Problem -> Meldungen: %d" % msgs.size())
+	# Dienstgebäude: Polizei (Stufe 2) am versorgten Netz A, Schule allein ohne Anschluss
+	plant.call(13, 2, Config.Special.POLICE)
+	m.slevel[m.idx(13, 2)] = 2
+	plant.call(30, 40, Config.Special.SCHOOL)
+	s._compute_power()
+	print("powertest Polizei St.2 an Netz A: Verbrauch %d MW, Strom %s | Schule ohne Anschluss: Verbrauch %d MW, Strom %s" % [
+		s.tile_power_use(m.idx(13, 2)), s.special_powered(m.idx(13, 2)), s.tile_power_use(m.idx(30, 40)),
+		s.special_powered(m.idx(30, 40))])
 	s.free()
 
 
@@ -1168,6 +1179,85 @@ static func savetest(game: Node) -> void:
 		DirAccess.remove_absolute(SaveManager.dir + "/" + f)
 	DirAccess.remove_absolute(SaveManager.dir)
 	SaveManager.dir = SaveManager.DIR
+
+
+## Zoom ohne Mausrad: Trackpad-Geste (Pinch), Zwei-Finger-Wischen (verschieben, mit Cmd zoomen).
+static func zoomtest(game: Node) -> void:
+	var cam: CityCamera = game.cam
+	var d0 := cam._target_dist
+	var g := InputEventMagnifyGesture.new()
+	g.set_meta("synthetic", true)
+	g.factor = 1.25
+	cam._unhandled_input(g)
+	var d1 := cam._target_dist
+	var p := InputEventPanGesture.new()
+	p.set_meta("synthetic", true)
+	p.delta = Vector2(10, 0)
+	var pos0 := cam.position
+	cam._unhandled_input(p)
+	var moved := cam.position.distance_to(pos0)
+	p.meta_pressed = true
+	p.delta = Vector2(0, 10)
+	cam._unhandled_input(p)
+	print("zoomtest Abstand %.0f -> Pinch %.0f -> Cmd+Wischen %.0f, Zwei-Finger-Wischen verschiebt um %.1f" % [
+		d0, d1, cam._target_dist, moved])
+	cam.position = pos0       # Kamera zurück, folgende Tests rechnen mit ihr
+	cam._target_dist = d0
+	cam._dist = d0
+
+
+## Reichweiten-Vorschau beim Bauen: neue Haltestelle an Straße ohne Busnetz, Bahnhof auf Gleis, Schule.
+static func rangetest(game: Node) -> void:
+	var map: CityMap = game.map
+	var sim: Simulation = game.sim
+	var tools: ToolController = game.tools
+	for t: ToolController.Tool in [ToolController.Tool.BUS_STOP, ToolController.Tool.STATION, ToolController.Tool.SCHOOL]:
+		tools.set_tool(t)
+		var best := Vector2i(-1, -1)
+		var best_new := -1
+		for i in map.size * map.size:
+			var p := Vector2i(i % map.size, i / map.size)
+			if tools.tile_cost(p) < 0 or (t == ToolController.Tool.BUS_STOP and sim.bus_served[i] == 1):
+				continue
+			if t == ToolController.Tool.SCHOOL and p.distance_to(Vector2i(map.size / 2, map.size / 2)) > 8:
+				continue
+			var r := tools.range_preview(p)
+			var nnew := 0
+			for j: int in r:
+				if r[j] == ToolController.RANGE_NEW:
+					nnew += 1
+			if nnew * 100 + r.size() > best_new:      # vorzugsweise viele neue Anschlüsse, sonst große Reichweite
+				best_new = nnew * 100 + r.size()
+				best = p
+		var r := tools.range_preview(best)
+		var roads := 0
+		var fresh := 0
+		for j: int in r:
+			if r[j] == ToolController.RANGE_ROAD:
+				roads += 1
+			elif r[j] == ToolController.RANGE_NEW:
+				fresh += 1
+		print("rangetest %-14s bei %s: %d markierte Tiles (Straßen %d, Gebäude mit neuem Anschluss %d)" % [
+			ToolController.TOOLS[t]["name"], best, r.size(), roads, fresh])
+	tools.set_tool(ToolController.Tool.INSPECT)
+
+
+## Strom-Bilanz eines Spielstands: Dienstgebäude ohne Strom, Netze mit Engpass.
+static func powerreport(game: Node) -> void:
+	var map: CityMap = game.map
+	var sim: Simulation = game.sim
+	sim.refresh()
+	var dark := []
+	var svc_use := 0
+	for i in map.size * map.size:
+		if map.anchor[i] == i and Config.SPECIALS[map.special[i]].has("service"):
+			svc_use += sim.tile_power_use(i)
+			if not sim.special_powered(i):
+				var net: Dictionary = sim.power_nets[sim.power_net[i]] if sim.power_net[i] >= 0 else {}
+				dark.append("%s %d,%d (Netz %d/%d MW, %d Kraftwerke)" % [Config.SPECIALS[map.special[i]]["name"], i % map.size,
+					i / map.size, int(net.get("demand", 0)), int(net.get("capacity", 0)), int(net.get("plants", 0))])
+	print("powerreport Bedarf %d / Leistung %d MW (davon Dienste %d MW), Dienste ohne Strom: %s" % [sim.power_demand,
+		sim.power_supply, svc_use, dark])
 
 
 ## Erstes freies Plätzchen spiralförmig um die Kartenmitte.

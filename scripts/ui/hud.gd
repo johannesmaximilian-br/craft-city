@@ -1103,11 +1103,14 @@ func _on_hover(t: Vector2i) -> void:
 			title = "%s  ·  Stufe %d" % [def["name"], lv]
 			var load: float = sim.service_load.get(a, 0.0)
 			summary = "Auslastung %d%%  ·  Reichweite %d" % [roundi(load * 100.0), Config.SERVICE_RADIUS[lv]]
-			if load > 1.0:
+			if not sim.special_powered(i):
+				problems.append("x Kein Strom - arbeitet nicht")
+			elif load > 1.0:
 				problems.append("x Überlastet - ausbauen oder weiteres Gebäude")
 			add.call("Dienst", "Reichweite %d Tiles  ·  Kapazität %s %s" % [Config.SERVICE_RADIUS[lv],
 				_fmt(Config.SERVICE_CAPACITY[lv]), "Einw. + Jobs" if def["service"] == "fire" else "Einw."])
-			add.call("Dienst", "Unterhalt $%d/Monat" % int(def["upkeep"] * Config.UPKEEP_LEVEL[lv]))
+			add.call("Dienst", "Unterhalt $%d/Monat  ·  Strom %d MW" % [int(def["upkeep"] * Config.UPKEEP_LEVEL[lv]),
+				sim.tile_power_use(a)])
 			if def["service"] == "venue":
 				var every: int = def["event_every"]
 				var now := float(sim.venue_event.get(a, 0.0)) > 0.0

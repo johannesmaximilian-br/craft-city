@@ -118,7 +118,7 @@ var _worker: Simulation = null
 var _commute_task := -1
 var _commute_again := false         # während der Berechnung geändert -> danach nochmal
 var _commute_discard := false       # Karte ersetzt (Laden/Neu) -> laufendes Ergebnis verwerfen
-const COMMUTE_IN := ["congestion", "road_dist", "road_src", "fare", "month", "year", "station_use"]
+const COMMUTE_IN := ["congestion", "road_dist", "road_src", "fare", "month", "year", "station_use", "powered"]
 const COMMUTE_OUT := ["traffic", "congestion", "commute_cost", "road_comp", "comp_has_res", "comp_has_job",
 	"bus_served", "_station_links", "_road_station_links", "rail_traffic", "station_use", "bus_riders",
 	"rail_riders", "_transit_trips", "avg_commute", "transit_share", "unreachable_workers", "avg_congestion",
@@ -730,7 +730,7 @@ func _add_venue_traffic() -> void:
 	venue_event = {}
 	venue_jam = {}
 	for a in venues():
-		if not venue_has_event(a):
+		if not venue_has_event(a) or powered.size() <= a or powered[a] == 0:
 			venue_event[a] = 0.0
 			continue
 		var visitors := venue_visitors(a)
@@ -1172,8 +1172,17 @@ func _road_neighbors(i: int) -> Array[int]:
 func tile_power_use(i: int) -> int:
 	var zn := map.zone[i]
 	if zn == Config.Zone.NONE:
+		# Dienst-/Kulturbau: Verbrauch am Ursprungs-Tile, je Ausbaustufe
+		if map.anchor[i] == i and map.special[i] != Config.Special.NONE:
+			return ceili(float(Config.SPECIALS[map.special[i]].get("use", 0)) * Config.SERVICE_POWER_LEVEL[map.special_level(i)])
 		return 0
 	return Config.POWER_USE[zn][map.level[i]]
+
+
+## Sonderbau (beliebiges Tile davon) hat Strom? Kraftwerke immer.
+func special_powered(i: int) -> bool:
+	var a := map.anchor[i]
+	return a >= 0 and powered.size() > a and powered[a] == 1
 
 
 ## Stromnetze: zusammenhängende leitende Tiles (Leitungen, Zonen, Sonderbauten; Straßen leiten nicht).
@@ -1225,6 +1234,15 @@ func _compute_power() -> void:
 		var unserved := 0
 		var dark := -1          # ein Gebäude ohne Strom (für Meldung/Kamera)
 		if not plants.is_empty():
+			# Dienste (Polizei, Krankenhaus ...) zuerst versorgen, Wohnen/Gewerbe/Industrie bekommen den Rest
+			var reserved := {}
+			for i in comp:
+				if map.zone[i] == Config.Zone.NONE and map.anchor[i] == i:
+					var su := tile_power_use(i)
+					if su > 0 and su <= left:
+						left -= su
+						powered[i] = 1
+						reserved[i] = true
 			var visited := {}
 			var q: Array[int] = []
 			for p in plants:
@@ -1237,7 +1255,7 @@ func _compute_power() -> void:
 			while head < q.size():
 				var i: int = q[head]
 				head += 1
-				var use := tile_power_use(i)
+				var use := 0 if reserved.has(i) else tile_power_use(i)
 				if use > left:
 					continue
 				left -= use
@@ -1258,16 +1276,22 @@ func _compute_power() -> void:
 				unserved += 1
 				if dark < 0:
 					dark = i
-		# Sonderbauten ohne eigenen Verbrauch gelten als versorgt, wenn ihr Netz ein Kraftwerk hat
+		# Sonderbauten ohne eigenen Verbrauch (Kraftwerke) gelten als versorgt, wenn ihr Netz ein Kraftwerk hat;
+		# Dienste nur, wenn ihr Ursprungs-Tile oben Strom bekommen hat
 		if not plants.is_empty():
 			for i in comp:
-				if map.special[i] != Config.Special.NONE:
+				if map.special[i] != Config.Special.NONE and int(Config.SPECIALS[map.special[i]].get("use", 0)) == 0:
 					powered[i] = 1
 		power_supply += capacity
 		power_demand += demand
 		power_served += capacity - left
 		power_nets.append({"capacity": capacity, "demand": demand, "plants": plants.size(),
 			"unserved": unserved, "dark": dark, "key": start})
+	# Restliche Tiles eines Dienstbaus übernehmen den Zustand ihres Ursprungs-Tiles
+	for i in n:
+		var a := map.anchor[i]
+		if a >= 0 and a != i and int(Config.SPECIALS[map.special[i]].get("use", 0)) > 0:
+			powered[i] = powered[a]
 	_power_alerts()
 	power_changed.emit()
 
@@ -1632,6 +1656,9 @@ func _compute_services() -> void:
 			continue
 		var cat: String = def["service"]
 		has_cat[cat] = true
+		if powered.size() > i and powered[i] == 0:
+			service_load[i] = 0.0        # ohne Strom: arbeitet nicht, versorgt niemanden
+			continue
 		stations.append([i, cat, map.special_level(i)])
 		if not cover_count.has(cat):
 			var cc := PackedInt32Array()

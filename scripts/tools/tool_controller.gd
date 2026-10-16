@@ -82,6 +82,10 @@ var hover := Vector2i(-1, -1)
 var _drag_start := Vector2i(-1, -1)
 var _dragging := false
 var _preview: MultiMeshInstance3D
+var _range: MultiMeshInstance3D     # Reichweite unter dem Cursor (Haltestelle, Bahnhof, Dienste)
+const RANGE_ROAD := Color(0.25, 0.55, 1.0, 0.5)      # Straße kommt ins Busnetz / Fußweg zum Bahnhof
+const RANGE_NEW := Color(0.3, 0.95, 0.4, 0.5)        # Gebäude bekommt neu Anschluss
+const RANGE_AREA := Color(1.0, 1.0, 1.0, 0.75)       # Rand des Einzugsgebiets eines Dienstes
 
 
 func setup(city_map: CityMap, simulation: Simulation, cam: Camera3D) -> void:
@@ -99,6 +103,19 @@ func setup(city_map: CityMap, simulation: Simulation, cam: Camera3D) -> void:
 	_preview.multimesh = mm
 	_preview.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(_preview)
+	var plate := BoxMesh.new()
+	plate.size = Vector3(B - 0.3, 0.12, B - 0.3)
+	var pm := _make_mat()
+	pm.render_priority = 1          # über der Ansichts-Einfärbung zeichnen
+	plate.material = pm
+	var rm := MultiMesh.new()
+	rm.transform_format = MultiMesh.TRANSFORM_3D
+	rm.use_colors = true
+	rm.mesh = plate
+	_range = MultiMeshInstance3D.new()
+	_range.multimesh = rm
+	_range.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(_range)
 
 
 func _make_mat() -> StandardMaterial3D:
@@ -496,7 +513,81 @@ func _apply_tile(t: Vector2i) -> Rect2i:
 	return r
 
 
+## Reichweite eines geplanten Bauwerks: Tile -> Farbe.
+## Haltestelle: Straßen im Umkreis BUS_RANGE (Busnetz) + Gebäude, die dadurch neu Anschluss bekommen.
+## Bahnhof: Straßen im Fußweg STATION_WALK (+ ganzes Busnetz, wenn eine Haltestelle in Fußweg-Nähe liegt).
+## Dienste: Einzugskreis (Radius der Stufe, die der Klick baut bzw. ausbaut).
+func range_preview(t: Vector2i) -> Dictionary:
+	var out := {}
+	if t.x < 0 or not map.in_bounds(t.x, t.y) or tile_cost(t) < 0:
+		return out
+	var n := map.size * map.size
+	var roads := {}
+	match tool:
+		Tool.BUS_STOP, Tool.STATION:
+			var r := Config.BUS_RANGE if tool == Tool.BUS_STOP else Config.STATION_WALK
+			var feeder := false
+			for dz in range(-r, r + 1):
+				for dx in range(-r, r + 1):
+					if absi(dx) + absi(dz) > r or not map.is_road(t.x + dx, t.y + dz):
+						continue
+					var j := map.idx(t.x + dx, t.y + dz)
+					roads[j] = true
+					if tool == Tool.STATION and map.transit[j] == Config.Transit.BUS_STOP:
+						feeder = true
+			# Zubringer: Haltestelle nahe dem Bahnhof bindet ihr ganzes Busnetz an
+			if feeder and sim.road_comp.size() == n:
+				var comps := {}
+				for j: int in roads:
+					if map.transit[j] == Config.Transit.BUS_STOP:
+						comps[sim.road_comp[j]] = true
+				for j in n:
+					if sim.bus_served[j] == 1 and comps.has(sim.road_comp[j]):
+						roads[j] = true
+			for j: int in roads:
+				out[j] = RANGE_ROAD
+			# Gebäude, deren Straßenanschluss im neuen Bereich liegt und die noch keinen Anschluss haben
+			if sim.road_src.size() == n:
+				for j in n:
+					if map.zone[j] == Config.Zone.NONE or sim.road_dist[j] > Config.ROAD_ACCESS_RANGE:
+						continue
+					if roads.has(sim.road_src[j]) and not sim.has_transit(j):
+						out[j] = RANGE_NEW
+		_:
+			var sp := _special_for_tool()
+			if sp == Config.Special.NONE or not Config.SPECIALS[sp].has("service"):
+				return out
+			var up := _upgrade_target()
+			var lv := mini(map.special_level(up) + 1, 3) if up >= 0 else 1
+			var s: int = Config.SPECIALS[sp]["size"]
+			var origin := Vector2i(up % map.size, up / map.size) if up >= 0 else t
+			var half := (s - 1) * 0.5
+			var rad: int = Config.SERVICE_RADIUS[lv]
+			for dz in range(-rad, rad + s):
+				for dx in range(-rad, rad + s):
+					var x := origin.x + dx
+					var z := origin.y + dz
+					var d := Vector2(dx - half, dz - half).length()
+					# nur der Rand (letzter Tile-Ring), die Fläche zeigt die Versorgungsansicht
+					if map.in_bounds(x, z) and d <= rad and d > rad - 1.0 and not map.is_water(x, z):
+						out[map.idx(x, z)] = RANGE_AREA
+	return out
+
+
+func _update_range() -> void:
+	var mm := _range.multimesh
+	var tiles := range_preview(hover) if not _dragging else {}
+	mm.instance_count = tiles.size()
+	var k := 0
+	for j: int in tiles:
+		var y := maxf(float(map.height[j]), Config.WATER_LEVEL - 0.2)
+		mm.set_instance_transform(k, Transform3D(Basis(), Vector3((j % map.size) * B + B * 0.5, y + 0.1, (j / map.size) * B + B * 0.5)))
+		mm.set_instance_color(k, tiles[j])
+		k += 1
+
+
 func _update_preview() -> void:
+	_update_range()
 	var mm := _preview.multimesh
 	if tool == Tool.INSPECT or hover.x < 0:
 		mm.instance_count = 0

@@ -12,9 +12,9 @@ const TIME_SCALE := [0.0, 1.0, 1.4, 1.8]     # wie Traffic.SIM_SPEED_FACTOR
 const RETRY := 1.0                            # Sekunden bis zur nächsten Alarmierung ohne freien Zug
 const MAX_PATH_FACTOR := 3                    # Fahrweg max. Reichweite x 3 Tiles
 
-enum Status { WAITING, NO_STATION, BUSY, NO_ROAD, EN_ROUTE, FIGHTING }
+enum Status { WAITING, NO_STATION, BUSY, NO_ROAD, EN_ROUTE, FIGHTING, NO_POWER }
 const STATUS_TEXT := ["wird alarmiert", "keine Feuerwache in Reichweite", "alle Löschzüge im Einsatz",
-	"keine Zufahrt", "Löschzug unterwegs", "wird gelöscht"]
+	"keine Zufahrt", "Löschzug unterwegs", "wird gelöscht", "Feuerwache ohne Strom"]
 
 enum Stage { OUT, WORK, BACK }
 
@@ -291,8 +291,12 @@ func _dispatch(f: Fire) -> void:
 	var free := {}      # Zufahrts-Tile -> Wache
 	var max_r := 0
 	var any := false
+	var no_power := false
 	for a: int in _stations:
 		if not _in_range(a, x, z):
+			continue
+		if not sim.special_powered(a):
+			no_power = true         # Wache ohne Strom rückt nicht aus
 			continue
 		any = true
 		if _free_trucks(a) <= 0:
@@ -301,7 +305,7 @@ func _dispatch(f: Fire) -> void:
 		for t in (_stations[a] as PackedInt32Array):
 			free[t] = a
 	if not any:
-		f.status = Status.NO_STATION
+		f.status = Status.NO_POWER if no_power else Status.NO_STATION
 		return
 	if free.is_empty():
 		f.status = Status.BUSY

@@ -3,7 +3,8 @@ extends Node3D
 ## RTS-Kamera:
 ## WASD/Pfeile = verschieben, Q/E = drehen, Mausrad = Zoom,
 ## Leertaste+Linksklick / mittlere Maus / Linksklick im Info-Modus = greifen & ziehen,
-## rechte Maustaste = drehen/neigen.
+## rechte Maustaste = drehen/neigen. Zoom: Mausrad, +/- bzw. Bild auf/ab, Trackpad-Pinch, Cmd+Zwei-Finger-Wischen;
+## Zwei-Finger-Wischen ohne Cmd verschiebt die Karte.
 
 @export var pan_speed := 60.0
 @export var min_dist := 12.0
@@ -45,6 +46,12 @@ func _process(delta: float) -> void:
 	_apply_focus(delta)
 	if input != Vector2.ZERO:
 		_pan(input.limit_length(1.0) * pan_speed * delta * (_dist / 70.0))
+	# Zoom per Tastatur: + / - (auch Ziffernblock), Bild auf/ab
+	var zoom_in := Input.is_key_pressed(KEY_EQUAL) or Input.is_key_pressed(KEY_PLUS) or Input.is_key_pressed(KEY_KP_ADD) \
+		or Input.is_key_pressed(KEY_PAGEUP)
+	var zoom_out := Input.is_key_pressed(KEY_MINUS) or Input.is_key_pressed(KEY_KP_SUBTRACT) or Input.is_key_pressed(KEY_PAGEDOWN)
+	if zoom_in != zoom_out:
+		_zoom_by(pow(0.35, delta) if zoom_in else pow(1.0 / 0.35, delta))
 	if Input.is_key_pressed(KEY_Q):
 		_target_yaw += 1.5 * delta
 	if Input.is_key_pressed(KEY_E):
@@ -71,9 +78,9 @@ func _unhandled_input(event: InputEvent) -> void:
 		var mb := event as InputEventMouseButton
 		match mb.button_index:
 			MOUSE_BUTTON_WHEEL_UP:
-				_target_dist = clampf(_target_dist * 0.88, min_dist, max_dist)
+				_zoom_by(0.88)
 			MOUSE_BUTTON_WHEEL_DOWN:
-				_target_dist = clampf(_target_dist * 1.12, min_dist, max_dist)
+				_zoom_by(1.12)
 			MOUSE_BUTTON_MIDDLE:
 				_drag_pan = mb.pressed
 			MOUSE_BUTTON_LEFT:
@@ -83,6 +90,17 @@ func _unhandled_input(event: InputEvent) -> void:
 					_drag_pan = false
 			MOUSE_BUTTON_RIGHT:
 				_drag_rot = mb.pressed
+	elif event is InputEventMagnifyGesture:
+		# Trackpad: Zwei-Finger-Zoom (Auseinanderziehen = näher)
+		_zoom_by(1.0 / maxf((event as InputEventMagnifyGesture).factor, 0.01))
+	elif event is InputEventPanGesture:
+		# Trackpad: Zwei-Finger-Wischen verschiebt die Karte; mit Cmd/Strg zoomt es (wie Mausrad)
+		var pg := event as InputEventPanGesture
+		if pg.meta_pressed or pg.ctrl_pressed:
+			_zoom_by(pow(1.04, pg.delta.y))
+		else:
+			_focus = Vector3.INF
+			_pan(pg.delta * 0.6 * (_dist / 70.0))
 	elif event is InputEventMouseMotion:
 		var mm := event as InputEventMouseMotion
 		if _drag_pan:
@@ -90,6 +108,10 @@ func _unhandled_input(event: InputEvent) -> void:
 		if _drag_rot:
 			_target_yaw -= mm.relative.x * 0.006
 			_pitch = clampf(_pitch - mm.relative.y * 0.004, deg_to_rad(-85.0), deg_to_rad(-20.0))
+
+
+func _zoom_by(f: float) -> void:
+	_target_dist = clampf(_target_dist * f, min_dist, max_dist)
 
 
 func _apply_focus(delta: float) -> void:

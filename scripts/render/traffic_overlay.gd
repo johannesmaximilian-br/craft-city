@@ -19,7 +19,10 @@ const RED := Color(0.9, 0.2, 0.15, 0.8)
 var map: CityMap
 var sim: Simulation
 var mode := Mode.OFF
-var service_cat := ""          # gesetzt = Versorgungsansicht dieses Dienstes (hat Vorrang)
+var service_cat := ""
+var _roofs: MultiMeshInstance3D     # Einfärbung bebauter Tiles auf Dachhöhe (sonst im Gebäude versteckt)
+# ungefähre Dachhöhe (Blöcke) je Zone und Stufe
+const ROOF := [[0, 0, 0, 0], [0, 2.0, 3.2, 6.5], [0, 2.0, 5.0, 11.0], [0, 3.0, 3.2, 4.2]]          # gesetzt = Versorgungsansicht dieses Dienstes (hat Vorrang)
 
 
 func setup(city_map: CityMap, simulation: Simulation) -> void:
@@ -38,6 +41,18 @@ func setup(city_map: CityMap, simulation: Simulation) -> void:
 	multimesh.mesh = box
 	cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	visible = false
+	var roof_box := BoxMesh.new()
+	roof_box.size = Vector3(B - 0.4, 0.1, B - 0.4)
+	var roof_mat := mat.duplicate() as StandardMaterial3D
+	roof_mat.no_depth_test = true       # immer sichtbar, auch hinter höheren Nachbarn
+	roof_box.material = roof_mat
+	_roofs = MultiMeshInstance3D.new()
+	_roofs.multimesh = MultiMesh.new()
+	_roofs.multimesh.transform_format = MultiMesh.TRANSFORM_3D
+	_roofs.multimesh.use_colors = true
+	_roofs.multimesh.mesh = roof_box
+	_roofs.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(_roofs)
 	sim.traffic_changed.connect(_rebuild)
 
 
@@ -78,6 +93,15 @@ func _rebuild() -> void:
 	var colors: Array[Color] = []
 	var cov: PackedFloat32Array = sim.coverage.get(service_cat, PackedFloat32Array())
 	for i in map.size * map.size:
+		if service_cat == "transit":
+			if map.road[i] != 0:
+				if sim.bus_served.size() > i and sim.bus_served[i] == 1:
+					items.append(i)
+					colors.append(BUS_ROUTE)
+			elif map.zone[i] != Config.Zone.NONE:
+				items.append(i)
+				colors.append(GREEN if sim.has_transit(i) else RED)
+			continue
 		if service_cat != "":
 			if not map.is_water(i % map.size, i / map.size) and cov.size() > i:
 				items.append(i)
@@ -130,11 +154,30 @@ func _rebuild() -> void:
 					var lo: float = Config.RES_MIN_LAND[2]
 					var hi: float = Config.RES_MIN_LAND[3]
 					colors.append(ramp(clampf((hi + 0.05 - sim.land_value[i]) / (hi - lo + 0.1), 0.0, 1.0)))
-	multimesh.instance_count = items.size()
+	# Boden-Tiles normal, bebaute Tiles (Gebäude, Sonderbau) auf Dachhöhe
+	var ground: Array[int] = []
+	var roofs: Array[int] = []
 	for k in items.size():
 		var i := items[k]
-		var x := i % map.size
-		var z := i / map.size
-		var pos := Vector3(x * B + B * 0.5, map.height[i] + 0.06, z * B + B * 0.5)
-		multimesh.set_instance_transform(k, Transform3D(Basis(), pos))
-		multimesh.set_instance_color(k, colors[k])
+		if (map.zone[i] != Config.Zone.NONE and map.level[i] > 0) or map.special[i] != Config.Special.NONE:
+			roofs.append(k)
+		else:
+			ground.append(k)
+	multimesh.instance_count = ground.size()
+	for g in ground.size():
+		var k := ground[g]
+		var i := items[k]
+		var pos := Vector3((i % map.size) * B + B * 0.5, map.height[i] + 0.06, (i / map.size) * B + B * 0.5)
+		multimesh.set_instance_transform(g, Transform3D(Basis(), pos))
+		multimesh.set_instance_color(g, colors[k].srgb_to_linear())
+	var rm := _roofs.multimesh
+	rm.instance_count = roofs.size()
+	for r in roofs.size():
+		var k := roofs[r]
+		var i := items[k]
+		var top := 4.0 if map.special[i] != Config.Special.NONE else float(ROOF[map.zone[i]][map.level[i]])
+		if map.villa[i] == 1 and map.level[i] == 3:
+			top = 2.6
+		var pos := Vector3((i % map.size) * B + B * 0.5, map.height[i] + top + 0.15, (i / map.size) * B + B * 0.5)
+		rm.set_instance_transform(r, Transform3D(Basis(), pos))
+		rm.set_instance_color(r, colors[k].srgb_to_linear())

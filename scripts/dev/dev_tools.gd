@@ -129,6 +129,8 @@ static func run(game: Node) -> void:
 		DevTests.fronttest(game)
 	if has("--loadreport"):
 		DevTests.loadreport(game)
+	if has("--powerreport"):
+		DevTests.powerreport(game)
 	if has("--powertest"):
 		DevTests.powertest()
 	if has("--cartest"):
@@ -137,6 +139,10 @@ static func run(game: Node) -> void:
 		DevTests.greentest(game)
 	if has("--savetest"):
 		DevTests.savetest(game)
+	if has("--rangetest"):
+		DevTests.rangetest(game)
+	if has("--zoomtest"):
+		DevTests.zoomtest(game)
 	if has("--mutetest"):
 		DevTests.mutetest(game)
 	if has("--cheattest"):
@@ -199,6 +205,7 @@ static func run(game: Node) -> void:
 			game.hud._info_detail = true
 		game.tools.hover = Vector2i(int(hv[0]), int(hv[1]))
 		game.hud._on_hover(game.tools.hover)
+		game.tools._update_preview()
 	if has("--notify"):
 		# Beispiel-Warnungen für Screenshots der Meldungsleiste
 		game.hud.notify("Stromengpass im Netz bei 30,30: Bedarf 48 MW > Leistung 30 MW", Vector2i(30, 30))

@@ -102,22 +102,22 @@ const RES_MIN_LAND := [0.0, 0.0, 0.35, 0.55]
 const COM_CUSTOMER_RANGE := 6
 const COM_CUSTOMERS_FULL := 300.0       # ab so vielen Einwohnern volle Wachstumsrate
 
-# Sonderbauten: Größe (Tiles), Kosten, Unterhalt/Monat, Leistung (MW)
+# Sonderbauten: Größe (Tiles), Kosten, Unterhalt/Monat, Leistung (MW), "use" = Verbrauch (MW) bei Stufe 1 (x SERVICE_POWER_LEVEL)
 const SPECIALS := {
 	Special.COAL: {"name": "Kohlekraftwerk", "size": 2, "cost": 3000, "upkeep": 25.0, "power": 400},
 	Special.WIND: {"name": "Windrad", "size": 1, "cost": 450, "upkeep": 3.0, "power": 30},
 	# Dienste/Kultur: Unterhalt je Stufe 1x / 2.2x / 3.8x, Ausbau kostet "upgrade" je Stufe
-	Special.POLICE:   {"name": "Polizei", "size": 1, "cost": 900, "upgrade": 1200, "upkeep": 10.0, "power": 0, "service": "police"},
-	Special.FIRE:     {"name": "Feuerwehr", "size": 1, "cost": 900, "upgrade": 1200, "upkeep": 10.0, "power": 0, "service": "fire"},
-	Special.SCHOOL:   {"name": "Schule", "size": 1, "cost": 1200, "upgrade": 1500, "upkeep": 13.0, "power": 0, "service": "education"},
-	Special.HOSPITAL: {"name": "Krankenhaus", "size": 2, "cost": 2500, "upgrade": 2500, "upkeep": 20.0, "power": 0, "service": "health"},
-	Special.LIBRARY:  {"name": "Bibliothek", "size": 1, "cost": 1000, "upgrade": 1200, "upkeep": 7.0, "power": 0, "service": "culture", "unlock": 1000},
-	Special.CINEMA:   {"name": "Kino", "size": 1, "cost": 1400, "upgrade": 1500, "upkeep": 6.0, "power": 0, "service": "culture", "unlock": 1000},
-	Special.TOWNHALL: {"name": "Bürgerhaus", "size": 2, "cost": 4000, "upgrade": 4000, "upkeep": 18.0, "power": 0, "service": "culture", "unlock": 2000},
+	Special.POLICE:   {"name": "Polizei", "size": 1, "cost": 900, "upgrade": 1200, "upkeep": 10.0, "power": 0, "use": 1, "service": "police"},
+	Special.FIRE:     {"name": "Feuerwehr", "size": 1, "cost": 900, "upgrade": 1200, "upkeep": 10.0, "power": 0, "use": 1, "service": "fire"},
+	Special.SCHOOL:   {"name": "Schule", "size": 1, "cost": 1200, "upgrade": 1500, "upkeep": 13.0, "power": 0, "use": 2, "service": "education"},
+	Special.HOSPITAL: {"name": "Krankenhaus", "size": 2, "cost": 2500, "upgrade": 2500, "upkeep": 20.0, "power": 0, "use": 5, "service": "health"},
+	Special.LIBRARY:  {"name": "Bibliothek", "size": 1, "cost": 1000, "upgrade": 1200, "upkeep": 7.0, "power": 0, "use": 1, "service": "culture", "unlock": 1000},
+	Special.CINEMA:   {"name": "Kino", "size": 1, "cost": 1400, "upgrade": 1500, "upkeep": 6.0, "power": 0, "use": 2, "service": "culture", "unlock": 1000},
+	Special.TOWNHALL: {"name": "Bürgerhaus", "size": 2, "cost": 4000, "upgrade": 4000, "upkeep": 18.0, "power": 0, "use": 3, "service": "culture", "unlock": 2000},
 	# Großkultur: Besucher (je Stufe) = Kundschaft fürs Gewerbe ringsum + Verkehr an Veranstaltungstagen
-	Special.THEATER:  {"name": "Theater", "size": 2, "cost": 8000, "upgrade": 6000, "upkeep": 35.0, "power": 0, "service": "venue",
+	Special.THEATER:  {"name": "Theater", "size": 2, "cost": 8000, "upgrade": 6000, "upkeep": 35.0, "power": 0, "use": 5, "service": "venue",
 		"unlock": 3000, "visitors": 300, "event_every": 1},
-	Special.STADIUM:  {"name": "Stadion", "size": 3, "cost": 15000, "upgrade": 10000, "upkeep": 60.0, "power": 0, "service": "venue",
+	Special.STADIUM:  {"name": "Stadion", "size": 3, "cost": 15000, "upgrade": 10000, "upkeep": 60.0, "power": 0, "use": 12, "service": "venue",
 		"unlock": 5000, "visitors": 900, "event_every": 3},
 }
 
@@ -125,6 +125,7 @@ const SPECIALS := {
 const SERVICE_RADIUS := [0, 6, 9, 12]           # Reichweite (Tiles) je Ausbaustufe
 const SERVICE_CAPACITY := [0, 800, 2000, 4500]  # versorgte Einwohner je Stufe
 const UPKEEP_LEVEL := [0.0, 1.0, 2.2, 3.8]
+const SERVICE_POWER_LEVEL := [0.0, 1.0, 1.5, 2.0]   # Stromverbrauch von Dienstbauten je Ausbaustufe
 # Kategorie -> [Anzeigename, ab Einwohnerzahl erwartet, Gewicht für Zufriedenheit]
 const SERVICES := {
 	"police": ["Polizei", 300, 0.10],

@@ -24,7 +24,7 @@ G=/Applications/Godot.app/Contents/MacOS/Godot
 $G --headless --import 2>&1 | grep -E "SCRIPT ERROR|Parse" -A1          # Kompilierfehler
 $G --path . -- --demo --selftest --dragtest --servicetest --quit          # Funktionstests
 $G --headless --path . -- --traffictest --widetest --quit                 # Verkehr/Hauptstraßen (synthetisch)
-$G --path . -- --demo --profile=20,3 --quit                               # Performance (Ruckler > 25 ms), läuft mit 60-FPS-Grenze
+$G --path . -- --demo --profile=20,3 --quit                               # Performance (Ruckler > 25 ms), läuft mit der FPS-Grenze aus den Nutzer-Einstellungen (z.B. 30!)
 $G --path . -- --demo --gpumeasure=0.1,0 --profile=20,3 --quit            # dito ohne FPS-Grenze (Vergleich mit alten Messungen)
 $G --path . -- --demo --cam=32,32,60 --screenshot=/pfad/bild.png          # Screenshot ansehen (Read-Tool)
 ```
@@ -102,6 +102,10 @@ $G --path . -- --demo --cam=32,32,60 --screenshot=/pfad/bild.png          # Scre
 - **Strom:** `_compute_power` erfasst **alle** leitenden Komponenten (auch ohne Kraftwerk) → `power_net` je Tile,
   `power_nets` (capacity, demand, plants, unserved, dark). Meldungen über Signal `sim.alert(text, tile)` nur bei neuen
   Problemen (`_power_warned`). Anzeige oben = Bedarf aller Gebäude, rot bei irgendeinem Gebäude ohne Strom.
+- **Strom für Dienste:** `tile_power_use` liefert am Ursprungs-Tile eines Dienstbaus `use × SERVICE_POWER_LEVEL[stufe]`;
+  `_compute_power` versorgt diese Anker vor der BFS (Vorrang), übrige Tiles erben `powered` vom Anker. `special_powered(i)`
+  prüfen: ohne Strom keine Versorgung (`_compute_services`), keine Löschzüge (`FireDept._dispatch`), keine Events.
+  `powered` steht deshalb in `COMMUTE_IN` (Event-Verkehr im Worker).
 - **Dienst-Auslastung geteilt:** `_compute_services` zählt je Kategorie, wie viele Gebäude ein Tile abdecken
   (`_service_tiles`, Kreis), und teilt dessen Einwohner/Jobs durch diese Zahl. Vorher zählte jedes Gebäude alles im
   Quadrat → in dichten Vierteln war jede Wache überlastet, egal wie viele man baute.
@@ -115,6 +119,12 @@ $G --path . -- --demo --cam=32,32,60 --screenshot=/pfad/bild.png          # Scre
 - **HUD-Größe:** `Hud` (CanvasLayer) bekommt `scale = ui_scale`, das Wurzel-Control wird auf Fenstergröße / Faktor
   gesetzt (`_apply_ui_scale`, auch bei Fenstergröße-Änderung), damit Anker an den Rändern bleiben. Mausposition und
   Fensterbreite im HUD daher immer durch `scale` teilen (`_ui_size()`).
+- **Reichweiten-Vorschau:** `ToolController.range_preview(tile)` (Tile → Farbe) bildet die Regeln aus
+  `_build_transit_links` (BUS_RANGE, STATION_WALK, Zubringer) und `_service_tiles` nach — bei Regeländerung dort mitziehen.
+  Eigene MultiMesh `_range` (render_priority 1, über der Ansichts-Einfärbung).
+- **Ansichten (`TrafficOverlay`):** Boden-Tiles als flache Platte am Boden, **bebaute Tiles** (Zone mit Gebäude,
+  Sonderbau) auf geschätzter Dachhöhe (`ROOF` je Zone/Stufe) in eigener MultiMesh `_roofs` ohne Tiefentest — am Boden
+  lagen sie im Gebäude und waren unsichtbar (Kriminalität/Zufriedenheit). Farben `.srgb_to_linear()`.
 - **Speichern:** neue Map-Felder in `CityMap.SAVE_FIELDS` eintragen; fehlende Felder alter Saves werden genullt.
   `SaveManager.save` rotiert vorher Sicherungen (`<slot>.bak1..3`, nur Spieler-Slots). Tests, die Spieler-Slots
   benutzen wollen, stellen `SaveManager.dir` auf einen eigenen Ordner um (siehe `savetest`).

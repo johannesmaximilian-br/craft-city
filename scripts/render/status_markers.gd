@@ -40,7 +40,13 @@ func _rebuild() -> void:
 	for z in map.size:
 		for x in map.size:
 			var i := map.idx(x, z)
-			if map.zone[i] == Config.Zone.NONE or sim.powered.size() <= i or sim.powered[i] == 1:
+			if sim.powered.size() <= i or sim.powered[i] == 1:
+				continue
+			# Dienst-/Kulturbau ohne Strom: ein Blitz über dem Ursprungs-Tile
+			if map.zone[i] == Config.Zone.NONE:
+				if map.anchor[i] == i and sim.tile_power_use(i) > 0:
+					var s: int = Config.SPECIALS[map.special[i]]["size"]
+					_points.append(Vector3(x * B + s * B * 0.5, map.height[i] + 7.0, z * B + s * B * 0.5))
 				continue
 			# Leere Zonen nur jedes 2. Tile, damit es nicht überladen wirkt
 			if map.level[i] == 0 and (x + z) % 2 == 1:

@@ -101,7 +101,10 @@ func _ready() -> void:
 	# Dienst-Werkzeug in der Hand -> Versorgungsansicht dieses Dienstes
 	tools.tool_changed.connect(func(t):
 		var sp: int = tools._special_for_tool()
-		overlay.set_service(Config.SPECIALS[sp].get("service", "") if sp != Config.Special.NONE else ""))
+		var cat: String = Config.SPECIALS[sp].get("service", "") if sp != Config.Special.NONE else ""
+		if t == ToolController.Tool.BUS_STOP or t == ToolController.Tool.STATION:
+			cat = "transit"        # ÖPNV-Ansicht: Busnetz blau, Gebäude mit/ohne Anschluss
+		overlay.set_service(cat))
 	hud.save_requested.connect(_save)
 	hud.load_requested.connect(_load)
 	hud.new_city_requested.connect(_new_city)
