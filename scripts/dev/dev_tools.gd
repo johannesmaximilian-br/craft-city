@@ -8,6 +8,7 @@ extends RefCounted
 ##   --popup=view|happy     Ansicht-Liste bzw. Zufriedenheits-Karte aufklappen
 ##   --hover=x,z [--detail] Info-Karte für Tile zeigen (ausführlich)
 ##   --notify               Beispiel-Warnungen in die Meldungsleiste
+##   --uiscale=f            HUD-Größe (0.7 / 0.85 / 1.0 / 1.15)
 ##   --menu / --flyout      Menü bzw. Strom-Werkzeuggruppe öffnen
 ##   --selftest --dragtest --lanetest --traffictest --pickcheck --firetest --bustest --happytest --cheattest --greentest --venuetest --zonetest --taxtest --cartest
 ##   --venues               Theater + Stadion in die Demo-Stadt setzen (Screenshots)
@@ -46,6 +47,8 @@ static func run(game: Node) -> void:
 	# Automatische Läufe (Tests/Screenshots) nehmen keinen Tastaturfokus: sonst landen Tastendrücke
 	# des Nutzers (der gerade woanders tippt) im Spiel und wählen z.B. Werkzeuge
 	automated = has("--quit") or value("--screenshot") != ""
+	if automated:
+		game.get_viewport().gui_disable_input = true    # auch keine Klicks des Nutzers auf Buttons (z.B. Menü)
 	if has("--demo"):
 		DemoCity.build(game)
 	if value("--loadfile") != "":
@@ -92,6 +95,10 @@ static func run(game: Node) -> void:
 		# --focus=x,z: Kamera auf Tile (Geländehöhe, Bildmitte)
 		var fv := value("--focus").split_floats(",")
 		game.hud.focus_requested.emit(Vector2i(int(fv[0]), int(fv[1])))
+	if value("--uiscale") != "":
+		# --uiscale=0.85: HUD-Größe nur für diesen Lauf
+		GraphicsSettings.ui_scale = float(value("--uiscale"))
+		game.hud._apply_ui_scale()
 	if value("--gfx") != "":
 		# Grafikstufe nur für diesen Lauf (0 Niedrig, 1 Mittel, 2 Hoch), nicht gespeichert
 		GraphicsSettings.current = int(value("--gfx")) as GraphicsSettings.Preset
@@ -128,6 +135,8 @@ static func run(game: Node) -> void:
 		DevTests.cartest(game)
 	if has("--greentest"):
 		DevTests.greentest(game)
+	if has("--savetest"):
+		DevTests.savetest(game)
 	if has("--mutetest"):
 		DevTests.mutetest(game)
 	if has("--cheattest"):
@@ -200,6 +209,8 @@ static func run(game: Node) -> void:
 		game.hud.toggle_hud()
 	if has("--menu"):
 		game.hud.toggle_menu()
+		if value("--asksave") != "":
+			game.hud._ask_save(value("--asksave"))     # nur Abfrage zeigen, nichts speichern
 
 	var shot := value("--screenshot")
 	if shot != "":

@@ -5,15 +5,45 @@ extends RefCounted
 
 const VERSION := 1
 const DIR := "user://saves"
+static var dir := DIR       # Tests stellen auf einen eigenen Ordner um (echte Spielstände nie anfassen)
 const SLOTS := ["quick", "1", "2", "3"]
+const BACKUPS := 3          # je Spieler-Slot: vor jedem Überschreiben alte Version als <slot>.bak1..3 behalten
+
+
+## Sicherung k (1 = neueste) eines Slots; ist selbst wie ein Slot ladbar.
+static func backup_slot(slot: String, k: int) -> String:
+	return "%s.bak%d" % [slot, k]
+
+
+## Alte Version vor dem Überschreiben wegschieben (bak1 -> bak2 -> bak3, älteste fällt weg). Nur Spieler-Slots.
+static func _rotate_backups(slot: String) -> void:
+	if not slot in SLOTS or not FileAccess.file_exists(path(slot)):
+		return
+	for k in range(BACKUPS, 1, -1):
+		var older := path(backup_slot(slot, k - 1))
+		if FileAccess.file_exists(older):
+			DirAccess.rename_absolute(older, path(backup_slot(slot, k)))
+	DirAccess.rename_absolute(path(slot), path(backup_slot(slot, 1)))
+
+
+## Alle vorhandenen Sicherungen: [{slot, k, name, meta}], neueste zuerst je Slot.
+static func backups() -> Array:
+	var out := []
+	for slot: String in SLOTS:
+		for k in range(1, BACKUPS + 1):
+			var m := meta(backup_slot(slot, k))
+			if not m.is_empty():
+				out.append({"slot": backup_slot(slot, k), "base": slot, "k": k, "meta": m})
+	return out
 
 
 static func path(slot: String) -> String:
-	return "%s/%s.citysave" % [DIR, slot]
+	return "%s/%s.citysave" % [dir, slot]
 
 
 static func save(slot: String, map: CityMap, sim: Simulation, city_name := "Cube City") -> Error:
-	DirAccess.make_dir_recursive_absolute(DIR)
+	DirAccess.make_dir_recursive_absolute(dir)
+	_rotate_backups(slot)
 	var f := FileAccess.open_compressed(path(slot), FileAccess.WRITE, FileAccess.COMPRESSION_ZSTD)
 	if f == null:
 		return FileAccess.get_open_error()

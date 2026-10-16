@@ -56,6 +56,12 @@ var _popup_col: VBoxContainer
 var _popup_kind := ""              # "view" / "happy" / "" = zu
 var _menu: PanelContainer
 var _slot_labels := {}
+var _root: Control
+var _scale_buttons: Array[Button] = []
+var _confirm_row: HBoxContainer
+var _confirm_label: Label
+var _confirm_slot := ""
+var _backup_col: VBoxContainer
 var _speed_before_menu := 1
 var _tax_labels := {}           # Zone -> Label
 var _fare_btn: Button
@@ -146,6 +152,7 @@ func setup(simulation: Simulation, tool_ctrl: ToolController, city_map: CityMap,
 
 func _build() -> void:
 	var root := Control.new()
+	_root = root
 	root.theme = UiTheme.build()
 	root.set_anchors_preset(Control.PRESET_FULL_RECT)
 	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -332,6 +339,8 @@ func _build() -> void:
 	_hud_parts = [left, _right]
 
 	_build_menu(root)
+	get_viewport().size_changed.connect(_apply_ui_scale)
+	_apply_ui_scale()
 
 	_select_tool(ToolController.Tool.INSPECT)
 	_set_speed(1)
@@ -351,8 +360,23 @@ func _build_menu(root: Control) -> void:
 		var info := _label(row, 16)
 		info.custom_minimum_size.x = 540
 		_slot_labels[slot] = info
-		_text_button(row, "Speichern", func(): save_requested.emit(slot); _refresh_slots(), "").custom_minimum_size.x = 120
+		_text_button(row, "Speichern", _ask_save.bind(slot), "").custom_minimum_size.x = 120
 		_text_button(row, "Laden", func(): load_requested.emit(slot); toggle_menu(), "").custom_minimum_size.x = 90
+	# Bestätigung vor dem Überschreiben (ersetzt kurz die Slot-Liste nicht, steht darunter)
+	_confirm_row = _row(col, 8)
+	_confirm_row.alignment = BoxContainer.ALIGNMENT_BEGIN
+	_confirm_label = _label(_confirm_row, 16, UiTheme.BAD)
+	_confirm_label.custom_minimum_size.x = 540
+	_confirm_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_text_button(_confirm_row, "Überschreiben", _confirm_save, "Alte Version wird als Sicherung behalten").custom_minimum_size.x = 160
+	_text_button(_confirm_row, "Abbrechen", func(): _confirm_row.visible = false, "").custom_minimum_size.x = 120
+	_confirm_row.visible = false
+	# Sicherungen (ältere Versionen, automatisch vor jedem Überschreiben)
+	var bk_title := _label(col, 16, UiTheme.TEXT_DIM)
+	bk_title.text = "Sicherungen (vor jedem Überschreiben, je Platz die letzten %d):" % SaveManager.BACKUPS
+	_backup_col = VBoxContainer.new()
+	_backup_col.add_theme_constant_override("separation", 4)
+	col.add_child(_backup_col)
 	col.add_child(HSeparator.new())
 	var gfx_row := _row(col, 8)
 	gfx_row.alignment = BoxContainer.ALIGNMENT_BEGIN
@@ -383,6 +407,18 @@ func _build_menu(root: Control) -> void:
 		b.custom_minimum_size.x = 110 if v > 0 else 150
 		b.set_pressed_no_signal(v == GraphicsSettings.fps_limit)
 		_fps_buttons.append(b)
+	var sc_row := _row(col, 8)
+	sc_row.alignment = BoxContainer.ALIGNMENT_BEGIN
+	var sc_label := _label(sc_row, 16)
+	sc_label.text = "Oberfläche"
+	sc_label.custom_minimum_size.x = 160
+	_scale_buttons.clear()
+	for v: float in GraphicsSettings.UI_SCALES:
+		var b := _text_button(sc_row, "%d%%" % roundi(v * 100.0), _set_ui_scale.bind(v), "Größe aller HUD-Elemente")
+		b.toggle_mode = true
+		b.custom_minimum_size.x = 110
+		b.set_pressed_no_signal(is_equal_approx(v, GraphicsSettings.ui_scale))
+		_scale_buttons.append(b)
 	var fps_hint := _label(fps_row, 14, UiTheme.TEXT_DIM)
 	fps_hint.text = "Hintergrund 10 · Pause 30"
 	for bus: String in ["Music", "SFX", "Ambient"]:
@@ -404,6 +440,8 @@ func _build_menu(root: Control) -> void:
 	var bottom := _row(col, 8)
 	_text_button(bottom, "Neue Stadt", func(): new_city_requested.emit(); toggle_menu(), "Neue Karte, Startkapital").custom_minimum_size.x = 160
 	_text_button(bottom, "Weiter", toggle_menu, "").custom_minimum_size.x = 120
+	_text_button(bottom, "Spielstand-Ordner öffnen", UserData.open_saves_folder,
+		ProjectSettings.globalize_path("user://saves")).custom_minimum_size.x = 300
 	var hint := _label(col, 16, UiTheme.TEXT_DIM)
 	hint.text = "F5 Schnellspeichern  ·  F9 Schnellladen  ·  M Ton an/aus"
 	_anchor(_menu, Control.PRESET_CENTER, Control.GROW_DIRECTION_BOTH, Control.GROW_DIRECTION_BOTH)
@@ -416,6 +454,29 @@ func _set_graphics(p: int) -> void:
 	for k in _gfx_buttons.size():
 		_gfx_buttons[k].set_pressed_no_signal(k == p)
 	graphics_changed.emit()
+
+
+func _set_ui_scale(v: float) -> void:
+	GraphicsSettings.ui_scale = v
+	GraphicsSettings.save()
+	for k in _scale_buttons.size():
+		_scale_buttons[k].set_pressed_no_signal(is_equal_approx(GraphicsSettings.UI_SCALES[k], v))
+	_apply_ui_scale()
+
+
+## HUD skalieren: CanvasLayer verkleinern, Wurzel-Control auf Fenstergröße / Faktor ziehen (Anker bleiben richtig).
+func _apply_ui_scale() -> void:
+	var f := GraphicsSettings.ui_scale
+	scale = Vector2(f, f)
+	_root.set_anchors_preset(Control.PRESET_TOP_LEFT)
+	_root.position = Vector2.ZERO
+	_root.size = _ui_size()
+	if _popup != null:
+		_close_popup()
+
+
+func _ui_size() -> Vector2:
+	return get_viewport().get_visible_rect().size / GraphicsSettings.ui_scale
 
 
 func _set_fps(v: int) -> void:
@@ -441,7 +502,51 @@ func toggle_menu() -> void:
 		_set_speed(_speed_before_menu if _speed_before_menu > 0 else 1)
 
 
+static func slot_name(slot: String) -> String:
+	if SLOT_NAMES.has(slot):
+		return SLOT_NAMES[slot]
+	var p := slot.split(".bak")
+	return "%s, Sicherung %s" % [SLOT_NAMES.get(p[0], p[0]), p[1] if p.size() > 1 else "?"]
+
+
+## Speichern im Menü: belegter Platz -> erst nachfragen.
+func _ask_save(slot: String) -> void:
+	var m := SaveManager.meta(slot)
+	if m.is_empty():
+		save_requested.emit(slot)
+		_refresh_slots()
+		return
+	_confirm_slot = slot
+	_confirm_label.text = "%s überschreiben?  %s  ·  %s Einw.  ·  $%s" % [SLOT_NAMES[slot], m.get("date", "?"),
+		_fmt(m.get("population", 0)), _fmt(m.get("money", 0))]
+	_confirm_row.visible = true
+
+
+func _confirm_save() -> void:
+	_confirm_row.visible = false
+	save_requested.emit(_confirm_slot)
+	_refresh_slots()
+
+
 func _refresh_slots() -> void:
+	_confirm_row.visible = false
+	for c in _backup_col.get_children():
+		_backup_col.remove_child(c)
+		c.queue_free()
+	var list := SaveManager.backups()
+	if list.is_empty():
+		var l := _label(_backup_col, 14, UiTheme.TEXT_DIM)
+		l.text = "  noch keine"
+	for b: Dictionary in list:
+		var m: Dictionary = b["meta"]
+		var row := _row(_backup_col, 8)
+		row.alignment = BoxContainer.ALIGNMENT_BEGIN
+		var l := _label(row, 14)
+		l.custom_minimum_size.x = 540
+		l.text = "  %s:  %s  ·  %s Einw.  ·  gesichert %s" % [slot_name(b["slot"]), m.get("date", "?"),
+			_fmt(m.get("population", 0)), str(m.get("saved_at", "?")).replace("T", " ").left(16)]
+		var slot: String = b["slot"]
+		_text_button(row, "Laden", func(): load_requested.emit(slot); toggle_menu(), "").custom_minimum_size.x = 90
 	for slot: String in _slot_labels:
 		var m := SaveManager.meta(slot)
 		var text: String = SLOT_NAMES[slot] + ":  "
@@ -480,7 +585,7 @@ func _toggle_popup(kind: String) -> void:
 	_popup.visible = true
 	_popup.reset_size()
 	var r := btn.get_global_rect()
-	var vw := get_viewport().get_visible_rect().size.x
+	var vw := _ui_size().x
 	_popup.position = Vector2(clampf(r.position.x, MARGIN, vw - _popup.size.x - MARGIN), r.end.y + 8)
 	btn.set_pressed_no_signal(true)
 
@@ -677,7 +782,7 @@ func _text_button(parent: Node, text: String, cb: Callable, tip: String) -> Butt
 # ---------------------------------------------------------------- Laufzeit
 
 func _process(delta: float) -> void:
-	var mp := _cost_pill.get_viewport().get_mouse_position()
+	var mp := _cost_pill.get_viewport().get_mouse_position() / scale
 	_cost_pill.position = mp + Vector2(20, 14)
 	_cost_pill.visible = _cost.text != ""
 	if _toast_time > 0.0:

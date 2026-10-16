@@ -43,6 +43,8 @@ static func dragtest(game: Node) -> void:
 		[ToolController.Tool.RES, Vector2i(c - 12, c + 13), Vector2i(c - 9, c + 15)],
 		[ToolController.Tool.ROAD, Vector2i(c - 12, c + 17), Vector2i(c - 6, c + 19)],
 	]
+	# Echte Eingabe-Pipeline nötig (Test-Ereignisse sind als synthetic markiert); Nutzer-Eingaben bleiben dank Meta gesperrt
+	game.get_viewport().gui_disable_input = false
 	for cs in cases:
 		tools.set_tool(cs[0])
 		var before: float = game.sim.money
@@ -62,6 +64,7 @@ static func dragtest(game: Node) -> void:
 		print("dragtest %s %s->%s: %d Tiles, Kosten $%d" % [ToolController.TOOLS[cs[0]]["name"], cs[1], cs[2],
 			count, int(before - game.sim.money)])
 	tools.set_tool(ToolController.Tool.INSPECT)
+	game.get_viewport().gui_disable_input = DevTools.automated
 
 
 ## Autos auf Hauptstraßen fahren rechts der Mittellinie (nur Fahrten innerhalb des Straßenpaars).
@@ -1145,6 +1148,26 @@ static func mutetest(game: Node) -> void:
 	var after := AudioServer.is_bus_mute(master)
 	game.hud._unhandled_key_input(e)
 	print("mutetest Master stumm: vorher %s -> M -> %s -> M -> %s" % [before, after, AudioServer.is_bus_mute(master)])
+
+
+## Überschreiben-Schutz: 5x in denselben Slot speichern (eigener Testordner) -> Hauptstand + 3 Sicherungen, ladbar.
+static func savetest(game: Node) -> void:
+	var map: CityMap = game.map
+	var sim: Simulation = game.sim
+	SaveManager.dir = "user://saves_test"
+	var pops := []
+	for k in 5:
+		sim.money = 1000.0 * (k + 1)     # unterscheidbar
+		SaveManager.save("1", map, sim)
+	for b: Dictionary in SaveManager.backups():
+		pops.append("%s=$%d" % [b["slot"], int((b["meta"] as Dictionary)["money"])])
+	var main_money: int = SaveManager.meta("1")["money"]
+	var err := SaveManager.load_slot("1.bak3", map, sim)
+	print("savetest Slot 1 = $%d, Sicherungen %s, Laden bak3: %s (Kasse $%d)" % [main_money, pops, error_string(err), int(sim.money)])
+	for f in DirAccess.get_files_at(SaveManager.dir):
+		DirAccess.remove_absolute(SaveManager.dir + "/" + f)
+	DirAccess.remove_absolute(SaveManager.dir)
+	SaveManager.dir = SaveManager.DIR
 
 
 ## Erstes freies Plätzchen spiralförmig um die Kartenmitte.

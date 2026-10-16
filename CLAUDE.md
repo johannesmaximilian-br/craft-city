@@ -33,7 +33,8 @@ $G --path . -- --demo --cam=32,32,60 --screenshot=/pfad/bild.png          # Scre
 - Tests, die die Karte direkt ändern, müssen danach `map.notify_changed(...)` rufen (sonst veraltete Caches).
 - Profilieren nur mit Fenster im Vordergrund (macOS drosselt verdeckte Fenster → falsche 1-s-Spitzen; `profile()` setzt always-on-top).
 - Testspielstände (`selftest`, `servicetest`) werden wieder gelöscht; echte Spielstände des Nutzers liegen in
-  `~/Library/Application Support/Godot/app_userdata/Cube City/saves/` — nicht anfassen.
+  `~/Library/Application Support/Cube City/saves/` — nicht anfassen. (Bis 16.10. lagen sie unter
+  `.../Godot/app_userdata/Cube City/`; dieser alte Ordner ist die Sicherheitskopie des Nutzers, ebenfalls nicht anfassen.)
 
 ## Architektur-Prinzipien
 
@@ -108,7 +109,15 @@ $G --path . -- --demo --cam=32,32,60 --screenshot=/pfad/bild.png          # Scre
   (`GraphicsSettings.fps_limit`, Standard 60), Fenster im Hintergrund 10, Pause + ruhende Kamera 30. In Testläufen
   (`DevTools.automated`) keine Hintergrund-Drosselung, sonst laufen Tests im verdeckten Fenster mit 10 FPS.
   Nicht direkt `Engine.max_fps` setzen (wird überschrieben) – für Messungen `GraphicsSettings.fps_limit`.
+- **Datenordner:** `application/config/use_custom_user_dir` → `user://` = `Application Support/Cube City` (Win `%APPDATA%`,
+  Linux `~/.local/share`), auch im Editor. Autoload `UserData` (vor `Audio`, das sofort Einstellungen liest) kopiert beim
+  ersten Start Spielstände + `settings.cfg` aus dem alten `Godot/app_userdata`-Ordner, nur wenn der neue noch leer ist.
+- **HUD-Größe:** `Hud` (CanvasLayer) bekommt `scale = ui_scale`, das Wurzel-Control wird auf Fenstergröße / Faktor
+  gesetzt (`_apply_ui_scale`, auch bei Fenstergröße-Änderung), damit Anker an den Rändern bleiben. Mausposition und
+  Fensterbreite im HUD daher immer durch `scale` teilen (`_ui_size()`).
 - **Speichern:** neue Map-Felder in `CityMap.SAVE_FIELDS` eintragen; fehlende Felder alter Saves werden genullt.
+  `SaveManager.save` rotiert vorher Sicherungen (`<slot>.bak1..3`, nur Spieler-Slots). Tests, die Spieler-Slots
+  benutzen wollen, stellen `SaveManager.dir` auf einen eigenen Ordner um (siehe `savetest`).
 
 ## Fallstricke (schon einmal hineingetappt)
 
@@ -137,7 +146,8 @@ $G --path . -- --demo --cam=32,32,60 --screenshot=/pfad/bild.png          # Scre
 - `git stash` springt hier auf den ersten Commit zurück (alles andere ist uncommittet) → kein Vergleichsstand.
 - Testfenster (Screenshot/`--quit`) schieben sich unter macOS in den Vordergrund und bekommen Tastatur **und Maus**
   des Nutzers → `DevTools.automated` lässt HUD/Kamera/Werkzeuge echte Eingaben ignorieren (künstliche Test-Events
-  tragen Meta `synthetic`). `Window.unfocusable` hilft auf macOS nicht. Der alte Fehlschlag „dragtest Straße 0 Tiles“
+  tragen Meta `synthetic`); Buttons zusätzlich per `gui_disable_input` gesperrt (einmal hat ein Klick in ein
+  Menü-Testfenster die Grafikeinstellung des Nutzers umgestellt). `Window.unfocusable` hilft auf macOS nicht. Der alte Fehlschlag „dragtest Straße 0 Tiles“
   kam daher.
 - Export: Vorlage enthält nur `universal`, und `textures/vram_compression/import_etc2_astc` muss an sein.
 - Beim Ersetzen von Code per Skript nicht über Blockgrenzen schneiden (einmal ist so ein Config-Block verloren gegangen).

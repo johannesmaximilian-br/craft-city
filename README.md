@@ -52,6 +52,7 @@ Dev-Flags (nach `--`, funktionieren auch mit der App: `"build/Cube City.app/Cont
 - **Warnungen** (Probleme mit Signalton: Brand ohne Löschzug, Strom, Kasse im Minus, Zufriedenheit sinkt, Bürgerwünsche) erscheinen als schmale Streifen **rechts** unter Steuer/Tempo, höchstens 2, ~7 s; gleiche Warnung wird gezählt („x2“). Alles landet im **Verlauf** (Glocke).
 - **Infos** (Ansicht gewechselt, gespeichert, Bau nicht möglich …) erscheinen nur kurz und klein über der Werkzeugleiste, ohne Verlauf.
 - **Brand-Anzeige** rechts unter Steuer/Tempo. **H** blendet alles außer der Werkzeugleiste aus.
+- **Größe der Oberfläche** im Menü: 70 % · 85 % · 100 % · 115 % (gespeichert). Skaliert alle HUD-Elemente gleichmäßig.
 
 ## Regeln (Kurz)
 
@@ -67,7 +68,11 @@ Dev-Flags (nach `--`, funktionieren auch mit der App: `"build/Cube City.app/Cont
 - **Sichtbarer Verkehr** folgt der Simulation: 1 Auto je 11 Auto-Pendler (Bus-/Bahnfahrer fahren nicht Auto), Autos erscheinen fast nur auf Straßen mit Pendlern (reine Bahn-Vorstädte bleiben ruhig), 1 Bus je 120 Fahrgäste/Monat. Jedes Auto fährt 8–30 Tiles und taucht dann neu nach Pendler-Gewicht auf (sonst sammeln sich Zufallsfahrer in Nebenecken wie Serpentinen). Tests `--cartest`, `--cardrift=Sek` (nach 20 s: 22 % der Autos auf den Top-10-%-Straßen bei 28 % Verkehrsanteil; vorher 11 %).
 - **Bahnhofs-Kapazität**: 1.500 Ein-/Aussteiger je Bahnhof und Monat. Darüber wird der Weg über diesen Bahnhof teurer (Aufschlag 3 × Auslastung²), ab 150 % ist er für den Monat dicht → Pendler weichen auf andere Bahnhöfe, Bus oder Auto aus. Info-Karte des Bahnhofs zeigt die Auslastung („überfüllt!“). Mehr Bahnhöfe = mehr Kapazität.
 - **Ansicht ÖPNV** (V bzw. Ansicht-Liste): Straßen im Busnetz blau, Gebäude mit Bus-/Bahnanschluss grün, ohne rot; Liste zeigt Anteil, Bus-/Bahnfahrer und Anteil Wohnungen mit Anschluss.
-- Spielstände: `user://saves/*.citysave` (macOS: `~/Library/Application Support/Godot/app_userdata/Cube City/saves/`).
+- **Spielstände + Einstellungen** liegen im eigenen Datenordner des Spiels (gleich für Editor und Mac-App, kein Godot nötig):
+  macOS `~/Library/Application Support/Cube City/` · Windows `%APPDATA%\Cube City\` · Linux `~/.local/share/Cube City/`,
+  darin `saves/*.citysave` (Schnellspeicher F5/F9 + Slot 1–3) und `settings.cfg`. Menü: **„Spielstand-Ordner öffnen“**.
+  Ältere Versionen speicherten unter `…/Godot/app_userdata/Cube City/`; beim ersten Start wird von dort einmalig kopiert (der alte Ordner bleibt).
+- **Überschreiben-Schutz:** Speichern im Menü auf einen belegten Platz fragt nach („… überschreiben? Datum · Einw. · Kasse“). Zusätzlich wird vor **jedem** Überschreiben (auch F5) die alte Version als Sicherung behalten: je Platz die letzten 3 (`<platz>.bak1..3.citysave`), im Menü unter „Sicherungen“ ladbar. Test `--savetest` (eigener Testordner).
 
 ## Entwicklung & Tests
 
@@ -79,7 +84,7 @@ Dev-Werkzeuge liegen getrennt vom Spielcode in `scripts/dev/` und laufen nur mit
 
 - `dev_tools.gd` — wertet Flags aus: `--demo`, `--cam=x,z,dist`, `--ignite=x,z[,sek]` (Gebäude anzünden, Brand vorspulen, Kamera hin), `--ruin=x,z` (sofort abbrennen), `--overlay[=1..5]`, `--popup=view|happy`, `--menu`, `--flyout`, `--screenshot=pfad`, `--quit`
 - `demo_city.gd` — reproduzierbare Teststadt (Zonen, Strom, ÖPNV, 4-spurige Straße mit Verjüngung)
-- `dev_tests.gd` — `--selftest` (Timing, Speichern/Laden, Audio), `--dragtest` (echtes Maus-Ziehen), `--lanetest` (Rechtsverkehr auf Hauptstraßen), `--widetest` (Hauptstraßen-Erkennung), `--profile[=Sek,Tempo]` (Frame-Zeiten + Ruckler-Ursachen), `--gfx=0..2`, `--nowarmup`, `--servicetest`, `--tool=<name>`, `--traffictest` (Korridor: Straße/Parallelstraße/Hauptstraße/Bus/Bahn), `--pickcheck`, `--firetest` (Brand an der Wache gelöscht, ohne Wache abgebrannt + Ruine), `--bustest` (Vorstadt mit eigenem Straßennetz bekommt Busse), `--happytest` (Aufschlüsselung, Warnung bei Steuer hoch / Polizei weg), `--cheattest` (Geld-Cheat per Tastenereignis), `--greentest` (Grüngürtel gegen Verschmutzung, Terraforming reißt Straße ab), `--venuetest` (Stadion/Theater: Besucherverkehr, Kundschaft), `--zonetest` (Ladenzeile, Ballung, Nachbarschaft), `--taxtest` (Steuern je Zone, ÖPNV-Tarif), `--cartest` (Autos/Busse je Tarif, Diagnose ÖPNV, Bahnhofs-Auslastung), `--cardrift=Sek`, `--jamreport` (meistbelastete Straßen), `--loadfile=pfad` (Spielstand-Kopie laden), `--focus=x,z` (Kamera auf Tile), `--fronttest`, `--hover=x,z [--detail]`, `--notify`, `--hidehud`, `--fpstest`, `--mutetest`, `--gpumeasure=Sek,fps [--pause]`, `--popup=view|happy|log`, `--loadreport` (Auslastung der Dienste + Brände in 12 Monaten), `--powertest`, `--bigcity` (ganze Karte bebauen), `--buildtest` (Bau-Klick-Zeit, Pendler synchron/Hintergrund)
+- `dev_tests.gd` — `--selftest` (Timing, Speichern/Laden, Audio), `--dragtest` (echtes Maus-Ziehen), `--lanetest` (Rechtsverkehr auf Hauptstraßen), `--widetest` (Hauptstraßen-Erkennung), `--profile[=Sek,Tempo]` (Frame-Zeiten + Ruckler-Ursachen), `--gfx=0..2`, `--nowarmup`, `--servicetest`, `--tool=<name>`, `--traffictest` (Korridor: Straße/Parallelstraße/Hauptstraße/Bus/Bahn), `--pickcheck`, `--firetest` (Brand an der Wache gelöscht, ohne Wache abgebrannt + Ruine), `--bustest` (Vorstadt mit eigenem Straßennetz bekommt Busse), `--happytest` (Aufschlüsselung, Warnung bei Steuer hoch / Polizei weg), `--cheattest` (Geld-Cheat per Tastenereignis), `--greentest` (Grüngürtel gegen Verschmutzung, Terraforming reißt Straße ab), `--venuetest` (Stadion/Theater: Besucherverkehr, Kundschaft), `--zonetest` (Ladenzeile, Ballung, Nachbarschaft), `--taxtest` (Steuern je Zone, ÖPNV-Tarif), `--cartest` (Autos/Busse je Tarif, Diagnose ÖPNV, Bahnhofs-Auslastung), `--cardrift=Sek`, `--jamreport` (meistbelastete Straßen), `--loadfile=pfad` (Spielstand-Kopie laden), `--focus=x,z` (Kamera auf Tile), `--fronttest`, `--hover=x,z [--detail]`, `--notify`, `--hidehud`, `--fpstest`, `--mutetest`, `--savetest`, `--uiscale=f`, `--menu --asksave=slot`, `--gpumeasure=Sek,fps [--pause]`, `--popup=view|happy|log`, `--loadreport` (Auslastung der Dienste + Brände in 12 Monaten), `--powertest`, `--bigcity` (ganze Karte bebauen), `--buildtest` (Bau-Klick-Zeit, Pendler synchron/Hintergrund)
 
 ```bash
 /Applications/Godot.app/Contents/MacOS/Godot --path . -- --demo --selftest --dragtest --traffictest --quit
@@ -225,6 +230,7 @@ python3 tools/audio/gen_audio.py sfx ambient  # nur Effekte + Loops (~3 s)
 |---|---|
 | `main.gd` | Einstieg: baut Welt, Simulation, Kamera, Werkzeuge, HUD; Speichern/Laden; Umgebung/Licht |
 | `config.gd` | alle Konstanten (Kosten, Kapazitäten, Reichweiten, Standortregeln, Dienste) |
+| `core/user_data.gd` | Autoload `UserData`: eigener Datenordner, Umzug aus altem Godot-Ordner, „Spielstand-Ordner öffnen“ |
 | `city/city_map.gd` | Kartendaten als Packed-Arrays + Signale `tiles_changed` / `infra_changed`, Hauptstraßen-Erkennung |
 | `city/simulation.gd` | Monat in 5 Etappen: Netz/Strom → Pendler → Umwelt → Dienste → Wachstum/Brände/Budget |
 | `city/fire_dept.gd` | Brände in Echtzeit: Fortschritt, Löschzug-Alarmierung (BFS über Straßen), Löschen, Ausbreitung, Meldungen mit Ort |

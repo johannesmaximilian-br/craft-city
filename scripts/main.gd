@@ -131,13 +131,15 @@ func _on_tool_applied(t: ToolController.Tool) -> void:
 
 
 func _save(slot: String) -> void:
+	var existed := not SaveManager.meta(slot).is_empty()
 	var err := SaveManager.save(slot, map, sim)
-	hud.show_message("Gespeichert (%s)" % Hud.SLOT_NAMES[slot] if err == OK else "Speichern fehlgeschlagen: %s" % error_string(err))
+	hud.show_message(("Gespeichert (%s)%s" % [Hud.slot_name(slot), " - alte Version gesichert" if existed else ""])
+		if err == OK else "Speichern fehlgeschlagen: %s" % error_string(err))
 
 
 func _load(slot: String) -> void:
 	var err := SaveManager.load_slot(slot, map, sim)
-	hud.show_message("Geladen (%s)" % Hud.SLOT_NAMES[slot] if err == OK
+	hud.show_message("Geladen (%s)" % Hud.slot_name(slot) if err == OK
 		else ("Slot ist leer" if err == ERR_FILE_NOT_FOUND else "Laden fehlgeschlagen: %s" % error_string(err)))
 
 

@@ -15,6 +15,8 @@ static var current := Preset.HIGH
 static var vsync := true
 const FPS_OPTIONS := [30, 60, 0]          # 0 = unbegrenzt
 static var fps_limit := 60
+const UI_SCALES := [0.7, 0.85, 1.0, 1.15]
+static var ui_scale := 1.0
 
 
 static func load_saved() -> void:
@@ -23,6 +25,7 @@ static func load_saved() -> void:
 		current = cfg.get_value("graphics", "preset", Preset.HIGH)
 		vsync = cfg.get_value("graphics", "vsync", true)
 		fps_limit = cfg.get_value("graphics", "fps_limit", 60)
+		ui_scale = cfg.get_value("graphics", "ui_scale", 1.0)
 
 
 static func save() -> void:
@@ -31,6 +34,7 @@ static func save() -> void:
 	cfg.set_value("graphics", "preset", current)
 	cfg.set_value("graphics", "vsync", vsync)
 	cfg.set_value("graphics", "fps_limit", fps_limit)
+	cfg.set_value("graphics", "ui_scale", ui_scale)
 	cfg.save(SETTINGS_PATH)
 
 
