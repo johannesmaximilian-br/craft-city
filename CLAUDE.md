@@ -132,6 +132,11 @@ $G --path . -- --demo --cam=32,32,60 --screenshot=/pfad/bild.png          # Scre
 - **App-Icon/Startbild:** `assets/app/icon.png` (+ `.icns` per `iconutil`, im Export-Profil und `config/macos_native_icon`)
   wird mit `--appicon=pfad.png` aus `IconFactory` gerendert, `assets/app/splash.png` mit `--demo --splash --cam=33,33,62
   --screenshot=…`. Vollbild beim Start über `GraphicsSettings.apply_window()`, nie bei Läufen mit Dev-Flags.
+- **Rohstoffe:** Map-Felder `ore` (Config.Ore) und `ore_amt` (Byte; 1 Punkt = `ORE_UNIT` Einheiten, Bruchteile in
+  `Simulation._ore_used`, nicht gespeichert). Erzeugung `CityMap._generate_ores` (nach Höhe/Wassernähe + Rauschen).
+  Abbau-Gebäude = Sonderbauten mit `"produce"` (bzw. `"storage"`), kein `"service"`. `Simulation._produce()` läuft in
+  der Etappe „abschluss“: Förderung → `stock`, Überschuss über `stock_capacity()` → `export_income`. Info je Gebäude in
+  `producer_info`. Stein ist unbegrenzt, Holz kommt aus `Feature.TREE`.
 - **Speichern:** neue Map-Felder in `CityMap.SAVE_FIELDS` eintragen; fehlende Felder alter Saves werden genullt.
   `SaveManager.save` rotiert vorher Sicherungen (`<slot>.bak1..3`, nur Spieler-Slots). Tests, die Spieler-Slots
   benutzen wollen, stellen `SaveManager.dir` auf einen eigenen Ordner um (siehe `savetest`).

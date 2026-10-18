@@ -166,6 +166,16 @@ static func service(b: BlockBatch, base: Vector3, sp: int, lv: int) -> void:
 			b.put_box("vox_dark", base + Vector3(1.5, 0.5, -0.02), Vector3(1.2, 1.0, 0.06))
 			_roof(b, base, 3, 3, f, "darkbrick")
 			b.put_box("vox_red", base + Vector3(1.5, f + 1.5, 0.5), Vector3(1.8, 1.0, 0.15))      # Schild
+		Config.Special.LUMBER:
+			lumber(b, base, lv)
+		Config.Special.QUARRY:
+			quarry(b, base, lv)
+		Config.Special.PIT:
+			pit(b, base, lv)
+		Config.Special.MINE:
+			mine(b, base, lv)
+		Config.Special.WAREHOUSE:
+			warehouse(b, base, lv)
 		Config.Special.THEATER:
 			theater(b, base, lv)
 		Config.Special.STADIUM:
@@ -227,6 +237,85 @@ static func stadium(b: BlockBatch, base: Vector3, lv: int) -> void:
 		var mh := h + 3.0
 		b.put_box("metal", base + Vector3(p.x, mh * 0.5, p.y), Vector3(0.2, mh, 0.2))         # Flutlicht
 		b.put_box("vox_yellow", base + Vector3(p.x, mh + 0.2, p.y), Vector3(0.8, 0.5, 0.3))
+
+
+## Holzfäller (3x3): Blockhütte, Stapel Stämme, Baumstumpf.
+static func lumber(b: BlockBatch, base: Vector3, lv: int) -> void:
+	for z in 2:
+		for x in 2:
+			b.put("log" if (x + z) % 2 == 0 else "wood", base + Vector3(x, 0, z))
+			if lv >= 2:
+				b.put("wood", base + Vector3(x, 1, z))
+	_roof(b, base, 2, 2, 1 if lv < 2 else 2, "darkbrick")
+	b.put_box("vox_dark", base + Vector3(1.0, 0.5, -0.03), Vector3(0.6, 1.0, 0.06))          # Tür
+	for k in 2 + lv:                                                                         # Stämme gestapelt
+		b.put_box("log", base + Vector3(2.5, 0.25 + (k / 2) * 0.5, 0.6 + (k % 2) * 0.9), Vector3(0.45, 0.45, 0.85))
+	b.put_box("log", base + Vector3(0.6, 0.2, 2.4), Vector3(0.6, 0.4, 0.6))                    # Stumpf
+
+
+## Steinbruch (6x6): abgestufte Steinwand, Geröll, Kran.
+static func quarry(b: BlockBatch, base: Vector3, lv: int) -> void:
+	for z in 6:
+		for x in 6:
+			var step := maxi(0, mini(x, z) - 1)          # Terrassen zur hinteren Ecke hin höher
+			for y in mini(step, 2 + lv):
+				b.put("stone", base + Vector3(x, y, z))
+			if (x + z) % 3 == 0 and step == 0:
+				b.put_box("stone", base + Vector3(x + 0.5, 0.2, z + 0.5), Vector3(0.4, 0.4, 0.4))   # Geröll
+	var top := Vector3(1.0, 5.0 + lv, 1.0)
+	b.segment("metal", base + Vector3(1.0, 0, 1.0), base + top, 0.25)                         # Kranmast
+	b.segment("metal", base + top, base + top + Vector3(3.0, -0.5, 3.0), 0.18)                # Ausleger
+	b.segment("coal", base + top + Vector3(3.0, -0.5, 3.0), base + Vector3(4.0, 1.2, 4.0), 0.05)
+	b.put_box("stone", base + Vector3(4.0, 1.0, 4.0), Vector3(0.6, 0.5, 0.6))                 # Block am Haken
+	b.put_box("vox_yellow", base + Vector3(0.6, 0.35, 4.6), Vector3(0.9, 0.5, 0.6))           # Lore
+
+
+## Grube (3x3): Sand- und Tonhaufen, kleiner Bagger.
+static func pit(b: BlockBatch, base: Vector3, lv: int) -> void:
+	b.put_box("sand", base + Vector3(0.9, 0.3, 0.9), Vector3(1.4, 0.6 + lv * 0.2, 1.4))
+	b.put_box("sand", base + Vector3(0.9, 0.75 + lv * 0.1, 0.9), Vector3(0.8, 0.4, 0.8))
+	b.put_box("clay", base + Vector3(2.2, 0.25, 2.2), Vector3(1.2, 0.5 + lv * 0.15, 1.2))
+	b.put_box("vox_yellow", base + Vector3(2.2, 0.45, 0.8), Vector3(1.0, 0.6, 0.7))           # Bagger
+	b.put_box("vox_dark", base + Vector3(2.2, 0.15, 0.8), Vector3(1.1, 0.3, 0.8))
+	b.segment("vox_yellow", base + Vector3(1.8, 0.8, 0.8), base + Vector3(1.1, 1.3, 1.6), 0.15)
+	b.put_prop("shovel", base + Vector3(0.4, 0, 2.5), 0.6)
+
+
+## Mine (6x6): Förderturm mit Seilrad, Stolleneingang im Hang, Gleis mit Lore, Erzhaufen.
+static func mine(b: BlockBatch, base: Vector3, lv: int) -> void:
+	for z in range(3, 6):                                                                     # Hügel mit Stollen
+		for x in range(0, 6):
+			var hgt := 1 + (z - 3) + (1 if x in [2, 3] else 0)
+			for y in hgt:
+				if not (x in [2, 3] and z == 3 and y < 2):
+					b.put("stone" if y > 0 else "dirt", base + Vector3(x, y, z))
+	b.put_box("wood", base + Vector3(3.0, 2.05, 3.0), Vector3(2.2, 0.15, 0.3))                # Stollen-Rahmen
+	b.put_box("log", base + Vector3(2.0, 1.0, 3.0), Vector3(0.2, 2.0, 0.2))
+	b.put_box("log", base + Vector3(4.0, 1.0, 3.0), Vector3(0.2, 2.0, 0.2))
+	var h := 6.0 + lv
+	for c: Vector2 in [Vector2(0.5, 0.5), Vector2(2.0, 0.5), Vector2(0.5, 2.0), Vector2(2.0, 2.0)]:   # Förderturm
+		b.segment("metal", base + Vector3(c.x, 0, c.y), base + Vector3(1.25, h, 1.25), 0.15)
+	b.put_box("vox_red", base + Vector3(1.25, h + 0.3, 1.25), Vector3(1.4, 1.4, 0.15))        # Seilrad
+	b.segment("coal", base + Vector3(1.25, h + 0.3, 1.25), base + Vector3(3.0, 1.5, 3.0), 0.05)
+	for k in 4:                                                                               # Gleis + Lore
+		b.put_box("wood", base + Vector3(3.0, 0.05, 2.6 - k * 0.7), Vector3(1.0, 0.1, 0.2))
+	b.put_box("vox_dark", base + Vector3(3.0, 0.4, 1.0), Vector3(0.8, 0.5, 0.7))
+	b.put_box("coal", base + Vector3(3.0, 0.7, 1.0), Vector3(0.6, 0.2, 0.5))
+	b.put_box("coal", base + Vector3(5.0, 0.3, 0.8), Vector3(1.0, 0.6, 1.0))                  # Erzhaufen
+	b.put_box("iron_ore", base + Vector3(5.0, 0.25, 2.0), Vector3(0.8, 0.5, 0.8))
+
+
+## Lagerhaus (6x6): große Halle aus Holz, Schieferdach, Kisten davor.
+static func warehouse(b: BlockBatch, base: Vector3, lv: int) -> void:
+	var f := 1 + lv
+	_hull(b, base + Vector3(0, 0, 1), 6, 5, 0, f, "log", "wood")
+	_roof(b, base + Vector3(0, 0, 1), 6, 5, f, "darkbrick")
+	for x in range(1, 5):
+		b.put("darkbrick", base + Vector3(x, f + 1, 3))
+	b.put_box("vox_dark", base + Vector3(3.0, 0.9, 0.97), Vector3(2.0, 1.8, 0.06))            # Tor
+	for p: Vector3 in [Vector3(0.5, 0, 0.3), Vector3(1.3, 0, 0.3), Vector3(5.2, 0, 0.3)]:
+		b.put("crate", base + p - Vector3(0.5, 0, 0.0))
+	b.put("crate", base + Vector3(0.4, 1, 0.0))
 
 
 ## Holzmast mit Querträger, Fuß bei foot (Tile-Mitte).

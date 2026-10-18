@@ -9,7 +9,8 @@ signal message(text: String)
 signal applied(tool: Tool)
 
 enum Tool { INSPECT, ROAD, POWERLINE, BUS_STOP, RAIL, STATION, RES, COM, IND, COAL, WIND, TREE, PARK, RAISE, LOWER, BULLDOZE,
-	POLICE, FIRE, SCHOOL, HOSPITAL, LIBRARY, CINEMA, TOWNHALL, THEATER, STADIUM }
+	POLICE, FIRE, SCHOOL, HOSPITAL, LIBRARY, CINEMA, TOWNHALL, THEATER, STADIUM,
+	LUMBER, QUARRY, PIT, MINE, WAREHOUSE }
 
 ## Anzeige-Metadaten: Name, Icon, Taste, Gruppe (für Toolbar-Trenner)
 const TOOLS := {
@@ -50,6 +51,17 @@ const TOOLS := {
 		"hint": "Großkultur  ·  2x2  ·  ab 3.000 Einw.  ·  jeden Monat Vorstellung: Besucher kaufen ringsum ein, Verkehr"},
 	Tool.STADIUM:   {"name": "Stadion", "icon": "stadium", "key": KEY_O, "group": 8, "cost": 15000,
 		"hint": "Großkultur  ·  3x3  ·  ab 5.000 Einw.  ·  Spieltag alle 3 Monate: viele Besucher, Stau ohne Bus/Bahn"},
+	# Rohstoffe (keine freie Taste mehr -> nur über die Werkzeugleiste)
+	Tool.LUMBER:    {"name": "Holzfäller", "icon": "lumber", "key": KEY_NONE, "group": 9, "cost": 600,
+		"hint": "Fällt Bäume im Umkreis von 4 Tiles -> Holz  ·  Wald wächst (noch) nicht nach"},
+	Tool.QUARRY:    {"name": "Steinbruch", "icon": "quarry", "key": KEY_NONE, "group": 9, "cost": 1500,
+		"hint": "Stein, unbegrenzt  ·  2x2  ·  am Hang (3+ Blöcke über Wasser) volle Förderung"},
+	Tool.PIT:       {"name": "Grube (Sand/Ton)", "icon": "pit", "key": KEY_NONE, "group": 9, "cost": 500,
+		"hint": "Baut Sand (Strand) und Ton (Niederung) im Umkreis von 2 Tiles ab  ·  Vorkommen in der Ansicht Rohstoffe"},
+	Tool.MINE:      {"name": "Mine", "icon": "mine", "key": KEY_NONE, "group": 9, "cost": 3000,
+		"hint": "Kohle, Eisen, Gold aus Erzadern im Umkreis von 3 Tiles  ·  2x2  ·  Vorkommen sind endlich"},
+	Tool.WAREHOUSE: {"name": "Lagerhaus", "icon": "warehouse", "key": KEY_NONE, "group": 9, "cost": 1200,
+		"hint": "+1.000 Lager je Rohstoff  ·  2x2  ·  Überschuss wird sonst automatisch exportiert"},
 	Tool.TREE:      {"name": "Baum", "icon": "tree", "key": KEY_9, "group": 4, "cost": Config.COST_TREE,
 		"hint": "Filtert Verschmutzung im Umkreis von 2 Tiles  ·  kostenlos im Unterhalt"},
 	Tool.PARK:      {"name": "Park", "icon": "park", "key": KEY_0, "group": 4, "cost": Config.COST_PARK,
@@ -147,6 +159,11 @@ func _special_for_tool() -> int:
 		Tool.TOWNHALL: return Config.Special.TOWNHALL
 		Tool.THEATER: return Config.Special.THEATER
 		Tool.STADIUM: return Config.Special.STADIUM
+		Tool.LUMBER: return Config.Special.LUMBER
+		Tool.QUARRY: return Config.Special.QUARRY
+		Tool.PIT: return Config.Special.PIT
+		Tool.MINE: return Config.Special.MINE
+		Tool.WAREHOUSE: return Config.Special.WAREHOUSE
 	return Config.Special.NONE
 
 
@@ -319,7 +336,8 @@ func tile_cost(t: Vector2i) -> int:
 			if map.zone[i] == _tool_zone(): return 0
 			return Config.COST_ZONE + demolish
 		Tool.COAL, Tool.WIND, Tool.POLICE, Tool.FIRE, Tool.SCHOOL, Tool.HOSPITAL, \
-				Tool.LIBRARY, Tool.CINEMA, Tool.TOWNHALL, Tool.THEATER, Tool.STADIUM:
+				Tool.LIBRARY, Tool.CINEMA, Tool.TOWNHALL, Tool.THEATER, Tool.STADIUM, \
+				Tool.LUMBER, Tool.QUARRY, Tool.PIT, Tool.MINE, Tool.WAREHOUSE:
 			var sp := _special_for_tool()
 			if locked_reason(tool) != "": return -1
 			var up := _upgrade_target()
@@ -555,6 +573,8 @@ func range_preview(t: Vector2i) -> Dictionary:
 						out[j] = RANGE_NEW
 		_:
 			var sp := _special_for_tool()
+			if sp != Config.Special.NONE and Config.SPECIALS[sp].has("produce"):
+				return _resource_preview(t, sp)
 			if sp == Config.Special.NONE or not Config.SPECIALS[sp].has("service"):
 				return out
 			var up := _upgrade_target()
@@ -571,6 +591,38 @@ func range_preview(t: Vector2i) -> Dictionary:
 					# nur der Rand (letzter Tile-Ring), die Fläche zeigt die Versorgungsansicht
 					if map.in_bounds(x, z) and d <= rad and d > rad - 1.0 and not map.is_water(x, z):
 						out[map.idx(x, z)] = RANGE_AREA
+	return out
+
+
+## Abbau-Gebäude: Vorkommen bzw. Bäume im Abbau-Umkreis in Rohstoff-Farbe, übrige Fläche des Umkreises blass.
+func _resource_preview(t: Vector2i, sp: int) -> Dictionary:
+	var out := {}
+	var def: Dictionary = Config.SPECIALS[sp]
+	var s: int = def["size"]
+	var r := 0
+	match def["produce"]:
+		"wood": r = Config.LUMBER_RANGE
+		"pit": r = Config.PIT_RANGE
+		"mine": r = Config.MINE_RANGE
+		_: return out
+	for z in range(t.y - r, t.y + s + r):
+		for x in range(t.x - r, t.x + s + r):
+			if not map.in_bounds(x, z) or map.is_water(x, z):
+				continue
+			var j := map.idx(x, z)
+			var res := ""
+			if def["produce"] == "wood" and map.feature[j] == Config.Feature.TREE:
+				res = "wood"
+			elif map.ore_amt[j] > 0:
+				var o: String = Config.ORE_RESOURCE[map.ore[j]]
+				if (def["produce"] == "pit" and o in ["sand", "clay"]) or (def["produce"] == "mine" and o in ["coal", "iron", "gold"]):
+					res = o
+			if res != "":
+				var c: Color = Config.RESOURCES[res]["color"] if res != "wood" else Color(0.25, 0.85, 0.3)
+				c.a = 0.8
+				out[j] = c
+			else:
+				out[j] = Color(1, 1, 1, 0.12)
 	return out
 
 

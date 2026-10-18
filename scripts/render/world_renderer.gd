@@ -156,6 +156,14 @@ func _emit_tile(tx: int, tz: int) -> void:
 		top_key = "dirt"
 	elif th >= Config.SNOW_HEIGHT:
 		top_key = "snow"
+	# Sand-/Tonvorkommen färben die Oberfläche (nur freies Gelände)
+	var free_ground := not is_road and map.rail[i] == 0 and map.zone[i] == Config.Zone.NONE \
+		and map.special[i] == Config.Special.NONE and not water
+	if free_ground and map.ore_amt[i] > 0:
+		if map.ore[i] == Config.Ore.SAND:
+			top_key = "sand"
+		elif map.ore[i] == Config.Ore.CLAY:
+			top_key = "clay"
 
 	# Terrain-Säulen: Oberseite + sichtbare Seiten bis Nachbarhöhe
 	for sz in B:
@@ -237,6 +245,16 @@ func _emit_tile(tx: int, tz: int) -> void:
 				_emit_worn_props(tx, tz)
 		return
 
+	# Erzadern: Brocken ragen aus dem Boden (Menge -> Anzahl)
+	if map.ore_amt[i] > 0 and map.ore[i] in [Config.Ore.COAL, Config.Ore.IRON, Config.Ore.GOLD]:
+		var ore_key: String = {Config.Ore.COAL: "coal", Config.Ore.IRON: "iron_ore", Config.Ore.GOLD: "gold_ore"}[map.ore[i]]
+		var r := absi(hash(Vector2i(tz * 7, tx * 3)))
+		var chunks := 1 + map.ore_amt[i] / 90
+		for k in chunks:
+			var px := 0.5 + float((r >> (k * 3)) % 3)
+			var pz := 0.5 + float((r >> (k * 3 + 9)) % 3)
+			var sz := 0.45 + float((r >> (k * 2 + 18)) % 3) * 0.12
+			_b.put_box(ore_key, base + Vector3(px, sz * 0.4, pz), Vector3(sz, sz * 0.8, sz), float(r % 7) * 0.4)
 	var c := base + Vector3(1.5, 0, 1.5)
 	match map.feature[i]:
 		Config.Feature.TREE:

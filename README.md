@@ -171,6 +171,22 @@ Werte und Reichweiten: `scripts/config.gd` (Abschnitte *Standortregeln*, *Zonen-
 - Filter zusammen höchstens 70 %. Ein 2 Tiles breiter **Grüngürtel** zwischen Industrie und Wohnen halbiert (Bäume) bzw. drittelt (Parks) die Verschmutzung am Wohnhaus (`--greentest`). Info-Karte: „Verschmutzung 0.3 (Grün filtert 50 %)“.
 - **Terrain anheben/absenken** reißt Straßen, Gleise (samt Haltestelle/Bahnhof), Parks und Gebäude auf dem Tile ab (+$2 Abriss); Bäume bleiben.
 
+## Rohstoffe (Bergbau-Wirtschaft, Stufe 1: Abbau + Lager)
+
+| Rohstoff | Vorkommen | Gebäude (Werkzeuggruppe Rohstoffe) | Förderung je Monat (× Ausbaustufe) |
+|---|---|---|---|
+| Holz | Wald | **Holzfäller** (1×1): fällt Bäume im Umkreis 4 | 2 Bäume = 20 Holz |
+| Stein | überall | **Steinbruch** (2×2) | 20, im Flachland (< 3 Blöcke über Wasser) 10 |
+| Sand / Ton | Strände an der Wasserkante / feuchte Niederungen | **Grube** (1×1), Umkreis 2 | je 10 |
+| Kohle / Eisen / Gold | Erzadern im Hügelland (Kohle ab 2, Eisen ab 4, Gold ab 5 Blöcken über Wasser, Gold selten) | **Mine** (2×2), Umkreis 3 | 15 / 10 / 3 |
+| – | – | **Lagerhaus** (2×2) | +1.000 Lagerplatz je Rohstoff und Stufe |
+
+- Alle Abbau-Gebäude brauchen **Strom** (1–4 MW) und kosten Unterhalt. Ohne Wald/Vorkommen in Reichweite stehen sie still (Info-Karte nennt den Grund).
+- **Lager**: 200 je Rohstoff, + Lagerhäuser. Was nicht passt, wird **automatisch exportiert** (Holz 1, Stein/Sand 0,5, Ton 0,8, Kohle 1,5, Eisen 3, Gold 12 $ je Einheit) → Einnahme „Rohstoff-Export“.
+- **Endlich, aber langlebig**: je Vorkommen-Tile 1.200–2.550 Einheiten. Typische Karte 128×128: ~200.000 Kohle, ~100.000 Eisen, ~30.000–55.000 Gold, Sand/Ton praktisch unerschöpflich. Eine Mine an einer Ader hält bei Stufe 3 rund 40–50 Spieljahre. Holz wächst (noch) nicht nach.
+- Sichtbar: Sand/Ton färben den Boden, Erzbrocken ragen aus dem Gras; **Ansicht Rohstoffe** (V) färbt alle Vorkommen (kräftig = voll, grau = erschöpft), die Ansicht-Liste zeigt die Restmengen. Mit einem Abbau-Werkzeug zeigt die Vorschau Vorkommen im Umkreis. HUD: Lager-Leiste (Tooltip: Förderung, Kapazität, Export).
+- Werkzeuge haben keine Taste (alle Buchstaben belegt) – nur über die Werkzeugleiste. Tests `--restest`, `--orecount`, Screenshot-Flag `--resbuild`.
+
 ## Verkehr
 
 - Pendler werden in 3 Etappen verteilt; jede Etappe sieht den Stau der vorherigen → **Parallelstraßen und Umfahrungen werden genutzt**.
@@ -263,6 +279,12 @@ python3 tools/audio/gen_audio.py sfx ambient  # nur Effekte + Loops (~3 s)
 - [x] v0.8 Performance · v0.9 Dienste, Zufriedenheit, Kriminalität, Brände
 - [ ] Wasserversorgung (Pumpen, Rohre)
 - [x] Steuern je Zone (W/G/I), ÖPNV-Tarif, Zonen-Idealformen (Ladenzeile, Ballung, Nachbarschaft)
+- [x] Rohstoffe Schritt 1–2: Karte 128×128, Vorkommen, Abbau-Gebäude, Lager, Export
+- [ ] Rohstoffe Schritt 3: Verarbeitung (Holz → Bretter, Sand → Glas, Ton → Ziegel, Erz → Barren), Materialbedarf beim Wachsen — dabei verbraucht das Kohlekraftwerk Kohle aus dem Lager (bisher läuft es ohne)
+- [ ] **Erneuerbare Energien** (Kohle ist endlich, Unabhängigkeit vom Handel): Windrad gibt es schon; dazu Solarfeld (Leistung nach Tageszeit), Wasserkraft (Damm an Fluss/See), Biomasse (verbrennt nachwachsendes Holz), Geothermie (mit der Untertage-Ebene). Schwankende Leistung → Speicher (Batterie, Pumpspeicher). Teils über Forschung freigeschaltet
+- [ ] Rohstoffe Schritt 4: Erneuerung (Aufforstung/Baumschule, Prospektion, Recycling)
+- [ ] **Forschung & Technik** (Nutzerwunsch, statt nur Handel): Upgrades wie Tiefbau (neue/tiefere Vorkommen), effizientere Verarbeitung (weniger Material je Gebäude), Recycling, Ersatzstoffe
+- [ ] Untertage-Ebene, Tunnel zu Nachbarstädten, Handel mit fiktiven Bürgermeistern
 - [ ] Budget-Fenster (Ressorts, Kredite, Jahresbilanz)
 - [x] Brände sichtbar (Flammen/Rauch/Ruinen), Feuerwehr-Einsätze mit Löschzügen, Meldungen mit Kamera-Sprung
 - [ ] Brand-Geräusche (Sirene, Knistern), evtl. Brandschutz-Ansicht (V)

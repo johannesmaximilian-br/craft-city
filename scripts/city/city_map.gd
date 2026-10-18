@@ -21,6 +21,8 @@ var burning: PackedByteArray    # Brand: 0 = nein, 1..100 = Fortschritt in % (10
 var ruin: PackedByteArray       # Brandruine: Monate bis das Tile wieder bebaut werden kann
 var villa: PackedByteArray      # 1 = Wohnen Stufe 3 ist eine Villa (statt Wohnblock)
 var worn: PackedByteArray       # 1 = Gebäude verfällt (sinkt bald ab) -> abgenutzte Optik
+var ore: PackedByteArray        # Bodenvorkommen (Config.Ore)
+var ore_amt: PackedByteArray    # Restmenge des Vorkommens (0 = erschöpft)
 
 
 func _init(map_size: int = Config.MAP_SIZE) -> void:
@@ -42,6 +44,8 @@ func _init(map_size: int = Config.MAP_SIZE) -> void:
 	ruin.resize(n)
 	villa.resize(n)
 	worn.resize(n)
+	ore.resize(n)
+	ore_amt.resize(n)
 
 
 func idx(x: int, z: int) -> int:
@@ -207,7 +211,7 @@ func notify_changed(rect: Rect2i, infra := true) -> void:
 	tiles_changed.emit(rect)
 
 
-const SAVE_FIELDS := ["height", "zone", "road", "level", "feature", "power_line", "special", "anchor", "rail", "transit", "slevel", "burning", "ruin", "villa", "worn"]
+const SAVE_FIELDS := ["height", "zone", "road", "level", "feature", "power_line", "special", "anchor", "rail", "transit", "slevel", "burning", "ruin", "villa", "worn", "ore", "ore_amt"]
 
 
 func to_dict() -> Dictionary:
@@ -319,7 +323,47 @@ func generate(seed_value: int) -> void:
 			ruin[i] = 0
 			villa[i] = 0
 			worn[i] = 0
+			ore[i] = 0
+			ore_amt[i] = 0
 			if not is_water(x, z) and tree_noise.get_noise_2d(x, z) > 0.25 and rng.randf() < 0.6:
 				feature[i] = Config.Feature.TREE
-
+	_generate_ores(seed_value, rng)
 	notify_changed(Rect2i(0, 0, size, size))
+
+
+## Bodenvorkommen: Erzadern als Rauschen-Flecken im Hügelland (Kohle mittel, Eisen höher, Gold selten/hoch),
+## Ton in feuchten Niederungen am Wasser, Sand an Stränden (Uferkante auf Wasserhöhe).
+func _generate_ores(seed_value: int, rng: RandomNumberGenerator) -> void:
+	var veins := []
+	for k in 3:
+		var nz := FastNoiseLite.new()
+		nz.seed = seed_value + 7000 + k * 131
+		nz.frequency = 0.09
+		veins.append(nz)
+	var wl := Config.WATER_LEVEL
+	for z in size:
+		for x in size:
+			var i := idx(x, z)
+			ore[i] = Config.Ore.NONE
+			ore_amt[i] = 0
+			var h := height[i]
+			if h < wl:
+				continue
+			var near_water := false
+			for d: Vector2i in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]:
+				if in_bounds(x + d.x, z + d.y) and is_water(x + d.x, z + d.y):
+					near_water = true
+			var kind := Config.Ore.NONE
+			if near_water and h == wl:
+				kind = Config.Ore.SAND
+			elif h <= wl + 1 and (veins[0] as FastNoiseLite).get_noise_2d(x * 1.7, z * 1.7) > 0.45:
+				kind = Config.Ore.CLAY
+			elif h >= wl + 5 and (veins[2] as FastNoiseLite).get_noise_2d(x, z) > 0.5:
+				kind = Config.Ore.GOLD
+			elif h >= wl + 4 and (veins[1] as FastNoiseLite).get_noise_2d(x, z) > 0.5:
+				kind = Config.Ore.IRON
+			elif h >= wl + 2 and (veins[0] as FastNoiseLite).get_noise_2d(x, z) > 0.5:
+				kind = Config.Ore.COAL
+			if kind != Config.Ore.NONE:
+				ore[i] = kind
+				ore_amt[i] = rng.randi_range(Config.ORE_MIN, 255)

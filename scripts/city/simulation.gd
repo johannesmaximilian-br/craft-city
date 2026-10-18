@@ -72,6 +72,12 @@ var _needs_announced := {}
 var venue_event := {}               # Anker Theater/Stadion -> Besucher der Veranstaltung diesen Monat (0 = keine)
 var venue_jam := {}                 # Anker -> Ø Auslastung der Straßen rundum (nach Pendlern)
 var _jam_warned := 0                # Monate bis zur nächsten Stau-Meldung am Stadion
+var stock := {}                     # Rohstoff -> Menge im Lager
+var production := {}                # Rohstoff -> Förderung im letzten Monat
+var exported := {}                  # Rohstoff -> exportierte Menge im letzten Monat (Lager voll)
+var export_income := 0.0
+var producer_info := {}
+var _ore_used := {}                 # Tile -> schon entnommene Einheiten unter einem Vorkommen-Punkt             # Anker -> {"out": {Rohstoff: Menge}, "issue": Text}
 var happy_parts := {}               # Anteil an der Zufriedenheit (Punkte 0..1, einwohnergewichtet): Name -> Wert
 var _happy_hist: Array = []         # letzte Monate: [city_happiness, happy_parts]
 var _happy_alert_cool := 0          # Monate bis zur nächsten Zufriedenheits-Warnung
@@ -148,7 +154,8 @@ func _process(delta: float) -> void:
 
 
 func to_dict() -> Dictionary:
-	return {"money": money, "month": month, "year": year, "tax": tax, "fare": fare, "congestion": congestion}
+	return {"money": money, "month": month, "year": year, "tax": tax, "fare": fare, "congestion": congestion,
+		"stock": stock}
 
 
 func from_dict(d: Dictionary) -> void:
@@ -163,6 +170,9 @@ func from_dict(d: Dictionary) -> void:
 		tax[Config.Zone.RES] = d["tax_rate"]
 		tax[Config.Zone.COM] = d["tax_rate"]
 	fare = d.get("fare", 1)
+	stock = {}
+	for r: String in Config.RESOURCES:
+		stock[r] = float((d.get("stock", {}) as Dictionary).get(r, 0.0))
 	congestion = d.get("congestion", PackedFloat32Array())
 	if congestion.size() != map.size * map.size:
 		congestion = PackedFloat32Array()     # z.B. alter kleinerer Spielstand, in größere Karte eingebettet
@@ -308,6 +318,7 @@ func _tick_stage(stage: String) -> void:
 		"abschluss":
 			_recount()
 			_update_demand()
+			_produce()
 			_budget()
 			month += 1
 			if month >= 12:
@@ -1975,6 +1986,132 @@ func _compute_services() -> void:
 			message.emit("Die Bürger verlangen nach: %s" % spec[0])
 
 
+## Lagerkapazität je Rohstoff (Grundmenge + Lagerhäuser je Ausbaustufe, nur mit Strom).
+func stock_capacity() -> int:
+	var cap := Config.STOCK_BASE
+	for a in _producers(true):
+		cap += Config.STOCK_WAREHOUSE * map.special_level(a)
+	return cap
+
+
+## Anker aller Abbau-Gebäude (bzw. Lagerhäuser bei storage = true).
+func _producers(storage := false) -> PackedInt32Array:
+	var out := PackedInt32Array()
+	var anchor := map.anchor
+	var special := map.special
+	for i in map.size * map.size:
+		if anchor[i] == i and special[i] != Config.Special.NONE:
+			var def: Dictionary = Config.SPECIALS[special[i]]
+			if (storage and def.has("storage")) or (not storage and def.has("produce")):
+				out.append(i)
+	return out
+
+
+## Tiles im quadratischen Umkreis r um einen Sonderbau (Grundfläche + r), nächste zuerst.
+func _area_tiles(a: int, r: int) -> PackedInt32Array:
+	var size := map.size
+	var s: int = Config.SPECIALS[map.special[a]]["size"]
+	var ax := a % size
+	var az := a / size
+	var cx := ax + (s - 1) * 0.5
+	var cz := az + (s - 1) * 0.5
+	var tiles := []
+	for z in range(maxi(az - r, 0), mini(az + s + r, size)):
+		for x in range(maxi(ax - r, 0), mini(ax + s + r, size)):
+			tiles.append([absf(x - cx) + absf(z - cz), z * size + x])
+	tiles.sort_custom(func(p: Array, q: Array) -> bool: return float(p[0]) < float(q[0]))
+	var out := PackedInt32Array()
+	for t: Array in tiles:
+		out.append(int(t[1]))
+	return out
+
+
+## Monatlicher Abbau: Holzfäller fällt Bäume, Steinbruch liefert Stein, Grube/Mine entnehmen Vorkommen.
+## Überschuss über der Lagerkapazität wird exportiert (Einnahme).
+func _produce() -> void:
+	production = {}
+	exported = {}
+	for r: String in Config.RESOURCES:
+		production[r] = 0.0
+		exported[r] = 0.0
+		if not stock.has(r):
+			stock[r] = 0.0
+	producer_info = {}
+	var changed := Rect2i()
+	var any := false
+	var size := map.size
+	for a in _producers():
+		var def: Dictionary = Config.SPECIALS[map.special[a]]
+		var lv := map.special_level(a)
+		var out := {}
+		var issue := ""
+		if not special_powered(a):
+			producer_info[a] = {"out": out, "issue": "Kein Strom - steht still"}
+			continue
+		match def["produce"]:
+			"wood":
+				var left := Config.LUMBER_TREES * lv
+				for j in _area_tiles(a, Config.LUMBER_RANGE):
+					if left <= 0:
+						break
+					if map.feature[j] == Config.Feature.TREE and map.zone[j] == Config.Zone.NONE:
+						map.feature[j] = Config.Feature.NONE
+						out["wood"] = float(out.get("wood", 0.0)) + Config.WOOD_PER_TREE
+						left -= 1
+						var r := Rect2i(j % size, j / size, 1, 1)
+						changed = r if not any else changed.merge(r)
+						any = true
+				if out.is_empty():
+					issue = "Kein Wald mehr in Reichweite (%d Tiles)" % Config.LUMBER_RANGE
+			"stone":
+				var hill := map.height[a] >= Config.WATER_LEVEL + Config.QUARRY_HILL
+				out["stone"] = float(Config.QUARRY_STONE * lv) * (1.0 if hill else 0.5)
+				if not hill:
+					issue = "Flachland: halbe Förderung (am Hang bauen)"
+			"pit", "mine":
+				var rng_r: int = Config.PIT_RANGE if def["produce"] == "pit" else Config.MINE_RANGE
+				var kinds: Array = ["sand", "clay"] if def["produce"] == "pit" else ["coal", "iron", "gold"]
+				var budget := {}
+				for k: String in kinds:
+					budget[k] = (Config.PIT_RATE if def["produce"] == "pit" else int(Config.MINE_RATE[k])) * lv
+				for j in _area_tiles(a, rng_r):
+					var amt := map.ore_amt[j]
+					if amt == 0:
+						continue
+					var res: String = Config.ORE_RESOURCE[map.ore[j]]
+					if not budget.has(res) or int(budget[res]) <= 0:
+						continue
+					# Ein Punkt Vorkommen = ORE_UNIT Einheiten; Bruchteile pro Tile merken
+					var avail := amt * Config.ORE_UNIT - int(_ore_used.get(j, 0))
+					var take := mini(avail, int(budget[res]))
+					var used := int(_ore_used.get(j, 0)) + take
+					map.ore_amt[j] = amt - used / Config.ORE_UNIT
+					_ore_used[j] = used % Config.ORE_UNIT
+					budget[res] = int(budget[res]) - take
+					out[res] = float(out.get(res, 0.0)) + take
+					if map.ore_amt[j] == 0:
+						var r := Rect2i(j % size, j / size, 1, 1)
+						changed = r if not any else changed.merge(r)
+						any = true
+				if out.is_empty():
+					issue = "Kein Vorkommen mehr in Reichweite (%d Tiles) - Ansicht Rohstoffe" % rng_r
+		for res: String in out:
+			production[res] = float(production[res]) + float(out[res])
+			stock[res] = float(stock[res]) + float(out[res])
+		producer_info[a] = {"out": out, "issue": issue}
+	# Lager voll -> Überschuss exportieren
+	var cap := float(stock_capacity())
+	export_income = 0.0
+	for res: String in stock:
+		var over := float(stock[res]) - cap
+		if over > 0.0:
+			exported[res] = over
+			export_income += over * float(Config.RESOURCES[res]["price"])
+			stock[res] = cap
+	if any:
+		map.notify_changed(changed, false)
+
+
 ## Monatlich: deutlicher Abfall der Zufriedenheit -> Meldung mit dem Teil, der am stärksten gesunken ist.
 func _check_happiness() -> void:
 	_jam_warned = maxi(_jam_warned - 1, 0)
@@ -2131,6 +2268,7 @@ func _budget() -> void:
 		"Industrie": jobs_ind * 0.1 * float(tax[Config.Zone.IND]) * 12.0,
 		"ÖPNV": (bus_riders + rail_riders) * float(Config.FARE_PRICE[fare]),
 		"Bodenabgabe": villa_count * Config.VILLA_LEVY,
+		"Rohstoff-Export": export_income,
 	}
 	last_income = 0.0
 	for k: String in income_parts:

@@ -9,7 +9,10 @@ const SNOW_HEIGHT := 11
 
 enum Zone { NONE, RES, COM, IND }
 enum Feature { NONE, TREE, PARK }
-enum Special { NONE, COAL, WIND, POLICE, FIRE, SCHOOL, HOSPITAL, LIBRARY, CINEMA, TOWNHALL, THEATER, STADIUM }
+enum Special { NONE, COAL, WIND, POLICE, FIRE, SCHOOL, HOSPITAL, LIBRARY, CINEMA, TOWNHALL, THEATER, STADIUM,
+	LUMBER, QUARRY, PIT, MINE, WAREHOUSE }
+# Bodenvorkommen (CityMap.ore): Art je Tile, Menge in CityMap.ore_amt
+enum Ore { NONE, COAL, IRON, GOLD, CLAY, SAND }
 enum Road { NONE, STREET }
 enum Transit { NONE, BUS_STOP, STATION }
 
@@ -56,6 +59,33 @@ const GREEN_FILTER_TREE := 0.05
 const GREEN_FILTER_PARK := 0.08
 const GREEN_FILTER_MAX := 0.7           # höchstens 70 % weggefiltert
 const GREEN_FILTER_RANGE := 2
+# ---- Rohstoffe ----
+# Lager-Reihenfolge = Anzeige-Reihenfolge. price = Exportpreis je Einheit (Überschuss über der Lagerkapazität)
+const RESOURCES := {
+	"wood":  {"name": "Holz",  "price": 1.0,  "color": Color("8a5a2b")},
+	"stone": {"name": "Stein", "price": 0.5,  "color": Color("9a9a9a")},
+	"sand":  {"name": "Sand",  "price": 0.5,  "color": Color("e6d38c")},
+	"clay":  {"name": "Ton",   "price": 0.8,  "color": Color("b7845f")},
+	"coal":  {"name": "Kohle", "price": 1.5,  "color": Color("2b2d33")},
+	"iron":  {"name": "Eisen", "price": 3.0,  "color": Color("c8875a")},
+	"gold":  {"name": "Gold",  "price": 12.0, "color": Color("f2c12e")},
+}
+const ORE_RESOURCE := ["", "coal", "iron", "gold", "clay", "sand"]   # Index = Ore
+const STOCK_BASE := 200            # Lagerkapazität je Rohstoff ohne Lagerhaus
+const STOCK_WAREHOUSE := 1000      # zusätzlich je Lagerhaus (je Ausbaustufe)
+# Abbau je Monat (Ausbaustufe x): Holzfäller fällt Bäume, Grube/Mine entnehmen Vorkommen im Umkreis
+const LUMBER_RANGE := 4
+const LUMBER_TREES := 2            # Bäume je Monat
+const WOOD_PER_TREE := 10
+const QUARRY_STONE := 20           # Stein je Monat (halb im Flachland)
+const QUARRY_HILL := 3             # ab so vielen Blöcken über Wasser volle Förderung
+const PIT_RANGE := 2
+const PIT_RATE := 10               # Sand/Ton je Monat
+const MINE_RANGE := 3
+const MINE_RATE := {"coal": 15, "iron": 10, "gold": 3}
+const ORE_MIN := 120               # Startmenge je Vorkommen-Tile (bis 255) ...
+const ORE_UNIT := 10               # ... je Punkt 10 Einheiten Rohstoff (eine Ader hält Jahrzehnte)
+
 # ---- Steuern je Zone: neutraler Satz und Empfindlichkeit der Nachfrage (Industrie nimmt mehr hin) ----
 const TAX_NEUTRAL := [0.0, 0.09, 0.09, 0.12]       # Index = Zone (RES, COM, IND)
 const TAX_DEMAND := [0.0, 5.0, 4.0, 2.5]           # Nachfrage-Abzug je Steuerpunkt über neutral (x 100)
@@ -115,6 +145,17 @@ const SPECIALS := {
 	Special.CINEMA:   {"name": "Kino", "size": 1, "cost": 1400, "upgrade": 1500, "upkeep": 6.0, "power": 0, "use": 2, "service": "culture", "unlock": 1000},
 	Special.TOWNHALL: {"name": "Bürgerhaus", "size": 2, "cost": 4000, "upgrade": 4000, "upkeep": 18.0, "power": 0, "use": 3, "service": "culture", "unlock": 2000},
 	# Großkultur: Besucher (je Stufe) = Kundschaft fürs Gewerbe ringsum + Verkehr an Veranstaltungstagen
+	# Rohstoff-Abbau (kein Dienst, aber Strom und Unterhalt)
+	Special.LUMBER:    {"name": "Holzfäller", "size": 1, "cost": 600, "upgrade": 800, "upkeep": 4.0, "power": 0, "use": 1,
+		"produce": "wood"},
+	Special.QUARRY:    {"name": "Steinbruch", "size": 2, "cost": 1500, "upgrade": 1500, "upkeep": 8.0, "power": 0, "use": 3,
+		"produce": "stone"},
+	Special.PIT:       {"name": "Grube (Sand/Ton)", "size": 1, "cost": 500, "upgrade": 700, "upkeep": 3.0, "power": 0, "use": 1,
+		"produce": "pit"},
+	Special.MINE:      {"name": "Mine", "size": 2, "cost": 3000, "upgrade": 3000, "upkeep": 12.0, "power": 0, "use": 4,
+		"produce": "mine"},
+	Special.WAREHOUSE: {"name": "Lagerhaus", "size": 2, "cost": 1200, "upgrade": 1200, "upkeep": 5.0, "power": 0, "use": 1,
+		"storage": true},
 	Special.THEATER:  {"name": "Theater", "size": 2, "cost": 8000, "upgrade": 6000, "upkeep": 35.0, "power": 0, "use": 5, "service": "venue",
 		"unlock": 3000, "visitors": 300, "event_every": 1},
 	Special.STADIUM:  {"name": "Stadion", "size": 3, "cost": 15000, "upgrade": 10000, "upkeep": 60.0, "power": 0, "use": 12, "service": "venue",

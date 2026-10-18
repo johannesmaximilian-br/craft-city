@@ -48,6 +48,13 @@ const TINTED := {
 	"vox_glass": ["blank", Color("9fd3ee")],
 	"paint_white": ["blank", Color(0.96, 0.96, 0.94)],
 	"paint_yellow": ["blank", Color("f2c12e")],
+	# Rohstoffe (Kit hat keine Sand-/Ton-/Eisen-/Gold-Blöcke)
+	"sand": ["blank", Color("e6d38c")],
+	"clay": ["blank", Color("b7845f")],
+	"iron_block": ["metal", Color("d9a17a")],
+	"gold_block": ["metal", Color("f2c12e")],
+	"iron_ore": ["blank", Color("d08a5a")],
+	"gold_ore": ["blank", Color("ffd23a")],
 }
 
 # Flache Platten: [Farbe, Größe x/z, Dicke]

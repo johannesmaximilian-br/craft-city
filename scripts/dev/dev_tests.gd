@@ -1322,6 +1322,100 @@ static func determinism(game: Node) -> void:
 		sim.power_demand, sim.power_supply, sim.power_served])
 
 
+## Rohstoffe: Holzfäller, Steinbruch, Grube, Mine mit Strom; Vorkommen nehmen ab, Lager voll -> Export.
+static func restest() -> void:
+	var m := CityMap.new()
+	m.height.fill(6)
+	var sim := Simulation.new()
+	sim.map = m
+	var put_special := func(x: int, z: int, sp: int) -> void:
+		var sz: int = Config.SPECIALS[sp]["size"]
+		var a := m.idx(x, z)
+		for dz in sz:
+			for dx in sz:
+				m.special[m.idx(x + dx, z + dz)] = sp
+				m.anchor[m.idx(x + dx, z + dz)] = a
+		m.slevel[a] = 1
+	# Stromleitung entlang z=20 verbindet alles, 2 Kohlekraftwerke liefern genug
+	for x in range(0, 60):
+		m.power_line[m.idx(x, 20)] = 1
+	put_special.call(0, 18, Config.Special.COAL)
+	for x in range(10, 16):
+		for z in range(10, 18):
+			m.feature[m.idx(x, z)] = Config.Feature.TREE
+	put_special.call(12, 19, Config.Special.LUMBER)
+	m.height[m.idx(20, 19)] = 12
+	m.height[m.idx(21, 19)] = 12
+	put_special.call(20, 19, Config.Special.QUARRY)
+	for x in range(28, 33):
+		for z in range(17, 20):
+			m.ore[m.idx(x, z)] = Config.Ore.SAND if x < 30 else Config.Ore.CLAY
+			m.ore_amt[m.idx(x, z)] = 50
+	put_special.call(30, 21, Config.Special.PIT)
+	for x in range(38, 46):
+		for z in range(15, 19):
+			m.ore[m.idx(x, z)] = [Config.Ore.COAL, Config.Ore.IRON, Config.Ore.GOLD][(x - 38) % 3]
+			m.ore_amt[m.idx(x, z)] = 200
+	put_special.call(40, 19, Config.Special.MINE)
+	var ore_before := 0
+	for i in m.size * m.size:
+		ore_before += m.ore_amt[i]
+	for k in 24:
+		sim._compute_power()
+		sim._produce()
+	var ore_after := 0
+	for i in m.size * m.size:
+		ore_after += m.ore_amt[i]
+	var st := PackedStringArray()
+	for r: String in Config.RESOURCES:
+		st.append("%s %d (+%d/Mon)" % [Config.RESOURCES[r]["name"], int(sim.stock[r]), int(sim.production[r])])
+	print("restest nach 24 Monaten: %s" % ", ".join(st))
+	print("restest Vorkommen %d -> %d, Lager %d, Export letzter Monat $%d" % [ore_before, ore_after,
+		sim.stock_capacity(), roundi(sim.export_income)])
+	for a: int in sim.producer_info:
+		var info: Dictionary = sim.producer_info[a]
+		if str(info["issue"]) != "":
+			print("restest %s: %s" % [Config.SPECIALS[m.special[a]]["name"], info["issue"]])
+	put_special.call(50, 21, Config.Special.WAREHOUSE)
+	sim._compute_power()
+	print("restest mit Lagerhaus: Lager %d" % sim.stock_capacity())
+	sim.free()
+
+
+## Anzahl Vorkommen-Tiles je Art auf der aktuellen Karte.
+static func orecount(game: Node) -> void:
+	var map: CityMap = game.map
+	var cnt := {}
+	for i in map.size * map.size:
+		if map.ore[i] != Config.Ore.NONE:
+			var r: String = Config.ORE_RESOURCE[map.ore[i]]
+			cnt[r] = int(cnt.get(r, 0)) + 1
+	var amt := {}
+	for i in map.size * map.size:
+		if map.ore[i] != Config.Ore.NONE:
+			var r: String = Config.ORE_RESOURCE[map.ore[i]]
+			amt[r] = int(amt.get(r, 0)) + map.ore_amt[i] * Config.ORE_UNIT
+	print("orecount Tiles %s, Menge %s, Overlay-Modus %d" % [cnt, amt, game.get_node("MapOverlay").mode])
+
+
+## Abbau-Gebäude in die Demo-Stadt setzen (Screenshots).
+static func place_resources(game: Node) -> void:
+	game.sim.money += 20000
+	for t: ToolController.Tool in [ToolController.Tool.MINE, ToolController.Tool.QUARRY, ToolController.Tool.PIT,
+			ToolController.Tool.LUMBER, ToolController.Tool.WAREHOUSE]:
+		_place_near_center(game.map, game.tools, t)
+	game.tools.set_tool(ToolController.Tool.INSPECT)
+	var map: CityMap = game.map
+	for i in map.size * map.size:
+		if map.anchor[i] == i and Config.SPECIALS[map.special[i]].has("produce") or map.anchor[i] == i and Config.SPECIALS[map.special[i]].has("storage"):
+			print("resbuild %s bei %d,%d" % [Config.SPECIALS[map.special[i]]["name"], i % map.size, i / map.size])
+	for k in 4:
+		game.sim.tick_month()
+	print("resbuild Lager nach 4 Monaten: %s, Förderung %s" % [game.sim.stock, game.sim.production])
+	for a: int in game.sim.producer_info:
+		print("resbuild   %s: %s" % [Config.SPECIALS[map.special[a]]["name"], game.sim.producer_info[a]])
+
+
 ## Erstes freies Plätzchen spiralförmig um die Kartenmitte.
 static func _place_near_center(map: CityMap, tools: ToolController, t: ToolController.Tool) -> void:
 	var c := map.size / 2

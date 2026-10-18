@@ -4,15 +4,16 @@ extends MultiMeshInstance3D
 ## Taste V schaltet durch, Ansicht-Button oben wählt per Liste. Mit einem Dienst-Werkzeug in der Hand wird automatisch dessen
 ## Versorgung gezeigt (grün = versorgt, rot = nicht versorgt).
 
-enum Mode { OFF, TRAFFIC, POLLUTION, LAND, CRIME, HAPPY, TRANSIT, POWER }
-const MODE_NAMES := ["", "Verkehr", "Verschmutzung", "Bodenwert", "Kriminalität", "Zufriedenheit", "ÖPNV", "Strom"]
+enum Mode { OFF, TRAFFIC, POLLUTION, LAND, CRIME, HAPPY, TRANSIT, POWER, RESOURCES }
+const MODE_NAMES := ["", "Verkehr", "Verschmutzung", "Bodenwert", "Kriminalität", "Zufriedenheit", "ÖPNV", "Strom",
+	"Rohstoffe"]
 # Netzfarben (Strom-Ansicht); Rot bleibt für Gebäude ohne Strom reserviert
 const NET_COLORS := [Color(0.3, 0.55, 1.0, 0.6), Color(0.3, 0.85, 0.4, 0.6), Color(0.75, 0.45, 1.0, 0.6),
 	Color(0.2, 0.85, 0.85, 0.6), Color(1.0, 0.75, 0.2, 0.6), Color(0.95, 0.5, 0.8, 0.6)]
 const BUS_ROUTE := Color(0.25, 0.55, 1.0, 0.75)
 # Deckkraft-Faktor: Gelände/Straßen durchscheinend, Dächer etwas kräftiger (kleinere Fläche)
 const GROUND_ALPHA := 0.30
-const ROOF_ALPHA := 0.40
+const ROOF_ALPHA := 0.30
 
 const B := Config.TILE_BLOCKS
 const GREEN := Color(0.3, 0.85, 0.35, 0.7)
@@ -133,6 +134,19 @@ func _rebuild() -> void:
 					else:
 						var c: Color = NET_COLORS[sim.power_net[i] % NET_COLORS.size()]
 						colors.append(c)
+			Mode.RESOURCES:
+				# Vorkommen in Rohstoff-Farbe (je voller, desto kräftiger), Wald grün, erschöpft grau
+				if map.ore[i] != Config.Ore.NONE:
+					items.append(i)
+					if map.ore_amt[i] == 0:
+						colors.append(Color(0.5, 0.5, 0.5, 0.5))
+					else:
+						var c: Color = Config.RESOURCES[Config.ORE_RESOURCE[map.ore[i]]]["color"]
+						c.a = 0.55 + 0.45 * map.ore_amt[i] / 255.0
+						colors.append(c)
+				elif map.feature[i] == Config.Feature.TREE:
+					items.append(i)
+					colors.append(Color(0.2, 0.7, 0.25, 0.6))
 			Mode.TRANSIT:
 				# Straßen im Busnetz blau; Gebäude grün mit Bus-/Bahnanschluss, rot ohne
 				if map.road[i] != 0:
@@ -172,7 +186,8 @@ func _rebuild() -> void:
 		var i := items[k]
 		var pos := Vector3((i % map.size) * B + B * 0.5, map.height[i] + 0.06, (i / map.size) * B + B * 0.5)
 		multimesh.set_instance_transform(g, Transform3D(Basis(), pos))
-		multimesh.set_instance_color(g, _tint(colors[k], GROUND_ALPHA))
+		# Rohstoffe: Vorkommen sollen auch aus der Ferne auffallen -> kräftiger
+		multimesh.set_instance_color(g, _tint(colors[k], 0.9 if mode == Mode.RESOURCES and service_cat == "" else GROUND_ALPHA))
 	var rm := _roofs.multimesh
 	rm.instance_count = roofs.size()
 	for r in roofs.size():

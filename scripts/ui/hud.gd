@@ -32,6 +32,8 @@ const TOOLBAR := [
 	[ToolController.Tool.POLICE, ToolController.Tool.FIRE, ToolController.Tool.SCHOOL, ToolController.Tool.HOSPITAL],
 	[ToolController.Tool.LIBRARY, ToolController.Tool.CINEMA, ToolController.Tool.TOWNHALL,
 		ToolController.Tool.THEATER, ToolController.Tool.STADIUM],
+	[ToolController.Tool.MINE, ToolController.Tool.QUARRY, ToolController.Tool.PIT, ToolController.Tool.LUMBER,
+		ToolController.Tool.WAREHOUSE],
 	[],
 	[ToolController.Tool.BULLDOZE],
 ]
@@ -59,6 +61,8 @@ var _slot_labels := {}
 var _root: Control
 var _scale_buttons: Array[Button] = []
 var _fs_btn: Button
+var _stock_card: PanelContainer
+var _stock_labels := {}
 var _confirm_row: HBoxContainer
 var _confirm_label: Label
 var _confirm_slot := ""
@@ -207,6 +211,18 @@ func _build() -> void:
 	_view_btn = _text_button(tc_row, "", _toggle_popup.bind("view"),
 		"Ansicht wählen [V]\nmit Stau, ÖPNV, Bodenwert, Kriminalität ...")
 	_set_btn_icon(_view_btn, "stats")
+
+	# Lager: je Rohstoff Icon + Menge (erst sichtbar, sobald es Abbau oder Vorrat gibt)
+	_stock_card = _card(left)
+	_stock_card.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	var st_row := _row(_stock_card, 8)
+	for r: String in Config.RESOURCES:
+		_icon(st_row, "res_" + r, 22, Config.RESOURCES[r]["name"])
+		var l := _label(st_row, 16)
+		l.add_theme_font_override("font", UiTheme.font(true))
+		l.mouse_filter = Control.MOUSE_FILTER_PASS
+		_stock_labels[r] = l
+	_stock_card.visible = false
 
 	# Oben rechts: RCI, Steuer, Tempo
 	_right = VBoxContainer.new()
@@ -640,7 +656,8 @@ func _fill_popup() -> void:
 			"Anteil %d%%  ·  Bus %d  ·  Bahn %d  ·  Wohnungen mit Anschluss %d%%" % [roundi(sim.transit_share * 100.0),
 				int(sim.bus_riders), int(sim.rail_riders), roundi(avg[3] * 100.0)],
 			"%d Netze  ·  %d / %d MW  ·  %d Gebäude ohne Strom" % [_power_net_count(), sim.power_demand,
-				sim.power_supply, _dark_buildings()]]
+				sim.power_supply, _dark_buildings()],
+			_deposit_summary()]
 		for m in MapOverlay.MODE_NAMES.size():
 			var label: String = MapOverlay.MODE_NAMES[m] if m > 0 else "Aus"
 			var b := _text_button(_popup_col, "%s:  %s" % [label, stats[m]], _pick_view.bind(m), "")
@@ -669,6 +686,39 @@ func _jump_log(tile: Vector2i) -> void:
 func _pick_view(m: int) -> void:
 	overlay_selected.emit(m)
 	_close_popup()
+
+
+## Restmengen aller Vorkommen + Waldfläche (Ansicht-Liste).
+func _refresh_stock() -> void:
+	var cap := sim.stock_capacity()
+	var any := false
+	for r: String in _stock_labels:
+		var v := float(sim.stock.get(r, 0.0))
+		var prod := float(sim.production.get(r, 0.0))
+		var exp := float(sim.exported.get(r, 0.0))
+		any = any or v > 0.0 or prod > 0.0
+		var l: Label = _stock_labels[r]
+		l.text = _fmt(int(v))
+		l.add_theme_color_override("font_color", UiTheme.WARN if v >= cap else UiTheme.TEXT)
+		l.tooltip_text = "%s: %d / %d (Lager)\nFörderung +%d/Monat%s" % [Config.RESOURCES[r]["name"], int(v), cap, int(prod),
+			("\nLager voll: %d exportiert (+$%d)" % [int(exp), roundi(exp * float(Config.RESOURCES[r]["price"]))]) if exp > 0.0 else ""]
+	_stock_card.visible = any and not _hud_hidden()
+
+
+func _deposit_summary() -> String:
+	var left := {}
+	var trees := 0
+	for i in map.size * map.size:
+		if map.ore_amt[i] > 0:
+			var r: String = Config.ORE_RESOURCE[map.ore[i]]
+			left[r] = int(left.get(r, 0)) + map.ore_amt[i] * Config.ORE_UNIT
+		if map.feature[i] == Config.Feature.TREE:
+			trees += 1
+	var parts := PackedStringArray()
+	for r: String in ["coal", "iron", "gold", "sand", "clay"]:
+		parts.append("%s %s" % [Config.RESOURCES[r]["name"], _fmt(int(left.get(r, 0)))])
+	parts.append("Bäume %d" % trees)
+	return "  ·  ".join(parts)
 
 
 func _power_net_count() -> int:
@@ -870,7 +920,7 @@ func cheat_money() -> void:
 
 func _tool_tip(t: ToolController.Tool) -> String:
 	var def: Dictionary = ToolController.TOOLS[t]
-	var tip := "%s   [%s]" % [def["name"], OS.get_keycode_string(def["key"])]
+	var tip: String = def["name"] if def["key"] == KEY_NONE else "%s   [%s]" % [def["name"], OS.get_keycode_string(def["key"])]
 	if def.has("cost"):
 		tip += "\n$%d" % def["cost"]
 	return tip
@@ -1073,6 +1123,7 @@ func _refresh_inner() -> void:
 	_power.add_theme_color_override("font_color", UiTheme.BAD if dark > 0 else UiTheme.TEXT)
 	_power.tooltip_text = "\n".join(tip)
 	_power.mouse_filter = Control.MOUSE_FILTER_PASS
+	_refresh_stock()
 	_happy_btn.text = "%d%%" % roundi(sim.city_happiness * 100.0) if sim.population > 0 else "-"
 	var hc := UiTheme.BAD if sim.city_happiness < 0.4 and sim.population > 0 \
 		else (UiTheme.GOOD if sim.city_happiness > 0.65 else UiTheme.TEXT)
@@ -1143,6 +1194,27 @@ func _on_hover(t: Vector2i) -> void:
 				add.call("Dienst", "Straßen rundum: Auslastung %d%%" % roundi(float(sim.venue_jam.get(a, 0.0)) * 100.0))
 			if lv < 3:
 				add.call("Dienst", "Ausbau: gleiches Werkzeug, $%d" % (int(def["upgrade"]) * lv))
+		elif def.has("produce") or def.has("storage"):
+			var a := map.anchor[i]
+			var lv := map.special_level(a)
+			title = "%s  ·  Stufe %d" % [def["name"], lv]
+			if def.has("storage"):
+				summary = "Lager je Rohstoff: %s" % _fmt(sim.stock_capacity())
+			else:
+				var info: Dictionary = sim.producer_info.get(a, {})
+				var out: Dictionary = info.get("out", {})
+				var parts := PackedStringArray()
+				for r: String in out:
+					parts.append("+%d %s" % [int(out[r]), Config.RESOURCES[r]["name"]])
+				summary = "Förderung: " + (", ".join(parts) if not parts.is_empty() else "keine") + " /Monat"
+				if str(info.get("issue", "")) != "":
+					problems.append("x " + str(info["issue"]))
+			if not sim.special_powered(i):
+				problems.append("x Kein Strom - steht still")
+			add.call("Dienst", "Unterhalt $%d/Monat  ·  Strom %d MW" % [int(def["upkeep"] * Config.UPKEEP_LEVEL[lv]),
+				sim.tile_power_use(a)])
+			if lv < 3:
+				add.call("Dienst", "Ausbau (mehr Förderung/Lager): gleiches Werkzeug, $%d" % (int(def["upgrade"]) * lv))
 		else:
 			summary = "Leistung %d MW  ·  Unterhalt $%d/Monat" % [def["power"], int(def["upkeep"])]
 	elif map.zone[i] != Config.Zone.NONE:
@@ -1241,6 +1313,15 @@ func _on_hover(t: Vector2i) -> void:
 		title = "Park"
 	elif map.feature[i] == Config.Feature.TREE:
 		title = "Wald"
+	# Bodenvorkommen
+	if map.ore[i] != Config.Ore.NONE:
+		var res: String = Config.ORE_RESOURCE[map.ore[i]]
+		var line := "Vorkommen: %s %s" % [Config.RESOURCES[res]["name"], _fmt(map.ore_amt[i] * Config.ORE_UNIT)] if map.ore_amt[i] > 0 \
+			else "Vorkommen: %s erschöpft" % Config.RESOURCES[res]["name"]
+		if summary == "":
+			summary = line
+		else:
+			add.call("Lage", line)
 	# Netz, Umwelt, Ort (nur in den Details)
 	if map.power_line[i] == 1:
 		add.call("Versorgung", "Stromleitung")

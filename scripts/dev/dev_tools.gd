@@ -4,7 +4,7 @@ extends RefCounted
 ##
 ##   --demo                 Teststadt bauen (DemoCity)
 ##   --cam=x,z,dist         Kamera auf Tile x,z mit Abstand dist
-##   --overlay[=1..7]       Ansicht: 1 Verkehr, 2 Verschmutzung, 3 Bodenwert, 4 Kriminalität, 5 Zufriedenheit, 6 ÖPNV, 7 Strom
+##   --overlay[=1..8]       Ansicht: 1 Verkehr, 2 Verschmutzung, 3 Bodenwert, 4 Kriminalität, 5 Zufriedenheit, 6 ÖPNV, 7 Strom, 8 Rohstoffe
 ##   --popup=view|happy     Ansicht-Liste bzw. Zufriedenheits-Karte aufklappen
 ##   --hover=x,z [--detail] Info-Karte für Tile zeigen (ausführlich)
 ##   --notify               Beispiel-Warnungen in die Meldungsleiste
@@ -116,6 +116,10 @@ static func run(game: Node) -> void:
 		DevTests.venuetest(game)
 	if has("--buildtest"):
 		await DevTests.buildtest(game)
+	if has("--orecount"):
+		DevTests.orecount(game)
+	if has("--resbuild"):
+		DevTests.place_resources(game)
 	if has("--villas"):
 		DevTests.place_villas(game)
 	if has("--venues"):
@@ -134,6 +138,8 @@ static func run(game: Node) -> void:
 		DevTests.determinism(game)
 	if has("--powerreport"):
 		DevTests.powerreport(game)
+	if has("--restest"):
+		DevTests.restest()
 	if has("--powertest"):
 		DevTests.powertest()
 	if has("--cartest"):
