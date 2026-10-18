@@ -34,6 +34,8 @@ const TOOLBAR := [
 		ToolController.Tool.THEATER, ToolController.Tool.STADIUM],
 	[ToolController.Tool.MINE, ToolController.Tool.QUARRY, ToolController.Tool.PIT, ToolController.Tool.LUMBER,
 		ToolController.Tool.WAREHOUSE],
+	[ToolController.Tool.STEELWORKS, ToolController.Tool.SAWMILL, ToolController.Tool.BRICKWORKS,
+		ToolController.Tool.GLASSWORKS],
 	[],
 	[ToolController.Tool.BULLDOZE],
 ]
@@ -215,8 +217,15 @@ func _build() -> void:
 	# Lager: je Rohstoff Icon + Menge (erst sichtbar, sobald es Abbau oder Vorrat gibt)
 	_stock_card = _card(left)
 	_stock_card.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
-	var st_row := _row(_stock_card, 8)
+	var st_col := VBoxContainer.new()
+	st_col.add_theme_constant_override("separation", 2)
+	_stock_card.add_child(st_col)
+	var raw_row := _row(st_col, 8)
+	var good_row := _row(st_col, 8)
+	raw_row.alignment = BoxContainer.ALIGNMENT_BEGIN
+	good_row.alignment = BoxContainer.ALIGNMENT_BEGIN
 	for r: String in Config.RESOURCES:
+		var st_row := good_row if Config.RESOURCES[r].get("good", false) else raw_row     # Rohstoffe / Baustoffe
 		_icon(st_row, "res_" + r, 22, Config.RESOURCES[r]["name"])
 		var l := _label(st_row, 16)
 		l.add_theme_font_override("font", UiTheme.font(true))
@@ -696,11 +705,17 @@ func _refresh_stock() -> void:
 		var v := float(sim.stock.get(r, 0.0))
 		var prod := float(sim.production.get(r, 0.0))
 		var exp := float(sim.exported.get(r, 0.0))
+		var imp := float(sim.imported.get(r, 0.0))
+		var built := float(sim.last_materials.get(r, 0.0))
 		any = any or v > 0.0 or prod > 0.0
 		var l: Label = _stock_labels[r]
 		l.text = _fmt(int(v))
 		l.add_theme_color_override("font_color", UiTheme.WARN if v >= cap else UiTheme.TEXT)
-		l.tooltip_text = "%s: %d / %d (Lager)\nFörderung +%d/Monat%s" % [Config.RESOURCES[r]["name"], int(v), cap, int(prod),
+		var verb := "Herstellung" if Config.RESOURCES[r].get("good", false) else "Förderung"
+		l.tooltip_text = "%s: %d / %d (Lager)\n%s +%d/Monat%s%s%s" % [Config.RESOURCES[r]["name"], int(v), cap, verb, int(prod),
+			("\nVerbaut beim Wachsen: %d" % int(built)) if built > 0.0 else ""
+				+ (("\nKraftwerke: %d aus dem Lager (Werke haben Vorrang)" % int(sim.coal_burned)) if r == "coal" and sim.coal_burned > 0.0 else ""),
+			("\nZugekauft: %d (-$%d)" % [int(imp), roundi(imp * float(Config.RESOURCES[r]["price"]) * Config.IMPORT_FACTOR)]) if imp > 0.0 else "",
 			("\nLager voll: %d exportiert (+$%d)" % [int(exp), roundi(exp * float(Config.RESOURCES[r]["price"]))]) if exp > 0.0 else ""]
 	_stock_card.visible = any and not _hud_hidden()
 
@@ -1145,6 +1160,8 @@ func _refresh_inner() -> void:
 	for k: String in sim.income_parts:
 		inc.append("  %s  $%d" % [k, roundi(float(sim.income_parts[k]))])
 	inc.append("Ausgaben  $%d" % roundi(sim.last_expense))
+	if sim.import_cost > 0.0:
+		inc.append("  davon Zukauf (Kohle, Baustoffe)  $%d" % roundi(sim.import_cost))
 	_money_delta.tooltip_text = "\n".join(inc)
 	_money_delta.mouse_filter = Control.MOUSE_FILTER_PASS
 	_rci.values = [sim.demand_res, sim.demand_com, sim.demand_ind]
@@ -1194,6 +1211,26 @@ func _on_hover(t: Vector2i) -> void:
 				add.call("Dienst", "Straßen rundum: Auslastung %d%%" % roundi(float(sim.venue_jam.get(a, 0.0)) * 100.0))
 			if lv < 3:
 				add.call("Dienst", "Ausbau: gleiches Werkzeug, $%d" % (int(def["upgrade"]) * lv))
+		elif def.has("process"):
+			var a := map.anchor[i]
+			var lv := map.special_level(a)
+			title = "%s  ·  Stufe %d" % [def["name"], lv]
+			var info: Dictionary = sim.producer_info.get(a, {})
+			var proc: Dictionary = def["process"]
+			var ins := PackedStringArray()
+			var outs := PackedStringArray()
+			for r: String in proc["in"]:
+				ins.append("%d %s" % [int(proc["in"][r]) * lv, Config.RESOURCES[r]["name"]])
+			for r: String in proc["out"]:
+				outs.append("%d %s" % [int(float((info.get("out", {}) as Dictionary).get(r, 0.0))), Config.RESOURCES[r]["name"]])
+			summary = "Herstellung: %s /Monat" % ", ".join(outs)
+			add.call("Dienst", "Bedarf: %s /Monat" % ", ".join(ins))
+			if str(info.get("issue", "")) != "":
+				problems.append("x " + str(info["issue"]))
+			add.call("Dienst", "Unterhalt $%d/Monat  ·  Strom %d MW" % [int(def["upkeep"] * Config.UPKEEP_LEVEL[lv]),
+				sim.tile_power_use(a)])
+			if lv < 3:
+				add.call("Dienst", "Ausbau (mehr Leistung): gleiches Werkzeug, $%d" % (int(def["upgrade"]) * lv))
 		elif def.has("produce") or def.has("storage"):
 			var a := map.anchor[i]
 			var lv := map.special_level(a)
@@ -1217,6 +1254,11 @@ func _on_hover(t: Vector2i) -> void:
 				add.call("Dienst", "Ausbau (mehr Förderung/Lager): gleiches Werkzeug, $%d" % (int(def["upgrade"]) * lv))
 		else:
 			summary = "Leistung %d MW  ·  Unterhalt $%d/Monat" % [def["power"], int(def["upkeep"])]
+			if map.special[i] == Config.Special.COAL:
+				var info: Dictionary = sim.producer_info.get(map.anchor[i], {})
+				add.call("Dienst", "Verbraucht %d Kohle/Monat aus dem Lager" % Config.COAL_PLANT_USE)
+				if str(info.get("issue", "")) != "":
+					problems.append("x " + str(info["issue"]))
 	elif map.zone[i] != Config.Zone.NONE:
 		var zn := map.zone[i]
 		var lv := map.level[i]
@@ -1281,6 +1323,14 @@ func _on_hover(t: Vector2i) -> void:
 			for b in blockers:
 				if b != "Keine Nachfrage":
 					problems.append("x " + b)
+		if lv >= 1 and lv < 3 and sim.population >= Config.MATERIAL_FROM_POP:
+			var cost: Dictionary = Config.MATERIAL_COST[zn][lv + 1]
+			var parts := PackedStringArray()
+			for r: String in cost:
+				parts.append("%d %s" % [int(cost[r]), Config.RESOURCES[r]["name"]])
+			var need := sim.material_need(zn, lv + 1)
+			add.call("Wachstum", "Stufe %d braucht: %s%s" % [lv + 1, ", ".join(parts),
+				("  (fehlt, Zukauf $%d)" % int(need[1])) if float(need[1]) > 0.0 else "  (im Lager)"])
 		if blockers.is_empty():
 			add.call("Wachstum", "+ Kann wachsen" if lv < 3 else "Voll ausgebaut")
 		else:

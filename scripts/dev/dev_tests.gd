@@ -725,6 +725,7 @@ static func taxtest(game: Node) -> void:
 	var show := func(label: String) -> void:
 		sim.refresh()
 		sim._budget()
+		print("taxtest %-26s Ausgaben $%d (Zukauf $%d)" % [label, roundi(sim.last_expense), roundi(sim.import_cost)])
 		print("taxtest %-26s Einnahmen %s = $%d  Nachfrage W/G/I %.2f/%.2f/%.2f  Zufriedenheit %d%%" % [label,
 			sim.income_parts.keys().map(func(k: String) -> String: return "%s %d" % [k, roundi(float(sim.income_parts[k]))]),
 			roundi(sim.last_income), sim.demand_res, sim.demand_com, sim.demand_ind, roundi(sim.city_happiness * 100)])
@@ -1365,6 +1366,7 @@ static func restest() -> void:
 	for k in 24:
 		sim._compute_power()
 		sim._produce()
+		sim._export_surplus()
 	var ore_after := 0
 	for i in m.size * m.size:
 		ore_after += m.ore_amt[i]
@@ -1404,18 +1406,114 @@ static func orecount(game: Node) -> void:
 static func place_resources(game: Node) -> void:
 	game.sim.money += 20000
 	for t: ToolController.Tool in [ToolController.Tool.MINE, ToolController.Tool.QUARRY, ToolController.Tool.PIT,
-			ToolController.Tool.LUMBER, ToolController.Tool.WAREHOUSE]:
+			ToolController.Tool.LUMBER, ToolController.Tool.WAREHOUSE, ToolController.Tool.STEELWORKS,
+			ToolController.Tool.SAWMILL, ToolController.Tool.BRICKWORKS, ToolController.Tool.GLASSWORKS]:
 		_place_near_center(game.map, game.tools, t)
 	game.tools.set_tool(ToolController.Tool.INSPECT)
 	var map: CityMap = game.map
 	for i in map.size * map.size:
-		if map.anchor[i] == i and Config.SPECIALS[map.special[i]].has("produce") or map.anchor[i] == i and Config.SPECIALS[map.special[i]].has("storage"):
+		if map.anchor[i] == i and (Config.SPECIALS[map.special[i]].has("produce") or Config.SPECIALS[map.special[i]].has("storage")
+				or Config.SPECIALS[map.special[i]].has("process")):
 			print("resbuild %s bei %d,%d" % [Config.SPECIALS[map.special[i]]["name"], i % map.size, i / map.size])
 	for k in 4:
 		game.sim.tick_month()
 	print("resbuild Lager nach 4 Monaten: %s, Förderung %s" % [game.sim.stock, game.sim.production])
 	for a: int in game.sim.producer_info:
 		print("resbuild   %s: %s" % [Config.SPECIALS[map.special[a]]["name"], game.sim.producer_info[a]])
+
+
+## Verarbeitung: 4 Werke mit Strom, knappe Rohstoffe -> anteilig; Kraftwerk verbraucht Kohle; Baustoffe beim Wachsen.
+static func processtest() -> void:
+	var m := CityMap.new()
+	m.height.fill(6)
+	var sim := Simulation.new()
+	sim.map = m
+	var put_special := func(x: int, z: int, sp: int) -> void:
+		var sz: int = Config.SPECIALS[sp]["size"]
+		var a := m.idx(x, z)
+		for dz in sz:
+			for dx in sz:
+				m.special[m.idx(x + dx, z + dz)] = sp
+				m.anchor[m.idx(x + dx, z + dz)] = a
+		m.slevel[a] = 1
+	for x in range(0, 40):
+		m.power_line[m.idx(x, 10)] = 1
+	put_special.call(0, 8, Config.Special.COAL)
+	put_special.call(5, 8, Config.Special.SAWMILL)
+	put_special.call(10, 8, Config.Special.BRICKWORKS)
+	put_special.call(15, 8, Config.Special.GLASSWORKS)
+	put_special.call(20, 8, Config.Special.STEELWORKS)
+	sim.stock = {"wood": 100.0, "clay": 100.0, "sand": 5.0, "iron": 100.0, "coal": 22.0}
+	sim._compute_power()
+	sim._produce()
+	sim._process_goods()
+	var line := PackedStringArray()
+	for r: String in ["planks", "bricks", "glass", "steel", "coal", "sand"]:
+		line.append("%s %.1f" % [Config.RESOURCES[r]["name"], float(sim.stock.get(r, 0.0))])
+	print("processtest nach 1 Monat: %s, Zukauf Kohle %.0f ($%.0f offen)" % [", ".join(line),
+		float(sim.imported.get("coal", 0.0)), sim._import_pending])
+	for a: int in sim.producer_info:
+		var info: Dictionary = sim.producer_info[a]
+		if str(info["issue"]) != "":
+			print("processtest   %s: %s" % [Config.SPECIALS[m.special[a]]["name"], info["issue"]])
+	# Baustoffe beim Wachsen
+	sim.population = 1000
+	sim.money = 100000.0
+	var before: float = float(sim.stock["bricks"])
+	var ok := sim._use_materials(Config.Zone.RES, 2)
+	print("processtest Wohnen -> Stufe 2: ok %s, Ziegel %.0f -> %.0f, Bedarf Stufe 3 %s" % [ok, before,
+		float(sim.stock["bricks"]), sim.material_need(Config.Zone.RES, 3)])
+	sim.money = 0.0
+	sim._import_pending = 0.0
+	sim.stock["glass"] = 0.0
+	print("processtest ohne Geld und ohne Glas -> Stufe 3 möglich: %s" % sim._use_materials(Config.Zone.RES, 3))
+	sim.free()
+
+
+## Haushalt über 12 Monate: Einnahmen, Ausgaben, davon Zukauf (Kraftwerkskohle, Baustoffe), Einwohner.
+static func budgettest(game: Node) -> void:
+	var sim: Simulation = game.sim
+	sim.speed = 0
+	var inc := 0.0
+	var exp := 0.0
+	var imp := 0.0
+	var p0 := sim.population
+	for m in 12:
+		sim.tick_month()
+		inc += sim.last_income
+		exp += sim.last_expense
+		imp += sim.import_cost
+	print("budgettest 12 Monate: Einw. %d -> %d, Einnahmen Ø $%d, Ausgaben Ø $%d (davon Zukauf Ø $%d), Saldo Ø $%d" % [
+		p0, sim.population, roundi(inc / 12), roundi(exp / 12), roundi(imp / 12), roundi((inc - exp) / 12)])
+
+
+## Rohstoff-Diagnose eines Spielstands: Abbau-Gebäude mit Strom, Vorkommen im Umkreis, letzte Förderung.
+static func resreport(game: Node) -> void:
+	var map: CityMap = game.map
+	var sim: Simulation = game.sim
+	sim.speed = 0
+	sim.tick_month()
+	for a in map.size * map.size:
+		if map.anchor[a] != a or map.special[a] == Config.Special.NONE:
+			continue
+		var def: Dictionary = Config.SPECIALS[map.special[a]]
+		if not (def.has("produce") or def.has("process") or map.special[a] == Config.Special.COAL):
+			continue
+		var near := {}
+		for z in range(maxi(a / map.size - 4, 0), mini(a / map.size + 6, map.size)):
+			for x in range(maxi(a % map.size - 4, 0), mini(a % map.size + 6, map.size)):
+				var j := z * map.size + x
+				if map.ore_amt[j] > 0:
+					var r: String = Config.ORE_RESOURCE[map.ore[j]]
+					near[r] = int(near.get(r, 0)) + 1
+		print("resreport %s bei %d,%d Stufe %d Strom %s, Vorkommen-Tiles ±4: %s, Info: %s" % [def["name"], a % map.size,
+			a / map.size, map.special_level(a), sim.special_powered(a), near, sim.producer_info.get(a, {})])
+	var cnt := {}
+	for i in map.size * map.size:
+		if map.ore[i] != Config.Ore.NONE:
+			var r: String = Config.ORE_RESOURCE[map.ore[i]]
+			cnt[r] = int(cnt.get(r, 0)) + 1
+	print("resreport Vorkommen-Tiles gesamt: %s, Lager %s" % [cnt, sim.stock])
 
 
 ## Erstes freies Plätzchen spiralförmig um die Kartenmitte.

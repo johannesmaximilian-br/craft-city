@@ -63,7 +63,7 @@ Dev-Flags (nach `--`, funktionieren auch mit der App: `"build/Cube City.app/Cont
 - **Stromnetze sind getrennt:** alles Zusammenhängende ist ein Netz und bekommt nur die Leistung seiner eigenen Kraftwerke. Ein neues Kraftwerk ohne Verbindung hilft einem anderen Netz nicht.
 - **Dienst- und Kulturbauten brauchen Strom** (Stufe 1: Bibliothek/Polizei/Feuerwehr 1 MW, Schule/Kino 2, Bürgerhaus 3, Krankenhaus/Theater 5, Stadion 12; Stufe 2 ×1,5, Stufe 3 ×2). Ohne Strom arbeiten sie nicht: keine Versorgung, Feuerwache rückt nicht aus („Feuerwache ohne Strom“), keine Veranstaltungen; Blitz-Symbol, Info-Karte „x Kein Strom“. Im Netz werden sie **bevorzugt** versorgt (vor Wohnen/Gewerbe/Industrie). Ein Dienstbau zwischen Straßen ohne angrenzende Zone braucht eine Stromleitung.
 - Im Netz wird vom Kraftwerk aus Tile für Tile versorgt; reicht die Leistung nicht, fällt das **Leitungsende** zuerst aus (Blitz-Symbol, kein Wachstum, Verfall).
-- Anzeige oben: Bedarf aller Gebäude (auch nicht angeschlossener) / Leistung aller Kraftwerke, **rot sobald irgendwo ein Gebäude ohne Strom ist**; Tooltip listet die Netze (Bedarf/Leistung/Kraftwerke/Engpass). Meldung mit Ort: „Kein Strom: … ohne Kraftwerk im Netz“ bzw. „Stromengpass im Netz bei x,z“. Info-Karte: Netz des Tiles. **Ansicht Strom** (V): jedes Netz in eigener Farbe, Gebäude ohne Strom rot, Kraftwerke weiß. Test `--powertest`, `--powerreport` (Dienste ohne Strom eines Spielstands), `--determinism` (Prüfsummen nach 12 Monaten mit festem Zufall).
+- Anzeige oben: Bedarf aller Gebäude (auch nicht angeschlossener) / Leistung aller Kraftwerke, **rot sobald irgendwo ein Gebäude ohne Strom ist**; Tooltip listet die Netze (Bedarf/Leistung/Kraftwerke/Engpass). Meldung mit Ort: „Kein Strom: … ohne Kraftwerk im Netz“ bzw. „Stromengpass im Netz bei x,z“. Info-Karte: Netz des Tiles. **Ansicht Strom** (V): jedes Netz in eigener Farbe, Gebäude ohne Strom rot, Kraftwerke weiß. Test `--powertest`, `--powerreport` (Dienste ohne Strom eines Spielstands), `--processtest`, `--budgettest` (Haushalt über 12 Monate), `--determinism` (Prüfsummen nach 12 Monaten mit festem Zufall).
 - Kohlekraftwerk senkt Bodenwert von Wohngebieten in der Nähe.
 - **Pendler**: 55 % der Einwohner fahren monatlich zum nächsten freien Job (Dijkstra, Stau verteuert Wege).
   Wohnen braucht erreichbare Jobs (auch per Bahn), Gewerbe/Industrie erreichbare Einwohner. Fahrzeit > 40 blockiert Wohnwachstum.
@@ -72,6 +72,7 @@ Dev-Flags (nach `--`, funktionieren auch mit der App: `"build/Cube City.app/Cont
 - **Bahnhofs-Kapazität**: 1.500 Ein-/Aussteiger je Bahnhof und Monat. Darüber wird der Weg über diesen Bahnhof teurer (Aufschlag 3 × Auslastung²), ab 150 % ist er für den Monat dicht → Pendler weichen auf andere Bahnhöfe, Bus oder Auto aus. Info-Karte des Bahnhofs zeigt die Auslastung („überfüllt!“). Mehr Bahnhöfe = mehr Kapazität.
 - **Reichweite beim Bauen:** Mit Haltestelle oder Bahnhof in der Hand zeigt die Karte automatisch die ÖPNV-Ansicht, dazu unter dem Cursor die Reichweite: **blau** die Straßen, die ins Busnetz kommen bzw. im Fußweg zum Bahnhof liegen (inkl. ganzem Busnetz, wenn eine Haltestelle nahe dem Bahnhof steht), **hellgrün** Gebäude, die dadurch neu Anschluss bekommen. Dienst-/Kulturbauten zeigen den **Rand ihres Einzugskreises** (weiß), beim Ausbau den Radius der nächsten Stufe. Test `--rangetest`.
 - **Ansicht ÖPNV** (V bzw. Ansicht-Liste): Straßen im Busnetz blau, Gebäude mit Bus-/Bahnanschluss grün, ohne rot; Liste zeigt Anteil, Bus-/Bahnfahrer und Anteil Wohnungen mit Anschluss.
+- Spielstände von vor der Einführung von Fels bekommen beim Laden Fels auf freiem Gelände nachgeneriert (`ore_version`).
 - **Alte 64×64-Spielstände** werden beim Laden mittig in eine neu erzeugte 128er-Landschaft gesetzt (Ränder über 8 Tiles in der Höhe angeglichen); gespeichert wird dann als 128er-Stand, die alte Version bleibt als Sicherung.
 - **Spielstände + Einstellungen** liegen im eigenen Datenordner des Spiels (gleich für Editor und Mac-App, kein Godot nötig):
   macOS `~/Library/Application Support/Cube City/` · Windows `%APPDATA%\Cube City\` · Linux `~/.local/share/Cube City/`,
@@ -187,6 +188,30 @@ Werte und Reichweiten: `scripts/config.gd` (Abschnitte *Standortregeln*, *Zonen-
 - Sichtbar: Fels, Sand und Ton färben den Boden, Erzbrocken ragen aus dem Gras; **Ansicht Rohstoffe** (V) färbt alle Vorkommen (kräftig = voll, grau = erschöpft), die Ansicht-Liste zeigt die Restmengen. Mit einem Abbau-Werkzeug zeigt die Vorschau Vorkommen im Umkreis. HUD: Lager-Leiste (Tooltip: Förderung, Kapazität, Export).
 - Werkzeuge haben keine Taste (alle Buchstaben belegt) – nur über die Werkzeugleiste. Tests `--restest`, `--orecount`, Screenshot-Flag `--resbuild`.
 
+## Verarbeitung & Baustoffe (Bergbau-Wirtschaft, Stufe 2)
+
+| Werk (Werkzeuggruppe Verarbeitung, 2×2, Strom) | Bedarf je Monat | Ergebnis | Verschmutzung |
+|---|---|---|---|
+| Sägewerk | 10 Holz | 10 Bretter | – |
+| Ziegelei | 10 Ton + 2 Kohle | 10 Ziegel | leicht |
+| Glashütte | 10 Sand + 3 Kohle | 8 Glas | mittel |
+| Stahlwerk | 10 Eisen + 5 Kohle | 8 Stahl | stark |
+
+(× Ausbaustufe; reicht ein Rohstoff nicht, läuft das Werk anteilig – Info-Karte: „Zu wenig Sand (50 % Auslastung)“.)
+
+- **Baustoffbedarf beim Wachsen** (ab 400 Einwohnern; Stufe 1 bleibt kostenlos):
+
+| | Stufe 2 | Stufe 3 |
+|---|---|---|
+| Wohnen | 4 Bretter, 4 Ziegel | 8 Ziegel, 4 Glas, 3 Stahl |
+| Gewerbe | 3 Bretter, 3 Ziegel, 2 Glas | 4 Ziegel, 8 Glas, 6 Stahl |
+| Industrie | 4 Bretter, 4 Ziegel | 6 Ziegel, 8 Stahl |
+
+- Fehlt Material, wird es **zugekauft** (2× Exportpreis, Ausgabe am Monatsende). Ohne Geld dafür wächst nichts („Baustoffe fehlen …, Zukauf $x zu teuer“). Info-Karte (Details): Bedarf der nächsten Stufe und ob es im Lager ist.
+- **Kohlekraftwerk verbraucht 8 Kohle/Monat** aus dem Lager, sonst Zukauf (~24 $/Monat) – eigene Mine spart Geld. **Werke haben Vorrang** bei der Kohle (sie können nicht zukaufen), Kraftwerke nehmen den Rest. Kohle ist endlich → erneuerbare Energien (Roadmap).
+- Lager-Leiste: zweite Zeile Baustoffe; Tooltip mit Herstellung, Verbaut, Zugekauft, Export. Kassen-Tooltip: „davon Zukauf“.
+- Messung (`--budgettest`, 12 Monate): Demo-Stadt Saldo +30 $/Monat bei 27 $ Zukauf; Megacity +160 $ bei 204 $ Zukauf. Tests `--processtest`.
+
 ## Verkehr
 
 - Pendler werden in 3 Etappen verteilt; jede Etappe sieht den Stau der vorherigen → **Parallelstraßen und Umfahrungen werden genutzt**.
@@ -280,7 +305,7 @@ python3 tools/audio/gen_audio.py sfx ambient  # nur Effekte + Loops (~3 s)
 - [ ] Wasserversorgung (Pumpen, Rohre)
 - [x] Steuern je Zone (W/G/I), ÖPNV-Tarif, Zonen-Idealformen (Ladenzeile, Ballung, Nachbarschaft)
 - [x] Rohstoffe Schritt 1–2: Karte 128×128, Vorkommen, Abbau-Gebäude, Lager, Export
-- [ ] Rohstoffe Schritt 3: Verarbeitung (Holz → Bretter, Sand → Glas, Ton → Ziegel, Erz → Barren), Materialbedarf beim Wachsen — dabei verbraucht das Kohlekraftwerk Kohle aus dem Lager (bisher läuft es ohne)
+- [x] Rohstoffe Schritt 3: Verarbeitung (Bretter, Ziegel, Glas, Stahl), Baustoffbedarf beim Wachsen, Kohlekraftwerk verbraucht Kohle
 - [ ] **Erneuerbare Energien** (Kohle ist endlich, Unabhängigkeit vom Handel): Windrad gibt es schon; dazu Solarfeld (Leistung nach Tageszeit), Wasserkraft (Damm an Fluss/See), Biomasse (verbrennt nachwachsendes Holz), Geothermie (mit der Untertage-Ebene). Schwankende Leistung → Speicher (Batterie, Pumpspeicher). Teils über Forschung freigeschaltet
 - [ ] Rohstoffe Schritt 4: Erneuerung (Aufforstung/Baumschule, Prospektion, Recycling)
 - [ ] **Forschung & Technik** (Nutzerwunsch, statt nur Handel): Upgrades wie Tiefbau (neue/tiefere Vorkommen), effizientere Verarbeitung (weniger Material je Gebäude), Recycling, Ersatzstoffe

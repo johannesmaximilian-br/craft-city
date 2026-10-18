@@ -176,6 +176,14 @@ static func service(b: BlockBatch, base: Vector3, sp: int, lv: int) -> void:
 			mine(b, base, lv)
 		Config.Special.WAREHOUSE:
 			warehouse(b, base, lv)
+		Config.Special.SAWMILL:
+			sawmill(b, base, lv)
+		Config.Special.BRICKWORKS:
+			brickworks(b, base, lv)
+		Config.Special.GLASSWORKS:
+			glassworks(b, base, lv)
+		Config.Special.STEELWORKS:
+			steelworks(b, base, lv)
 		Config.Special.THEATER:
 			theater(b, base, lv)
 		Config.Special.STADIUM:
@@ -316,6 +324,56 @@ static func warehouse(b: BlockBatch, base: Vector3, lv: int) -> void:
 	for p: Vector3 in [Vector3(0.5, 0, 0.3), Vector3(1.3, 0, 0.3), Vector3(5.2, 0, 0.3)]:
 		b.put("crate", base + p - Vector3(0.5, 0, 0.0))
 	b.put("crate", base + Vector3(0.4, 1, 0.0))
+
+
+## Sägewerk (6x6): offene Halle mit Sägeblatt, Stammstapel, Bretterstapel.
+static func sawmill(b: BlockBatch, base: Vector3, lv: int) -> void:
+	for p: Vector2 in [Vector2(0.5, 1.5), Vector2(3.5, 1.5), Vector2(0.5, 4.5), Vector2(3.5, 4.5)]:
+		b.put_box("log", base + Vector3(p.x, 1.25, p.y), Vector3(0.35, 2.5, 0.35))            # Pfosten
+	b.put_box("darkbrick", base + Vector3(2.0, 2.6, 3.0), Vector3(4.2, 0.25, 3.8))           # Dach
+	b.put_box("metal", base + Vector3(2.0, 0.6, 3.0), Vector3(2.6, 0.5, 0.8))                # Sägetisch
+	b.put_box("vox_white", base + Vector3(2.0, 1.0, 3.0), Vector3(0.9, 0.9, 0.08))           # Sägeblatt
+	for k in 2 + lv:
+		b.put_box("log", base + Vector3(5.0, 0.25 + (k / 2) * 0.5, 1.2 + (k % 2) * 0.9), Vector3(1.6, 0.45, 0.45))
+		b.put_box("wood", base + Vector3(5.0, 0.12 + k * 0.25, 4.5), Vector3(1.4, 0.2, 1.0))   # Bretter
+
+
+## Ziegelei (6x6): Brennofen aus Ziegeln mit hohem Schlot, Ziegelstapel, Tongrube.
+static func brickworks(b: BlockBatch, base: Vector3, lv: int) -> void:
+	_hull(b, base + Vector3(1, 0, 2), 4, 3, 0, 2, "brick", "darkbrick")
+	_roof(b, base + Vector3(1, 0, 2), 4, 3, 2, "darkbrick")
+	b.put_box("vox_dark", base + Vector3(3.0, 0.6, 1.97), Vector3(1.0, 1.2, 0.06))            # Ofenloch
+	b.put_box("cheese", base + Vector3(3.0, 0.4, 1.94), Vector3(0.7, 0.5, 0.04))              # Glut
+	for y in range(0, 5 + lv):
+		b.put("brick", base + Vector3(4, y + 3, 4))                                            # Schlot
+	for k in 3:
+		b.put_box("brick", base + Vector3(0.8 + k * 1.2, 0.3, 0.6), Vector3(0.9, 0.6, 0.7))   # Ziegelstapel
+	b.put_box("clay", base + Vector3(0.6, 0.2, 5.3), Vector3(1.0, 0.4, 1.0))
+
+
+## Glashütte (6x6): Halle mit Schmelzofen (Glut), Glasblöcke, Schlot.
+static func glassworks(b: BlockBatch, base: Vector3, lv: int) -> void:
+	_hull(b, base + Vector3(0, 0, 1), 5, 4, 0, 1 + lv, "stone", "greybrick", "ice")
+	_roof(b, base + Vector3(0, 0, 1), 5, 4, 1 + lv, "metal")
+	b.put_box("cheese", base + Vector3(2.5, 0.5, 0.97), Vector3(1.2, 0.8, 0.06))              # glühender Ofen
+	for y in range(2 + lv, 6 + lv):
+		b.put("greybrick", base + Vector3(4, y, 4))
+	for k in 3:
+		b.put_box("ice", base + Vector3(5.4, 0.35 + k * 0.6, 0.6), Vector3(0.55, 0.55, 0.55)) # Glasblöcke
+	b.put_box("sand", base + Vector3(5.3, 0.25, 4.5), Vector3(1.0, 0.5, 1.0))
+
+
+## Stahlwerk (6x6): dunkle Halle, zwei Schlote, Hochofen mit Glut, Stahlträger.
+static func steelworks(b: BlockBatch, base: Vector3, lv: int) -> void:
+	_hull(b, base, 6, 4, 0, 2 + lv, "darkbrick", "darkbrick", "metal")
+	_roof(b, base, 6, 4, 2 + lv, "metal")
+	b.put_box("cheese", base + Vector3(2.0, 0.6, -0.03), Vector3(1.4, 1.0, 0.06))             # Glut
+	for c: Vector2i in [Vector2i(1, 2), Vector2i(4, 2)]:
+		for y in range(3 + lv, 8 + lv):
+			b.put("darkbrick" if y < 7 + lv else "brick", base + Vector3(c.x, y, c.y))
+	b.put_box("iron_ore", base + Vector3(1.0, 0.3, 5.0), Vector3(1.2, 0.6, 1.0))              # Eisenerz
+	for k in 2 + lv:
+		b.put_box("metal", base + Vector3(4.2, 0.1 + k * 0.2, 5.0), Vector3(2.2, 0.15, 0.3)) # Stahlträger
 
 
 ## Holzmast mit Querträger, Fuß bei foot (Tile-Mitte).

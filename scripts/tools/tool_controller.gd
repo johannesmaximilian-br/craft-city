@@ -10,7 +10,7 @@ signal applied(tool: Tool)
 
 enum Tool { INSPECT, ROAD, POWERLINE, BUS_STOP, RAIL, STATION, RES, COM, IND, COAL, WIND, TREE, PARK, RAISE, LOWER, BULLDOZE,
 	POLICE, FIRE, SCHOOL, HOSPITAL, LIBRARY, CINEMA, TOWNHALL, THEATER, STADIUM,
-	LUMBER, QUARRY, PIT, MINE, WAREHOUSE }
+	LUMBER, QUARRY, PIT, MINE, WAREHOUSE, SAWMILL, BRICKWORKS, GLASSWORKS, STEELWORKS }
 
 ## Anzeige-Metadaten: Name, Icon, Taste, Gruppe (für Toolbar-Trenner)
 const TOOLS := {
@@ -62,6 +62,14 @@ const TOOLS := {
 		"hint": "Kohle, Eisen, Gold aus Erzadern im Umkreis von 3 Tiles  ·  2x2  ·  Vorkommen sind endlich"},
 	Tool.WAREHOUSE: {"name": "Lagerhaus", "icon": "warehouse", "key": KEY_NONE, "group": 9, "cost": 1200,
 		"hint": "+1.000 Lager je Rohstoff  ·  2x2  ·  Überschuss wird sonst automatisch exportiert"},
+	Tool.SAWMILL:   {"name": "Sägewerk", "icon": "sawmill", "key": KEY_NONE, "group": 10, "cost": 1500,
+		"hint": "10 Holz -> 10 Bretter je Monat  ·  Bretter braucht Stufe 2"},
+	Tool.BRICKWORKS: {"name": "Ziegelei", "icon": "brickworks", "key": KEY_NONE, "group": 10, "cost": 1800,
+		"hint": "10 Ton + 2 Kohle -> 10 Ziegel  ·  Ziegel brauchen Stufe 2 und 3  ·  verschmutzt etwas"},
+	Tool.GLASSWORKS: {"name": "Glashütte", "icon": "glassworks", "key": KEY_NONE, "group": 10, "cost": 2500,
+		"hint": "10 Sand + 3 Kohle -> 8 Glas  ·  Glas braucht Stufe 3 (vor allem Gewerbe)  ·  verschmutzt"},
+	Tool.STEELWORKS: {"name": "Stahlwerk", "icon": "steelworks", "key": KEY_NONE, "group": 10, "cost": 4000,
+		"hint": "10 Eisen + 5 Kohle -> 8 Stahl  ·  Stahl braucht Stufe 3  ·  verschmutzt stark"},
 	Tool.TREE:      {"name": "Baum", "icon": "tree", "key": KEY_9, "group": 4, "cost": Config.COST_TREE,
 		"hint": "Filtert Verschmutzung im Umkreis von 2 Tiles  ·  kostenlos im Unterhalt"},
 	Tool.PARK:      {"name": "Park", "icon": "park", "key": KEY_0, "group": 4, "cost": Config.COST_PARK,
@@ -164,6 +172,10 @@ func _special_for_tool() -> int:
 		Tool.PIT: return Config.Special.PIT
 		Tool.MINE: return Config.Special.MINE
 		Tool.WAREHOUSE: return Config.Special.WAREHOUSE
+		Tool.SAWMILL: return Config.Special.SAWMILL
+		Tool.BRICKWORKS: return Config.Special.BRICKWORKS
+		Tool.GLASSWORKS: return Config.Special.GLASSWORKS
+		Tool.STEELWORKS: return Config.Special.STEELWORKS
 	return Config.Special.NONE
 
 
@@ -337,7 +349,8 @@ func tile_cost(t: Vector2i) -> int:
 			return Config.COST_ZONE + demolish
 		Tool.COAL, Tool.WIND, Tool.POLICE, Tool.FIRE, Tool.SCHOOL, Tool.HOSPITAL, \
 				Tool.LIBRARY, Tool.CINEMA, Tool.TOWNHALL, Tool.THEATER, Tool.STADIUM, \
-				Tool.LUMBER, Tool.QUARRY, Tool.PIT, Tool.MINE, Tool.WAREHOUSE:
+				Tool.LUMBER, Tool.QUARRY, Tool.PIT, Tool.MINE, Tool.WAREHOUSE, \
+				Tool.SAWMILL, Tool.BRICKWORKS, Tool.GLASSWORKS, Tool.STEELWORKS:
 			var sp := _special_for_tool()
 			if locked_reason(tool) != "": return -1
 			var up := _upgrade_target()

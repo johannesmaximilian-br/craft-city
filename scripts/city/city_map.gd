@@ -214,8 +214,11 @@ func notify_changed(rect: Rect2i, infra := true) -> void:
 const SAVE_FIELDS := ["height", "zone", "road", "level", "feature", "power_line", "special", "anchor", "rail", "transit", "slevel", "burning", "ruin", "villa", "worn", "ore", "ore_amt"]
 
 
+const ORE_VERSION := 2          # 2 = mit Fels (Ore.STONE)
+
+
 func to_dict() -> Dictionary:
-	var d := {"size": size}
+	var d := {"size": size, "ore_version": ORE_VERSION}
 	for f: String in SAVE_FIELDS:
 		d[f] = get(f)
 	return d
@@ -241,8 +244,35 @@ func from_dict(d: Dictionary) -> bool:
 	for i in road.size():
 		if road[i] > 1:
 			road[i] = 1
+	# Gespeichert vor Einführung von Fels: auf freiem Gelände nachträglich erzeugen
+	if int(d.get("ore_version", 1)) < 2 and d.has("ore"):
+		_add_stone(EMBED_SEED)
 	notify_changed(Rect2i(0, 0, size, size))
 	return true
+
+
+## Fels nach denselben Regeln wie _generate_ores, nur auf freien Tiles ohne Vorkommen.
+func _add_stone(seed_value: int) -> void:
+	var nz := FastNoiseLite.new()
+	nz.seed = seed_value + 7000 + 131
+	nz.frequency = 0.09
+	var rng := RandomNumberGenerator.new()
+	rng.seed = seed_value
+	var wl := Config.WATER_LEVEL
+	for z in size:
+		for x in size:
+			var i := idx(x, z)
+			if ore[i] != Config.Ore.NONE or height[i] < wl or zone[i] != Config.Zone.NONE or road[i] != 0 \
+					or rail[i] != 0 or special[i] != Config.Special.NONE:
+				continue
+			var h := height[i]
+			var steep := false
+			for d: Vector2i in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]:
+				if in_bounds(x + d.x, z + d.y) and absi(height[idx(x + d.x, z + d.y)] - h) >= 2:
+					steep = true
+			if (h >= wl + 6 or (steep and h >= wl + 3)) and nz.get_noise_2d(x * 0.6 + 50.0, z * 0.6) > -0.1:
+				ore[i] = Config.Ore.STONE
+				ore_amt[i] = rng.randi_range(Config.ORE_MIN, 255)
 
 
 const EMBED_SEED := 4242     # Landschaft rund um eingebettete alte (kleinere) Spielstände

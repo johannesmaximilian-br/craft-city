@@ -137,6 +137,11 @@ $G --path . -- --demo --cam=32,32,60 --screenshot=/pfad/bild.png          # Scre
   Abbau-Gebäude = Sonderbauten mit `"produce"` (bzw. `"storage"`), kein `"service"`. `Simulation._produce()` läuft in
   der Etappe „abschluss“: Förderung → `stock`, Überschuss über `stock_capacity()` → `export_income`. Info je Gebäude in
   `producer_info`. Stein ist ein Vorkommen (`Ore.STONE`, Fels im Hochland/an Hängen), Holz kommt aus `Feature.TREE`.
+- **Verarbeitung/Baustoffe:** Werke = Sonderbauten mit `"process": {"in", "out"}` (optional `"pollution"`), laufen in
+  `_process_goods()` nach `_produce()` in „abschluss“, danach `_export_surplus()`. Baustoffe in `RESOURCES` mit `"good"`.
+  Wachsen auf Stufe ≥ 2 ruft `_use_materials` (Zukauf über `_buy` → `_import_pending`, im Budget abgebucht).
+  Kohlekraftwerke verbrauchen `COAL_PLANT_USE` – erst nach den Werken (Vorrang), Rest wird zugekauft.
+  Map-Save hat `ore_version`; neue Vorkommen-Arten für alte Saves in `from_dict` nachgenerieren (wie `_add_stone`). Balance-Messung: `--budgettest` (Demo + Megacity-Kopie).
 - **Speichern:** neue Map-Felder in `CityMap.SAVE_FIELDS` eintragen; fehlende Felder alter Saves werden genullt.
   `SaveManager.save` rotiert vorher Sicherungen (`<slot>.bak1..3`, nur Spieler-Slots). Tests, die Spieler-Slots
   benutzen wollen, stellen `SaveManager.dir` auf einen eigenen Ordner um (siehe `savetest`).

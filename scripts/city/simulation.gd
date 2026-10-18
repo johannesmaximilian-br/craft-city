@@ -76,8 +76,14 @@ var stock := {}                     # Rohstoff -> Menge im Lager
 var production := {}                # Rohstoff -> Förderung im letzten Monat
 var exported := {}                  # Rohstoff -> exportierte Menge im letzten Monat (Lager voll)
 var export_income := 0.0
+var last_materials := {}            # beim Wachsen verbaut (letzter Monat)
 var producer_info := {}
-var _ore_used := {}                 # Tile -> schon entnommene Einheiten unter einem Vorkommen-Punkt             # Anker -> {"out": {Rohstoff: Menge}, "issue": Text}
+var _ore_used := {}
+var coal_burned := 0.0             # Kraftwerkskohle aus dem eigenen Lager (letzter Monat)
+var imported := {}                  # Rohstoff -> zugekaufte Menge (Kraftwerkskohle, Baustoffe)
+var materials_used := {}            # Rohstoff -> beim Wachsen verbaut (laufender Monat)
+var import_cost := 0.0              # Zukauf im letzten Monat ($)
+var _import_pending := 0.0          # Zukauf im laufenden Monat, wird im Budget abgebucht                 # Tile -> schon entnommene Einheiten unter einem Vorkommen-Punkt             # Anker -> {"out": {Rohstoff: Menge}, "issue": Text}
 var happy_parts := {}               # Anteil an der Zufriedenheit (Punkte 0..1, einwohnergewichtet): Name -> Wert
 var _happy_hist: Array = []         # letzte Monate: [city_happiness, happy_parts]
 var _happy_alert_cool := 0          # Monate bis zur nächsten Zufriedenheits-Warnung
@@ -319,6 +325,8 @@ func _tick_stage(stage: String) -> void:
 			_recount()
 			_update_demand()
 			_produce()
+			_process_goods()
+			_export_surplus()
 			_budget()
 			month += 1
 			if month >= 12:
@@ -1064,6 +1072,9 @@ func _env_begin() -> void:
 			_stamp(i, Config.POLLUTION_IND_PER_LEVEL[level[i]], Config.POLLUTION_IND_RANGE)
 		elif anchor[i] == i and special[i] == Config.Special.COAL:
 			_stamp(i, Config.POLLUTION_COAL, Config.POLLUTION_COAL_RANGE)
+		elif anchor[i] == i and special[i] != Config.Special.NONE and Config.SPECIALS[special[i]].has("pollution"):
+			var pol: Array = Config.SPECIALS[special[i]]["pollution"]
+			_stamp(i, float(pol[0]) * map.special_level(i), int(pol[1]))
 		elif road[i] != 0 and congestion[i] > 0.3:
 			_stamp(i, Config.POLLUTION_TRAFFIC * minf(congestion[i], 2.0), Config.POLLUTION_TRAFFIC_RANGE)
 
@@ -1622,6 +1633,13 @@ func growth_blockers(i: int) -> PackedStringArray:
 		out.append("Unzufrieden - Leute ziehen weg")
 	if demand_for(map.zone[i]) <= 0.0:
 		out.append("Keine Nachfrage")
+	if lv < _max_level(i) and lv >= 1:
+		var need := material_need(map.zone[i], lv + 1)
+		if float(need[1]) > 0.0 and money < float(need[1]):
+			var names := PackedStringArray()
+			for r: String in need[0]:
+				names.append(Config.RESOURCES[r]["name"])
+			out.append("Baustoffe fehlen (%s), Zukauf $%d zu teuer" % [", ".join(names), int(need[1])])
 	return out
 
 
@@ -1684,6 +1702,8 @@ func _grow_rows(z_from: int, z_to: int) -> void:
 					chance *= 1.5
 				if _rng.randf() < chance:
 					new_lv = lv + 1
+					if new_lv >= 2 and not _use_materials(zn, new_lv):
+						new_lv = lv       # Baustoffe fehlen und kein Geld für den Zukauf
 			elif lv > _max_level(i) and _rng.randf() < 0.05:
 				new_lv = lv - 1       # Bodenwert gesunken -> Abwanderung
 			elif demand < -0.25 and lv > 0 and _rng.randf() < 0.04:
@@ -2096,7 +2116,69 @@ func _produce() -> void:
 			production[res] = float(production[res]) + float(out[res])
 			stock[res] = float(stock[res]) + float(out[res])
 		producer_info[a] = {"out": out, "issue": issue}
-	# Lager voll -> Überschuss exportieren
+	if any:
+		map.notify_changed(changed, false)
+
+
+## Verarbeitung (Sägewerk, Ziegelei, Glashütte, Stahlwerk) und Kohleverbrauch der Kraftwerke.
+## Knappe Rohstoffe -> anteilige Verarbeitung. Fehlende Kraftwerkskohle wird zugekauft.
+func _process_goods() -> void:
+	coal_burned = 0.0
+	imported = {}
+	for r: String in Config.RESOURCES:
+		imported[r] = 0.0
+	var anchor := map.anchor
+	var special := map.special
+	# Erst die Werke (sie können nichts zukaufen), dann die Kohlekraftwerke mit dem Rest (+ Zukauf)
+	var plants := PackedInt32Array()
+	for a in map.size * map.size:
+		if anchor[a] != a or special[a] == Config.Special.NONE:
+			continue
+		var def: Dictionary = Config.SPECIALS[special[a]]
+		if special[a] == Config.Special.COAL:
+			plants.append(a)
+			continue
+		if not def.has("process"):
+			continue
+		var proc: Dictionary = def["process"]
+		var lv := map.special_level(a)
+		if not special_powered(a):
+			producer_info[a] = {"out": {}, "in": {}, "issue": "Kein Strom - steht still"}
+			continue
+		# Anteil, der mit den vorhandenen Rohstoffen möglich ist
+		var share := 1.0
+		var lacking := PackedStringArray()
+		for r: String in proc["in"]:
+			var need := float(proc["in"][r]) * lv
+			var f := float(stock.get(r, 0.0)) / need
+			if f < 1.0:
+				lacking.append(Config.RESOURCES[r]["name"])
+			share = minf(share, f)
+		share = clampf(share, 0.0, 1.0)
+		var used := {}
+		var made := {}
+		for r: String in proc["in"]:
+			used[r] = float(proc["in"][r]) * lv * share
+			stock[r] = float(stock.get(r, 0.0)) - float(used[r])
+		for r: String in proc["out"]:
+			made[r] = float(proc["out"][r]) * lv * share
+			stock[r] = float(stock.get(r, 0.0)) + float(made[r])
+			production[r] = float(production.get(r, 0.0)) + float(made[r])
+		producer_info[a] = {"out": made, "in": used, "issue": "" if lacking.is_empty() else
+			"Zu wenig %s (%d%% Auslastung)" % [", ".join(lacking), roundi(share * 100.0)]}
+	for a in plants:
+		var need := float(Config.COAL_PLANT_USE)
+		var have := minf(float(stock.get("coal", 0.0)), need)
+		stock["coal"] = float(stock.get("coal", 0.0)) - have
+		coal_burned += have
+		if need - have > 0.0:
+			_buy("coal", need - have)
+		producer_info[a] = {"out": {}, "in": {"coal": need}, "issue": "" if have >= need else
+			"Kohle zugekauft: %d (eigene Mine spart Geld)" % int(need - have)}
+
+
+## Lager voll -> Überschuss exportieren.
+func _export_surplus() -> void:
 	var cap := float(stock_capacity())
 	export_income = 0.0
 	for res: String in stock:
@@ -2105,8 +2187,44 @@ func _produce() -> void:
 			exported[res] = over
 			export_income += over * float(Config.RESOURCES[res]["price"])
 			stock[res] = cap
-	if any:
-		map.notify_changed(changed, false)
+
+
+## Zukauf (Ausgabe am Monatsende im Budget).
+func _buy(res: String, amount: float) -> void:
+	imported[res] = float(imported.get(res, 0.0)) + amount
+	_import_pending += amount * float(Config.RESOURCES[res]["price"]) * Config.IMPORT_FACTOR
+
+
+## Baustoffe für das Wachsen von Zone zn auf Stufe lv: [fehlende Mengen, Zukaufpreis]. Leer, wenn nichts nötig.
+func material_need(zn: int, lv: int) -> Array:
+	if population < Config.MATERIAL_FROM_POP or not Config.MATERIAL_COST.has(zn):
+		return [{}, 0.0]
+	var cost: Dictionary = Config.MATERIAL_COST[zn][lv]
+	var missing := {}
+	var price := 0.0
+	for r: String in cost:
+		var short := float(cost[r]) - float(stock.get(r, 0.0))
+		if short > 0.0:
+			missing[r] = short
+			price += short * float(Config.RESOURCES[r]["price"]) * Config.IMPORT_FACTOR
+	return [missing, price]
+
+
+## Baustoffe beim Wachsen verbrauchen (fehlendes zukaufen). false = kein Geld für den Zukauf -> kein Wachstum.
+func _use_materials(zn: int, lv: int) -> bool:
+	if population < Config.MATERIAL_FROM_POP or not Config.MATERIAL_COST.has(zn):
+		return true
+	var need := material_need(zn, lv)
+	if float(need[1]) > 0.0 and money - _import_pending < float(need[1]):
+		return false
+	var cost: Dictionary = Config.MATERIAL_COST[zn][lv]
+	for r: String in cost:
+		var take := minf(float(cost[r]), float(stock.get(r, 0.0)))
+		stock[r] = float(stock.get(r, 0.0)) - take
+		materials_used[r] = float(materials_used.get(r, 0.0)) + float(cost[r])
+		if float(cost[r]) - take > 0.0:
+			_buy(r, float(cost[r]) - take)
+	return true
 
 
 ## Monatlich: deutlicher Abfall der Zufriedenheit -> Meldung mit dem Teil, der am stärksten gesunken ist.
@@ -2273,7 +2391,11 @@ func _budget() -> void:
 	last_expense = road_count * Config.UPKEEP_ROAD + park_count * Config.UPKEEP_PARK \
 		+ line_count * Config.UPKEEP_POWERLINE + special_upkeep \
 		+ rail_count * Config.UPKEEP_RAIL + bus_stop_count * Config.UPKEEP_BUS_STOP \
-		+ station_count * Config.UPKEEP_STATION
+		+ station_count * Config.UPKEEP_STATION + _import_pending
+	import_cost = _import_pending
+	_import_pending = 0.0
+	last_materials = materials_used
+	materials_used = {}
 	money += last_income - last_expense
 	if money < 0.0:
 		message.emit("Stadtkasse im Minus! Steuern erhöhen oder Ausgaben senken.")

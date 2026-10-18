@@ -138,6 +138,12 @@ static func run(game: Node) -> void:
 		DevTests.determinism(game)
 	if has("--powerreport"):
 		DevTests.powerreport(game)
+	if has("--resreport"):
+		DevTests.resreport(game)
+	if has("--budgettest"):
+		DevTests.budgettest(game)
+	if has("--processtest"):
+		DevTests.processtest()
 	if has("--restest"):
 		DevTests.restest()
 	if has("--powertest"):

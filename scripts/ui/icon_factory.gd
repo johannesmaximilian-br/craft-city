@@ -38,6 +38,8 @@ const SERVICE_ICONS := {
 	"theater": Config.Special.THEATER, "stadium": Config.Special.STADIUM,
 	"lumber": Config.Special.LUMBER, "quarry": Config.Special.QUARRY, "pit": Config.Special.PIT,
 	"mine": Config.Special.MINE, "warehouse": Config.Special.WAREHOUSE,
+	"sawmill": Config.Special.SAWMILL, "brickworks": Config.Special.BRICKWORKS,
+	"glassworks": Config.Special.GLASSWORKS, "steelworks": Config.Special.STEELWORKS,
 }
 
 var lib: BlockLibrary
@@ -135,15 +137,17 @@ func _content(icon_name: String) -> Node3D:
 			b.put_prop("bush", Vector3(4.5, 2, 1.5), 0.0)
 			for x in 9:
 				b.put("marking", Vector3(x + 0.375, 2.0, 4.375))
-		"res_wood", "res_stone", "res_sand", "res_clay", "res_coal", "res_iron", "res_gold":
+		"res_wood", "res_stone", "res_sand", "res_clay", "res_coal", "res_iron", "res_gold", \
+				"res_planks", "res_bricks", "res_glass", "res_steel":
 			# Rohstoff-Symbol: ein Block des Materials
 			b.put({"res_wood": "log", "res_stone": "stone", "res_sand": "sand", "res_clay": "clay", "res_coal": "coal",
-				"res_iron": "iron_block", "res_gold": "gold_block"}[icon_name], Vector3.ZERO)
+				"res_iron": "iron_block", "res_gold": "gold_block", "res_planks": "wood", "res_bricks": "brick",
+				"res_glass": "ice", "res_steel": "metal"}[icon_name], Vector3.ZERO)
 		"coal":
 			_ground(b, 6)
 			StructureGenerator.coal(b, Vector3(0, 1, 0))
 		"police", "fire", "school", "hospital", "library", "cinema", "townhall", "theater", "stadium", \
-				"lumber", "quarry", "pit", "mine", "warehouse":
+				"lumber", "quarry", "pit", "mine", "warehouse", "sawmill", "brickworks", "glassworks", "steelworks":
 			var sp: int = SERVICE_ICONS[icon_name]
 			var s: int = Config.SPECIALS[sp]["size"] * Config.TILE_BLOCKS
 			_ground(b, s)
