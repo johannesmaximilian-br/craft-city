@@ -55,7 +55,7 @@ const TOOLS := {
 	Tool.LUMBER:    {"name": "Holzfäller", "icon": "lumber", "key": KEY_NONE, "group": 9, "cost": 600,
 		"hint": "Fällt Bäume im Umkreis von 4 Tiles -> Holz  ·  Wald wächst (noch) nicht nach"},
 	Tool.QUARRY:    {"name": "Steinbruch", "icon": "quarry", "key": KEY_NONE, "group": 9, "cost": 1500,
-		"hint": "Stein, unbegrenzt  ·  2x2  ·  am Hang (3+ Blöcke über Wasser) volle Förderung"},
+		"hint": "Baut Fels (graue Steinflächen im Hochland/an Hängen) im Umkreis von 2 Tiles ab  ·  2x2"},
 	Tool.PIT:       {"name": "Grube (Sand/Ton)", "icon": "pit", "key": KEY_NONE, "group": 9, "cost": 500,
 		"hint": "Baut Sand (Strand) und Ton (Niederung) im Umkreis von 2 Tiles ab  ·  Vorkommen in der Ansicht Rohstoffe"},
 	Tool.MINE:      {"name": "Mine", "icon": "mine", "key": KEY_NONE, "group": 9, "cost": 3000,
@@ -602,6 +602,7 @@ func _resource_preview(t: Vector2i, sp: int) -> Dictionary:
 	var r := 0
 	match def["produce"]:
 		"wood": r = Config.LUMBER_RANGE
+		"stone": r = Config.QUARRY_RANGE
 		"pit": r = Config.PIT_RANGE
 		"mine": r = Config.MINE_RANGE
 		_: return out
@@ -615,7 +616,8 @@ func _resource_preview(t: Vector2i, sp: int) -> Dictionary:
 				res = "wood"
 			elif map.ore_amt[j] > 0:
 				var o: String = Config.ORE_RESOURCE[map.ore[j]]
-				if (def["produce"] == "pit" and o in ["sand", "clay"]) or (def["produce"] == "mine" and o in ["coal", "iron", "gold"]):
+				if (def["produce"] == "pit" and o in ["sand", "clay"]) or (def["produce"] == "mine" and o in ["coal", "iron", "gold"]) \
+						or (def["produce"] == "stone" and o == "stone"):
 					res = o
 			if res != "":
 				var c: Color = Config.RESOURCES[res]["color"] if res != "wood" else Color(0.25, 0.85, 0.3)

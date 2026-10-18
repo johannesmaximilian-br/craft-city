@@ -176,15 +176,15 @@ Werte und Reichweiten: `scripts/config.gd` (Abschnitte *Standortregeln*, *Zonen-
 | Rohstoff | Vorkommen | Gebäude (Werkzeuggruppe Rohstoffe) | Förderung je Monat (× Ausbaustufe) |
 |---|---|---|---|
 | Holz | Wald | **Holzfäller** (1×1): fällt Bäume im Umkreis 4 | 2 Bäume = 20 Holz |
-| Stein | überall | **Steinbruch** (2×2) | 20, im Flachland (< 3 Blöcke über Wasser) 10 |
+| Stein | **Fels**: graue Steinflächen im Hochland (ab 6 Blöcken über Wasser) und an steilen Hängen | **Steinbruch** (2×2), Umkreis 2 | 20 |
 | Sand / Ton | Strände an der Wasserkante / feuchte Niederungen | **Grube** (1×1), Umkreis 2 | je 10 |
 | Kohle / Eisen / Gold | Erzadern im Hügelland (Kohle ab 2, Eisen ab 4, Gold ab 5 Blöcken über Wasser, Gold selten) | **Mine** (2×2), Umkreis 3 | 15 / 10 / 3 |
 | – | – | **Lagerhaus** (2×2) | +1.000 Lagerplatz je Rohstoff und Stufe |
 
 - Alle Abbau-Gebäude brauchen **Strom** (1–4 MW) und kosten Unterhalt. Ohne Wald/Vorkommen in Reichweite stehen sie still (Info-Karte nennt den Grund).
 - **Lager**: 200 je Rohstoff, + Lagerhäuser. Was nicht passt, wird **automatisch exportiert** (Holz 1, Stein/Sand 0,5, Ton 0,8, Kohle 1,5, Eisen 3, Gold 12 $ je Einheit) → Einnahme „Rohstoff-Export“.
-- **Endlich, aber langlebig**: je Vorkommen-Tile 1.200–2.550 Einheiten. Typische Karte 128×128: ~200.000 Kohle, ~100.000 Eisen, ~30.000–55.000 Gold, Sand/Ton praktisch unerschöpflich. Eine Mine an einer Ader hält bei Stufe 3 rund 40–50 Spieljahre. Holz wächst (noch) nicht nach.
-- Sichtbar: Sand/Ton färben den Boden, Erzbrocken ragen aus dem Gras; **Ansicht Rohstoffe** (V) färbt alle Vorkommen (kräftig = voll, grau = erschöpft), die Ansicht-Liste zeigt die Restmengen. Mit einem Abbau-Werkzeug zeigt die Vorschau Vorkommen im Umkreis. HUD: Lager-Leiste (Tooltip: Förderung, Kapazität, Export).
+- **Endlich, aber langlebig**: je Vorkommen-Tile 1.200–2.550 Einheiten. Typische Karte 128×128: ~950.000 Stein (≈ 500 Fels-Tiles), ~200.000 Kohle, ~100.000 Eisen, ~30.000–55.000 Gold, Sand/Ton praktisch unerschöpflich. Eine Mine an einer Ader hält bei Stufe 3 rund 40–50 Spieljahre. Holz wächst (noch) nicht nach.
+- Sichtbar: Fels, Sand und Ton färben den Boden, Erzbrocken ragen aus dem Gras; **Ansicht Rohstoffe** (V) färbt alle Vorkommen (kräftig = voll, grau = erschöpft), die Ansicht-Liste zeigt die Restmengen. Mit einem Abbau-Werkzeug zeigt die Vorschau Vorkommen im Umkreis. HUD: Lager-Leiste (Tooltip: Förderung, Kapazität, Export).
 - Werkzeuge haben keine Taste (alle Buchstaben belegt) – nur über die Werkzeugleiste. Tests `--restest`, `--orecount`, Screenshot-Flag `--resbuild`.
 
 ## Verkehr

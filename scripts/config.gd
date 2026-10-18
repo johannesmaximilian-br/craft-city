@@ -12,7 +12,7 @@ enum Feature { NONE, TREE, PARK }
 enum Special { NONE, COAL, WIND, POLICE, FIRE, SCHOOL, HOSPITAL, LIBRARY, CINEMA, TOWNHALL, THEATER, STADIUM,
 	LUMBER, QUARRY, PIT, MINE, WAREHOUSE }
 # Bodenvorkommen (CityMap.ore): Art je Tile, Menge in CityMap.ore_amt
-enum Ore { NONE, COAL, IRON, GOLD, CLAY, SAND }
+enum Ore { NONE, COAL, IRON, GOLD, CLAY, SAND, STONE }
 enum Road { NONE, STREET }
 enum Transit { NONE, BUS_STOP, STATION }
 
@@ -70,15 +70,15 @@ const RESOURCES := {
 	"iron":  {"name": "Eisen", "price": 3.0,  "color": Color("c8875a")},
 	"gold":  {"name": "Gold",  "price": 12.0, "color": Color("f2c12e")},
 }
-const ORE_RESOURCE := ["", "coal", "iron", "gold", "clay", "sand"]   # Index = Ore
+const ORE_RESOURCE := ["", "coal", "iron", "gold", "clay", "sand", "stone"]   # Index = Ore
 const STOCK_BASE := 200            # Lagerkapazität je Rohstoff ohne Lagerhaus
 const STOCK_WAREHOUSE := 1000      # zusätzlich je Lagerhaus (je Ausbaustufe)
 # Abbau je Monat (Ausbaustufe x): Holzfäller fällt Bäume, Grube/Mine entnehmen Vorkommen im Umkreis
 const LUMBER_RANGE := 4
 const LUMBER_TREES := 2            # Bäume je Monat
 const WOOD_PER_TREE := 10
-const QUARRY_STONE := 20           # Stein je Monat (halb im Flachland)
-const QUARRY_HILL := 3             # ab so vielen Blöcken über Wasser volle Förderung
+const QUARRY_STONE := 20           # Stein je Monat aus Fels im Umkreis
+const QUARRY_RANGE := 2
 const PIT_RANGE := 2
 const PIT_RATE := 10               # Sand/Ton je Monat
 const MINE_RANGE := 3

@@ -1344,8 +1344,10 @@ static func restest() -> void:
 		for z in range(10, 18):
 			m.feature[m.idx(x, z)] = Config.Feature.TREE
 	put_special.call(12, 19, Config.Special.LUMBER)
-	m.height[m.idx(20, 19)] = 12
-	m.height[m.idx(21, 19)] = 12
+	for x in range(19, 24):           # Fels neben dem Steinbruch
+		for z in range(16, 19):
+			m.ore[m.idx(x, z)] = Config.Ore.STONE
+			m.ore_amt[m.idx(x, z)] = 200
 	put_special.call(20, 19, Config.Special.QUARRY)
 	for x in range(28, 33):
 		for z in range(17, 20):

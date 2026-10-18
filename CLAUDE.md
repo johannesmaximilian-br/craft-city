@@ -136,7 +136,7 @@ $G --path . -- --demo --cam=32,32,60 --screenshot=/pfad/bild.png          # Scre
   `Simulation._ore_used`, nicht gespeichert). Erzeugung `CityMap._generate_ores` (nach Höhe/Wassernähe + Rauschen).
   Abbau-Gebäude = Sonderbauten mit `"produce"` (bzw. `"storage"`), kein `"service"`. `Simulation._produce()` läuft in
   der Etappe „abschluss“: Förderung → `stock`, Überschuss über `stock_capacity()` → `export_income`. Info je Gebäude in
-  `producer_info`. Stein ist unbegrenzt, Holz kommt aus `Feature.TREE`.
+  `producer_info`. Stein ist ein Vorkommen (`Ore.STONE`, Fels im Hochland/an Hängen), Holz kommt aus `Feature.TREE`.
 - **Speichern:** neue Map-Felder in `CityMap.SAVE_FIELDS` eintragen; fehlende Felder alter Saves werden genullt.
   `SaveManager.save` rotiert vorher Sicherungen (`<slot>.bak1..3`, nur Spieler-Slots). Tests, die Spieler-Slots
   benutzen wollen, stellen `SaveManager.dir` auf einen eigenen Ordner um (siehe `savetest`).

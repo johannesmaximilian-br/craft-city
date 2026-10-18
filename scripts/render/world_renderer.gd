@@ -164,6 +164,8 @@ func _emit_tile(tx: int, tz: int) -> void:
 			top_key = "sand"
 		elif map.ore[i] == Config.Ore.CLAY:
 			top_key = "clay"
+		elif map.ore[i] == Config.Ore.STONE and th < Config.SNOW_HEIGHT:
+			top_key = "stone"
 
 	# Terrain-Säulen: Oberseite + sichtbare Seiten bis Nachbarhöhe
 	for sz in B:

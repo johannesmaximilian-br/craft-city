@@ -715,7 +715,7 @@ func _deposit_summary() -> String:
 		if map.feature[i] == Config.Feature.TREE:
 			trees += 1
 	var parts := PackedStringArray()
-	for r: String in ["coal", "iron", "gold", "sand", "clay"]:
+	for r: String in ["stone", "coal", "iron", "gold", "sand", "clay"]:
 		parts.append("%s %s" % [Config.RESOURCES[r]["name"], _fmt(int(left.get(r, 0)))])
 	parts.append("Bäume %d" % trees)
 	return "  ·  ".join(parts)

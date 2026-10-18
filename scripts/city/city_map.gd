@@ -364,6 +364,15 @@ func _generate_ores(seed_value: int, rng: RandomNumberGenerator) -> void:
 				kind = Config.Ore.IRON
 			elif h >= wl + 2 and (veins[0] as FastNoiseLite).get_noise_2d(x, z) > 0.5:
 				kind = Config.Ore.COAL
+			else:
+				# Fels: Hochland oder steiler Hang (Nachbar 2+ Blöcke höher/tiefer)
+				var steep := false
+				for d: Vector2i in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]:
+					if in_bounds(x + d.x, z + d.y) and absi(height[idx(x + d.x, z + d.y)] - h) >= 2:
+						steep = true
+				var rocky := (veins[1] as FastNoiseLite).get_noise_2d(x * 0.6 + 50.0, z * 0.6) > -0.1
+				if (h >= wl + 6 or (steep and h >= wl + 3)) and rocky:
+					kind = Config.Ore.STONE
 			if kind != Config.Ore.NONE:
 				ore[i] = kind
 				ore_amt[i] = rng.randi_range(Config.ORE_MIN, 255)

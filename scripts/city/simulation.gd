@@ -2063,17 +2063,14 @@ func _produce() -> void:
 						any = true
 				if out.is_empty():
 					issue = "Kein Wald mehr in Reichweite (%d Tiles)" % Config.LUMBER_RANGE
-			"stone":
-				var hill := map.height[a] >= Config.WATER_LEVEL + Config.QUARRY_HILL
-				out["stone"] = float(Config.QUARRY_STONE * lv) * (1.0 if hill else 0.5)
-				if not hill:
-					issue = "Flachland: halbe Förderung (am Hang bauen)"
-			"pit", "mine":
-				var rng_r: int = Config.PIT_RANGE if def["produce"] == "pit" else Config.MINE_RANGE
-				var kinds: Array = ["sand", "clay"] if def["produce"] == "pit" else ["coal", "iron", "gold"]
+			"stone", "pit", "mine":
+				var kind: String = def["produce"]
+				var rng_r: int = {"stone": Config.QUARRY_RANGE, "pit": Config.PIT_RANGE, "mine": Config.MINE_RANGE}[kind]
+				var kinds: Array = {"stone": ["stone"], "pit": ["sand", "clay"], "mine": ["coal", "iron", "gold"]}[kind]
 				var budget := {}
 				for k: String in kinds:
-					budget[k] = (Config.PIT_RATE if def["produce"] == "pit" else int(Config.MINE_RATE[k])) * lv
+					var rate := Config.QUARRY_STONE if kind == "stone" else (Config.PIT_RATE if kind == "pit" else int(Config.MINE_RATE[k]))
+					budget[k] = rate * lv
 				for j in _area_tiles(a, rng_r):
 					var amt := map.ore_amt[j]
 					if amt == 0:
