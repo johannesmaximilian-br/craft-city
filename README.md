@@ -58,6 +58,7 @@ Dev-Flags (nach `--`, funktionieren auch mit der App: `"build/Cube City.app/Cont
 
 ## Regeln (Kurz)
 
+- Neue Städte starten im **Januar 1980** (`Config.START_YEAR`, bewusst gewählt).
 - Zonen wachsen nur mit **Straße** (≤3 Tiles), **Strom** und **Nachfrage** (RCI-Balken). Info-Karte zeigt Blocker.
 - Strom fließt durch Leitungen, Zonen und Sonderbauten — **nicht über Straßen**, dort Leitung drüberziehen.
 - **Stromnetze sind getrennt:** alles Zusammenhängende ist ein Netz und bekommt nur die Leistung seiner eigenen Kraftwerke. Ein neues Kraftwerk ohne Verbindung hilft einem anderen Netz nicht.
@@ -90,7 +91,7 @@ Dev-Werkzeuge liegen getrennt vom Spielcode in `scripts/dev/` und laufen nur mit
 
 - `dev_tools.gd` — wertet Flags aus: `--demo`, `--cam=x,z,dist`, `--ignite=x,z[,sek]` (Gebäude anzünden, Brand vorspulen, Kamera hin), `--ruin=x,z` (sofort abbrennen), `--overlay[=1..5]`, `--popup=view|happy`, `--menu`, `--flyout`, `--screenshot=pfad`, `--quit`
 - `demo_city.gd` — reproduzierbare Teststadt (Zonen, Strom, ÖPNV, 4-spurige Straße mit Verjüngung)
-- `dev_tests.gd` — `--selftest` (Timing, Speichern/Laden, Audio), `--dragtest` (echtes Maus-Ziehen), `--lanetest` (Rechtsverkehr auf Hauptstraßen), `--widetest` (Hauptstraßen-Erkennung), `--profile[=Sek,Tempo]` (Frame-Zeiten + Ruckler-Ursachen), `--gfx=0..2`, `--nowarmup`, `--servicetest`, `--tool=<name>`, `--traffictest` (Korridor: Straße/Parallelstraße/Hauptstraße/Bus/Bahn), `--pickcheck`, `--firetest` (Brand an der Wache gelöscht, ohne Wache abgebrannt + Ruine), `--bustest` (Vorstadt mit eigenem Straßennetz bekommt Busse), `--happytest` (Aufschlüsselung, Warnung bei Steuer hoch / Polizei weg), `--cheattest` (Geld-Cheat per Tastenereignis), `--greentest` (Grüngürtel gegen Verschmutzung, Terraforming reißt Straße ab), `--venuetest` (Stadion/Theater: Besucherverkehr, Kundschaft), `--zonetest` (Ladenzeile, Ballung, Nachbarschaft), `--taxtest` (Steuern je Zone, ÖPNV-Tarif), `--cartest` (Autos/Busse je Tarif, Diagnose ÖPNV, Bahnhofs-Auslastung), `--cardrift=Sek`, `--jamreport` (meistbelastete Straßen), `--loadfile=pfad` (Spielstand-Kopie laden), `--focus=x,z` (Kamera auf Tile), `--fronttest`, `--hover=x,z [--detail]`, `--notify`, `--hidehud`, `--fpstest`, `--mutetest`, `--savetest`, `--uiscale=f`, `--zoomtest`, `--rangetest`, `--appicon=pfad.png` (App-Icon rendern), `--splash` (+ `--screenshot`, Startbild), `--menu --asksave=slot`, `--gpumeasure=Sek,fps [--pause]`, `--popup=view|happy|log`, `--loadreport` (Auslastung der Dienste + Brände in 12 Monaten), `--powertest`, `--bigcity` (ganze Karte bebauen), `--buildtest` (Bau-Klick-Zeit, Pendler synchron/Hintergrund)
+- `dev_tests.gd` — `--selftest` (Timing, Speichern/Laden, Audio), `--dragtest` (echtes Maus-Ziehen), `--lanetest` (Rechtsverkehr auf Hauptstraßen), `--widetest` (Hauptstraßen-Erkennung), `--profile[=Sek,Tempo]` (Frame-Zeiten + Ruckler-Ursachen), `--gfx=0..2`, `--nowarmup`, `--servicetest`, `--tool=<name>`, `--traffictest` (Korridor: Straße/Parallelstraße/Hauptstraße/Bus/Bahn), `--pickcheck`, `--firetest` (Brand an der Wache gelöscht, ohne Wache abgebrannt + Ruine), `--bustest` (Vorstadt mit eigenem Straßennetz bekommt Busse), `--happytest` (Aufschlüsselung, Warnung bei Steuer hoch / Polizei weg), `--cheattest` (Geld-Cheat per Tastenereignis), `--greentest` (Grüngürtel gegen Verschmutzung, Terraforming reißt Straße ab), `--venuetest` (Stadion/Theater: Besucherverkehr, Kundschaft), `--zonetest` (Ladenzeile, Ballung, Nachbarschaft), `--taxtest` (Steuern je Zone, ÖPNV-Tarif), `--cartest` (Autos/Busse je Tarif, Diagnose ÖPNV, Bahnhofs-Auslastung), `--cardrift=Sek`, `--jamreport` (meistbelastete Straßen), `--loadfile=pfad` (Spielstand-Kopie laden), `--focus=x,z` (Kamera auf Tile), `--fronttest`, `--hover=x,z [--detail]`, `--notify`, `--hidehud`, `--fpstest`, `--mutetest`, `--savetest`, `--uiscale=f`, `--zoomtest`, `--rangetest`, `--appicon=pfad.png` (App-Icon rendern), `--splash` (+ `--screenshot`, Startbild), `--menu --asksave=slot`, `--gpumeasure=Sek,fps [--pause]`, `--popup=view|happy|log`, `--loadreport` (Auslastung der Dienste + Brände in 12 Monaten), `--powertest`, `--bigcity` (ganze Karte bebauen), `--buildtest` (Bau-Klick-Zeit, Pendler synchron/Hintergrund), `--restest`, `--processtest`, `--renewtest`, `--resbuild`
 
 ```bash
 /Applications/Godot.app/Contents/MacOS/Godot --path . -- --demo --selftest --dragtest --traffictest --quit
@@ -185,7 +186,7 @@ Werte und Reichweiten: `scripts/config.gd` (Abschnitte *Standortregeln*, *Zonen-
 - Alle Abbau-Gebäude brauchen **Strom** (1–4 MW) und kosten Unterhalt. Ohne Wald/Vorkommen in Reichweite stehen sie still (Info-Karte nennt den Grund).
 - **Lieferweg**: Abbau-Gebäude und Werke liefern nur mit **Straße direkt am Gebäude**, die zum Lager führt (Netz mit Lagerhaus; ohne Lagerhaus das Straßennetz mit den meisten Einwohnern). Ohne Anschluss fördert ein Abbau-Gebäude in einen **eigenen Vorrat** (50 je Stufe, als Kistenstapel sichtbar) und steht still, wenn er voll ist; mit der Straße wird der Vorrat geliefert. Werke ohne Anschluss bekommen keine Rohstoffe. Warnung beim Wegfall, Info-Karte, **Ansicht Rohstoffe** färbt Gebäude grün/rot, Bau-Vorschau zeigt einen Rahmen grün (angeschlossen) / gelb (Straße, anderes Netz) / rot (keine Straße).
 - **Lager**: 200 je Rohstoff, + Lagerhäuser. Was nicht passt, wird **automatisch exportiert** (Holz 1, Stein/Sand 0,5, Ton 0,8, Kohle 1,5, Eisen 3, Gold 12 $ je Einheit) → Einnahme „Rohstoff-Export“.
-- **Endlich, aber langlebig**: je Vorkommen-Tile 1.200–2.550 Einheiten. Typische Karte 128×128: ~950.000 Stein (≈ 500 Fels-Tiles), ~200.000 Kohle, ~100.000 Eisen, ~30.000–55.000 Gold, Sand/Ton praktisch unerschöpflich. Eine Mine an einer Ader hält bei Stufe 3 rund 40–50 Spieljahre. Holz wächst (noch) nicht nach.
+- **Endlich, aber langlebig**: je Vorkommen-Tile 1.200–2.550 Einheiten. Typische Karte 128×128: ~950.000 Stein (≈ 500 Fels-Tiles), ~200.000 Kohle, ~100.000 Eisen, ~30.000–55.000 Gold, Sand/Ton praktisch unerschöpflich. Eine Mine an einer Ader hält bei Stufe 3 rund 40–50 Spieljahre. Nachschub siehe **Erneuerung**.
 - Sichtbar: Fels, Sand und Ton färben den Boden, Erzbrocken ragen aus dem Gras; **Ansicht Rohstoffe** (V) färbt alle Vorkommen (kräftig = voll, grau = erschöpft), die Ansicht-Liste zeigt die Restmengen. Mit einem Abbau-Werkzeug zeigt die Vorschau Vorkommen im Umkreis. HUD: Lager-Leiste (Tooltip: Förderung, Kapazität, Export).
 - Werkzeuge haben keine Taste (alle Buchstaben belegt) – nur über die Werkzeugleiste. Tests `--restest`, `--orecount`, Screenshot-Flag `--resbuild`.
 
@@ -212,6 +213,19 @@ Werte und Reichweiten: `scripts/config.gd` (Abschnitte *Standortregeln*, *Zonen-
 - **Kohlekraftwerk verbraucht 8 Kohle/Monat** aus dem Lager, sonst Zukauf (~24 $/Monat) – eigene Mine spart Geld. **Werke haben Vorrang** bei der Kohle (sie können nicht zukaufen), Kraftwerke nehmen den Rest. Kohle ist endlich → erneuerbare Energien (Roadmap).
 - Lager-Leiste: zweite Zeile Baustoffe; Tooltip mit Herstellung, Verbaut, Zugekauft, Export. Kassen-Tooltip: „davon Zukauf“.
 - Messung (`--budgettest`, 12 Monate): Demo-Stadt Saldo +30 $/Monat bei 27 $ Zukauf; Megacity +160 $ bei 204 $ Zukauf. Tests `--processtest`.
+
+## Erneuerung (Bergbau-Wirtschaft, Stufe 4)
+
+| Gebäude (Gruppe Rohstoffe, Strom) | Wirkung | Kosten / Unterhalt |
+|---|---|---|
+| **Baumschule** (1×1) | pflanzt 2 Bäume je Monat und Stufe auf freiem Gras im Umkreis 4 (nächste Tiles zuerst) → mit Holzfäller nachhaltiges Holz | 400 $ / 3 $ |
+| **Prospektor** (1×1) | findet mit 8 % je Monat und Stufe eine neue Ader (3–6 Tiles) auf freien Hügeln im Umkreis 8: Kohle ab 2, Eisen ab 4, Gold ab 5 Blöcken über Wasser. Funde sind **Restadern** (400–1.200 Einheiten je Tile, kleiner als Startvorkommen). Meldung mit Ort | 1.500 $ / 10 $ |
+| **Recyclinghof** (2×2, kein Ausbau) | Abriss eines Gebäudes ab Stufe 2 gibt **80 %** statt 40 % der verbauten Baustoffe zurück ins Lager | 2.000 $ / 8 $ |
+
+- **Wald wächst von selbst**: freies Gras mit 2+ Bäumen ringsum (inkl. Diagonalen) wird mit 1 % je Monat bewaldet – Wälder dehnen sich langsam aus, Einzelbäume nicht. Nie auf Zonen, Straßen, Strand.
+- **Adern regenerieren** sehr langsam: Fels/Erz/Ton unter der Startmenge (1.200) +10 Einheiten je Tile alle ~2 Jahre (erschöpfte Adern kommen also wieder, bleiben aber knapp). Sand regeneriert nicht (ohnehin reichlich).
+- **Recycling** beim Abreißen (Bulldozer) mit Meldung „Recycling: … zurück ins Lager“ – auch ohne Recyclinghof (40 %).
+- Info-Karte: gepflanzte Bäume / „Kein freies Gras im Umkreis“, letzter Prospektor-Fund. Test `--renewtest`; `--resbuild` setzt die Gebäude in die Demo und prüft Info-Karten + Abriss.
 
 ## Verkehr
 
@@ -308,7 +322,7 @@ python3 tools/audio/gen_audio.py sfx ambient  # nur Effekte + Loops (~3 s)
 - [x] Rohstoffe Schritt 1–2: Karte 128×128, Vorkommen, Abbau-Gebäude, Lager, Export
 - [x] Rohstoffe Schritt 3: Verarbeitung (Bretter, Ziegel, Glas, Stahl), Baustoffbedarf beim Wachsen, Kohlekraftwerk verbraucht Kohle
 - [ ] **Erneuerbare Energien** (Kohle ist endlich, Unabhängigkeit vom Handel): Windrad gibt es schon; dazu Solarfeld (Leistung nach Tageszeit), Wasserkraft (Damm an Fluss/See), Biomasse (verbrennt nachwachsendes Holz), Geothermie (mit der Untertage-Ebene). Schwankende Leistung → Speicher (Batterie, Pumpspeicher). Teils über Forschung freigeschaltet
-- [ ] Rohstoffe Schritt 4: Erneuerung (Aufforstung/Baumschule, Prospektion, Recycling)
+- [x] Rohstoffe Schritt 4: Erneuerung (Waldausbreitung, Baumschule, Prospektor, Regeneration, Recycling)
 - [ ] **Forschung & Technik** (Nutzerwunsch, statt nur Handel): Upgrades wie Tiefbau (neue/tiefere Vorkommen), effizientere Verarbeitung (weniger Material je Gebäude), Recycling, Ersatzstoffe
 - [ ] **Lieferverkehr**: Liefermengen als LKW-Fahrten zum Lager (Straßenlast, sichtbare Laster), Güterbahnhof für entfernte Minen, Lieferweg-Kosten
 - [ ] Untertage-Ebene, Tunnel zu Nachbarstädten, Handel mit fiktiven Bürgermeistern

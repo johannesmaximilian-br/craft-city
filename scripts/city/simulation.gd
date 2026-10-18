@@ -80,6 +80,9 @@ var last_materials := {}            # beim Wachsen verbaut (letzter Monat)
 var producer_info := {}
 var _ore_used := {}
 var _delivery_warned := {}
+var planted := 0                    # Bäume, die Baumschulen im letzten Monat gepflanzt haben
+var planted_at := {}                # Baumschul-Anker -> gepflanzte Bäume im letzten Monat (nicht gespeichert)
+var last_found := {}                # Prospektor-Anker -> zuletzt gefundene Ader (Text)
 var local_buffer := {}              # Anker -> {Rohstoff: Menge}: Vorrat von Abbau ohne Straße zum Lager
 var _road_net := PackedInt32Array() # Straßen-Tile -> Netz-Nummer (für Lieferwege)
 var _store_nets := {}               # Netz-Nummern mit Lager (bzw. Hauptnetz der Stadt)
@@ -334,6 +337,7 @@ func _tick_stage(stage: String) -> void:
 		"abschluss":
 			_recount()
 			_update_demand()
+			_renew()
 			_produce()
 			_process_goods()
 			_export_surplus()
@@ -2168,6 +2172,146 @@ func _produce() -> void:
 
 ## Verarbeitung (Sägewerk, Ziegelei, Glashütte, Stahlwerk) und Kohleverbrauch der Kraftwerke.
 ## Knappe Rohstoffe -> anteilige Verarbeitung. Fehlende Kraftwerkskohle wird zugekauft.
+## Erneuerung (monatlich): Wald breitet sich aus, Baumschulen pflanzen, Adern regenerieren langsam,
+## Prospektoren finden neue Adern.
+func _renew() -> void:
+	var size := map.size
+	var n := size * size
+	var feature := map.feature
+	var zone := map.zone
+	var road := map.road
+	var rail := map.rail
+	var special := map.special
+	var height := map.height
+	var ore := map.ore
+	var ore_amt := map.ore_amt
+	var wl := Config.WATER_LEVEL
+	var changed := PackedInt32Array()      # einzeln melden: ein Sammel-Rechteck über die Karte baut alle Chunks neu
+	# Freies Gras: keine Bebauung, kein Wasser, kein Sand (Strand)
+	var free := func(i: int) -> bool:
+		return feature[i] == Config.Feature.NONE and zone[i] == Config.Zone.NONE and road[i] == 0 and rail[i] == 0 \
+			and special[i] == Config.Special.NONE and height[i] >= wl and map.power_line[i] == 0 \
+			and not (ore[i] == Config.Ore.SAND and ore_amt[i] > 0)
+	# 1) Natürliche Ausbreitung: Stichprobe von n·FOREST_SPREAD Tiles (gleicher Erwartungswert wie Wurf je Tile, viel
+	#    billiger); wächst nur bei 2+ Baum-Nachbarn inkl. Diagonalen -> Wälder wachsen, Einzelbäume nicht
+	for k in roundi(n * Config.FOREST_SPREAD):
+		var i := _rng.randi() % n
+		if feature[i] != Config.Feature.NONE:
+			continue
+		var x := i % size
+		var z := i / size
+		var t := 0
+		for dz in range(maxi(z - 1, 0), mini(z + 2, size)):
+			for dx in range(maxi(x - 1, 0), mini(x + 2, size)):
+				if feature[dz * size + dx] == Config.Feature.TREE:
+					t += 1
+		if t >= 2 and free.call(i):
+			feature[i] = Config.Feature.TREE
+			changed.append(i)
+	# Sonderbauten der Erneuerung einsammeln
+	var nurseries := PackedInt32Array()
+	var prospectors := PackedInt32Array()
+	for a in n:
+		if special[a] == Config.Special.NURSERY or special[a] == Config.Special.PROSPECTOR:
+			if map.anchor[a] == a and special_powered(a):
+				if special[a] == Config.Special.NURSERY:
+					nurseries.append(a)
+				else:
+					prospectors.append(a)
+	# 2) Baumschulen pflanzen im Umkreis (nächste freie Tiles zuerst)
+	planted = 0
+	planted_at.clear()
+	for a in nurseries:
+		var left := Config.NURSERY_TREES * map.special_level(a)
+		for j in _area_tiles(a, Config.NURSERY_RANGE):
+			if left <= 0:
+				break
+			if free.call(j):
+				feature[j] = Config.Feature.TREE
+				changed.append(j)
+				left -= 1
+				planted += 1
+		planted_at[a] = Config.NURSERY_TREES * map.special_level(a) - left
+	# 3) Adern regenerieren sehr langsam bis zur Startmenge (Fels/Erz/Ton, nicht Sand); Stichprobe n·ORE_REGROW
+	for k in roundi(n * Config.ORE_REGROW):
+		var i := _rng.randi() % n
+		if ore[i] != Config.Ore.NONE and ore[i] != Config.Ore.SAND and ore_amt[i] < Config.ORE_MIN:
+			if ore_amt[i] == 0:
+				changed.append(i)
+			ore_amt[i] += 1
+	# 4) Prospektoren
+	for a in prospectors:
+		if _rng.randf() >= Config.PROSPECT_CHANCE * map.special_level(a):
+			continue
+		var found := _prospect(a, free)
+		if not found.is_empty():
+			var c: int = found[0]
+			var kind: String = Config.RESOURCES[Config.ORE_RESOURCE[ore[c]]]["name"]
+			last_found[a] = "%s-Ader bei %d,%d" % [kind, c % size, c / size]
+			alert.emit("Prospektor: neue %s-Ader gefunden bei %d,%d (%d Tiles)" % [kind, c % size, c / size, found.size()],
+				Vector2i(c % size, c / size))
+			changed.append_array(found)
+	for i in changed:
+		map.notify_changed(Rect2i(i % size, i / size, 1, 1), false)
+
+
+## Neue Ader im Umkreis: zufälliges freies Hügel-Tile, Erzart nach Höhe (Gold hoch/selten, Eisen, Kohle), 3-6 Tiles.
+func _prospect(a: int, free: Callable) -> Array[int]:
+	var size := map.size
+	var wl := Config.WATER_LEVEL
+	var out: Array[int] = []
+	var cands := PackedInt32Array()
+	for j in _area_tiles(a, Config.PROSPECT_RANGE):
+		if map.ore[j] == Config.Ore.NONE and map.height[j] >= wl + 2 and free.call(j):
+			cands.append(j)
+	if cands.is_empty():
+		return out
+	var start := cands[_rng.randi() % cands.size()]
+	var h := map.height[start]
+	var kind := Config.Ore.COAL
+	if h >= wl + 5 and _rng.randf() < 0.25:
+		kind = Config.Ore.GOLD
+	elif h >= wl + 4 and _rng.randf() < 0.5:
+		kind = Config.Ore.IRON
+	var want := _rng.randi_range(3, 6)
+	var frontier: Array[int] = [start]
+	while not frontier.is_empty() and out.size() < want:
+		var j: int = frontier.pop_front()
+		if out.has(j) or map.ore[j] != Config.Ore.NONE or map.height[j] < wl + 1 or not free.call(j):
+			continue
+		map.ore[j] = kind
+		map.ore_amt[j] = _rng.randi_range(Config.PROSPECT_MIN, Config.ORE_MIN)
+		out.append(j)
+		var x := j % size
+		var z := j / size
+		for d: Vector2i in DIRS:
+			if map.in_bounds(x + d.x, z + d.y):
+				frontier.append(map.idx(x + d.x, z + d.y))
+	return out
+
+
+## Abriss eines Gebäudes der Stufe lv: Anteil der verbauten Baustoffe zurück ins Lager. Rückgabe: zurückgewonnene Mengen.
+func recycle(zn: int, lv: int) -> Dictionary:
+	var back := {}
+	if not Config.MATERIAL_COST.has(zn):
+		return back
+	var share := Config.RECYCLE_SHARE_YARD if has_recycler() else Config.RECYCLE_SHARE
+	for k in range(2, lv + 1):
+		var cost: Dictionary = Config.MATERIAL_COST[zn][k]
+		for r: String in cost:
+			back[r] = float(back.get(r, 0.0)) + float(cost[r]) * share
+	for r: String in back:
+		stock[r] = float(stock.get(r, 0.0)) + float(back[r])
+	return back
+
+
+func has_recycler() -> bool:
+	for a in map.size * map.size:
+		if map.anchor[a] == a and map.special[a] == Config.Special.RECYCLER and special_powered(a):
+			return true
+	return false
+
+
 func _buffer_sum(buf: Dictionary) -> float:
 	var t := 0.0
 	for r: String in buf:

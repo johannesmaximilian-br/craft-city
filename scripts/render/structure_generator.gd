@@ -182,6 +182,12 @@ static func service(b: BlockBatch, base: Vector3, sp: int, lv: int) -> void:
 			brickworks(b, base, lv)
 		Config.Special.GLASSWORKS:
 			glassworks(b, base, lv)
+		Config.Special.NURSERY:
+			nursery(b, base, lv)
+		Config.Special.PROSPECTOR:
+			prospector(b, base, lv)
+		Config.Special.RECYCLER:
+			recycler(b, base, lv)
 		Config.Special.STEELWORKS:
 			steelworks(b, base, lv)
 		Config.Special.THEATER:
@@ -374,6 +380,46 @@ static func steelworks(b: BlockBatch, base: Vector3, lv: int) -> void:
 	b.put_box("iron_ore", base + Vector3(1.0, 0.3, 5.0), Vector3(1.2, 0.6, 1.0))              # Eisenerz
 	for k in 2 + lv:
 		b.put_box("metal", base + Vector3(4.2, 0.1 + k * 0.2, 5.0), Vector3(2.2, 0.15, 0.3)) # Stahlträger
+
+
+## Baumschule (3x3): Reihen junger Bäume, Geräteschuppen, Gießkanne (blau).
+static func nursery(b: BlockBatch, base: Vector3, lv: int) -> void:
+	for z in 3:
+		for x in 2:
+			b.put_prop("bush", base + Vector3(0.6 + x * 1.0, 0, 0.5 + z * 1.0), float(x + z), 0.6 + lv * 0.1)
+	b.put("wood", base + Vector3(2, 0, 2))
+	b.put_box("darkbrick", base + Vector3(2.5, 1.05, 2.5), Vector3(1.1, 0.12, 1.1))
+	b.put_box("vox_blue", base + Vector3(2.5, 0.2, 0.6), Vector3(0.3, 0.35, 0.3))
+	b.put_prop("shovel", base + Vector3(2.6, 0, 1.4), 0.4)
+
+
+## Prospektor (3x3): Zelt, kleiner Bohrturm, Fahne, Probenkisten.
+static func prospector(b: BlockBatch, base: Vector3, lv: int) -> void:
+	b.put_box("vox_white", base + Vector3(0.9, 0.5, 0.9), Vector3(1.4, 1.0, 1.4), 0.785)      # Zelt
+	b.put_box("vox_white", base + Vector3(0.9, 1.1, 0.9), Vector3(0.8, 0.4, 0.8), 0.785)
+	var top := base + Vector3(2.3, 2.5 + lv * 0.5, 2.3)
+	for c: Vector2 in [Vector2(1.8, 1.8), Vector2(2.8, 1.8), Vector2(1.8, 2.8), Vector2(2.8, 2.8)]:
+		b.segment("wood", base + Vector3(c.x, 0, c.y), top, 0.1)                               # Bohrturm
+	b.segment("metal", top, base + Vector3(2.3, 0, 2.3), 0.08)
+	b.put_box("vox_red", top + Vector3(0.25, 0.25, 0), Vector3(0.5, 0.3, 0.04))               # Fahne
+	b.put("crate", base + Vector3(0.0, 0, 2.2))
+	b.put_prop("pickaxe", base + Vector3(2.5, 0, 0.5), 0.3)
+
+
+## Recyclinghof (6x6): eingezäunter Hof, bunte Container, Schrottpresse.
+static func recycler(b: BlockBatch, base: Vector3, lv: int) -> void:
+	for x in 6:
+		b.put_box("metal", base + Vector3(x + 0.5, 0.35, 0.05), Vector3(1.0, 0.7, 0.06))
+		b.put_box("metal", base + Vector3(x + 0.5, 0.35, 5.95), Vector3(1.0, 0.7, 0.06))
+	for z in 6:
+		b.put_box("metal", base + Vector3(0.05, 0.35, z + 0.5), Vector3(0.06, 0.7, 1.0))
+		b.put_box("metal", base + Vector3(5.95, 0.35, z + 0.5), Vector3(0.06, 0.7, 1.0))
+	var cols := ["vox_green", "vox_blue", "vox_yellow", "vox_red"]
+	for k in 2 + lv:
+		b.put_box(cols[k % 4], base + Vector3(1.2 + (k % 3) * 1.3, 0.45, 1.3 + (k / 3) * 1.6), Vector3(1.0, 0.9, 1.4))
+	b.put_box("darkbrick", base + Vector3(4.5, 1.0, 4.3), Vector3(1.8, 2.0, 1.8))             # Presse
+	b.put_box("metal", base + Vector3(4.5, 2.2, 4.3), Vector3(1.2, 0.4, 1.2))
+	b.put_box("iron_ore", base + Vector3(2.0, 0.3, 4.6), Vector3(1.4, 0.6, 1.0))              # Schrotthaufen
 
 
 ## Holzmast mit Querträger, Fuß bei foot (Tile-Mitte).

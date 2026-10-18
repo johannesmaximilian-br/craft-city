@@ -10,7 +10,7 @@ signal applied(tool: Tool)
 
 enum Tool { INSPECT, ROAD, POWERLINE, BUS_STOP, RAIL, STATION, RES, COM, IND, COAL, WIND, TREE, PARK, RAISE, LOWER, BULLDOZE,
 	POLICE, FIRE, SCHOOL, HOSPITAL, LIBRARY, CINEMA, TOWNHALL, THEATER, STADIUM,
-	LUMBER, QUARRY, PIT, MINE, WAREHOUSE, SAWMILL, BRICKWORKS, GLASSWORKS, STEELWORKS }
+	LUMBER, QUARRY, PIT, MINE, WAREHOUSE, SAWMILL, BRICKWORKS, GLASSWORKS, STEELWORKS, NURSERY, PROSPECTOR, RECYCLER }
 
 ## Anzeige-Metadaten: Name, Icon, Taste, Gruppe (für Toolbar-Trenner)
 const TOOLS := {
@@ -62,6 +62,12 @@ const TOOLS := {
 		"hint": "Kohle, Eisen, Gold aus Erzadern im Umkreis von 3 Tiles  ·  2x2  ·  Vorkommen sind endlich"},
 	Tool.WAREHOUSE: {"name": "Lagerhaus", "icon": "warehouse", "key": KEY_NONE, "group": 9, "cost": 1200,
 		"hint": "+1.000 Lager je Rohstoff  ·  2x2  ·  Überschuss wird sonst automatisch exportiert"},
+	Tool.NURSERY:   {"name": "Baumschule", "icon": "nursery", "key": KEY_NONE, "group": 9, "cost": 400,
+		"hint": "Pflanzt 2 Bäume je Monat im Umkreis von 4 Tiles  ·  mit Holzfäller = nachhaltiges Holz"},
+	Tool.PROSPECTOR: {"name": "Prospektor", "icon": "prospector", "key": KEY_NONE, "group": 9, "cost": 1500,
+		"hint": "Sucht neue Kohle-/Eisen-/Goldadern im Umkreis von 8 Tiles (Hügelland)  ·  ~8 %/Monat je Stufe"},
+	Tool.RECYCLER:  {"name": "Recyclinghof", "icon": "recycler", "key": KEY_NONE, "group": 9, "cost": 2000,
+		"hint": "Abriss gibt 80 % statt 40 % der verbauten Baustoffe zurück  ·  2x2"},
 	Tool.SAWMILL:   {"name": "Sägewerk", "icon": "sawmill", "key": KEY_NONE, "group": 10, "cost": 1500,
 		"hint": "10 Holz -> 10 Bretter je Monat  ·  Bretter braucht Stufe 2"},
 	Tool.BRICKWORKS: {"name": "Ziegelei", "icon": "brickworks", "key": KEY_NONE, "group": 10, "cost": 1800,
@@ -102,6 +108,7 @@ var hover := Vector2i(-1, -1)
 var _drag_start := Vector2i(-1, -1)
 var _dragging := false
 var _preview: MultiMeshInstance3D
+var _recycled := {}                 # Rückgewinnung beim aktuellen Abriss (für die Meldung)
 var _range: MultiMeshInstance3D     # Reichweite unter dem Cursor (Haltestelle, Bahnhof, Dienste)
 const RANGE_ROAD := Color(0.25, 0.55, 1.0, 0.5)      # Straße kommt ins Busnetz / Fußweg zum Bahnhof
 const RANGE_NEW := Color(0.3, 0.95, 0.4, 0.5)        # Gebäude bekommt neu Anschluss
@@ -176,6 +183,9 @@ func _special_for_tool() -> int:
 		Tool.BRICKWORKS: return Config.Special.BRICKWORKS
 		Tool.GLASSWORKS: return Config.Special.GLASSWORKS
 		Tool.STEELWORKS: return Config.Special.STEELWORKS
+		Tool.NURSERY: return Config.Special.NURSERY
+		Tool.PROSPECTOR: return Config.Special.PROSPECTOR
+		Tool.RECYCLER: return Config.Special.RECYCLER
 	return Config.Special.NONE
 
 
@@ -350,7 +360,8 @@ func tile_cost(t: Vector2i) -> int:
 		Tool.COAL, Tool.WIND, Tool.POLICE, Tool.FIRE, Tool.SCHOOL, Tool.HOSPITAL, \
 				Tool.LIBRARY, Tool.CINEMA, Tool.TOWNHALL, Tool.THEATER, Tool.STADIUM, \
 				Tool.LUMBER, Tool.QUARRY, Tool.PIT, Tool.MINE, Tool.WAREHOUSE, \
-				Tool.SAWMILL, Tool.BRICKWORKS, Tool.GLASSWORKS, Tool.STEELWORKS:
+				Tool.SAWMILL, Tool.BRICKWORKS, Tool.GLASSWORKS, Tool.STEELWORKS, \
+				Tool.NURSERY, Tool.PROSPECTOR, Tool.RECYCLER:
 			var sp := _special_for_tool()
 			if locked_reason(tool) != "": return -1
 			var up := _upgrade_target()
@@ -427,6 +438,7 @@ func _apply(tiles: Array[Vector2i]) -> void:
 		return
 
 	var rect := Rect2i(todo[0], Vector2i.ONE)
+	_recycled = {}
 	if _special_for_tool() != Config.Special.NONE:
 		_place_special(todo)
 	else:
@@ -435,6 +447,11 @@ func _apply(tiles: Array[Vector2i]) -> void:
 	for t in todo:
 		rect = rect.merge(Rect2i(t, Vector2i.ONE))
 	sim.spend(total)
+	if not _recycled.is_empty():
+		var parts := PackedStringArray()
+		for res: String in _recycled:
+			parts.append("%d %s" % [roundi(float(_recycled[res])), Config.RESOURCES[res]["name"]])
+		message.emit("Recycling: %s zurück ins Lager" % ", ".join(parts))
 	map.notify_changed(rect)
 	sim.refresh(sim.async_commute)   # im Spiel gestaffelt, in Tests sofort
 	applied.emit(tool)
@@ -523,6 +540,10 @@ func _apply_tile(t: Vector2i) -> Rect2i:
 		Tool.BULLDOZE:
 			if map.special[i] != Config.Special.NONE:
 				r = _remove_special(i)
+			elif map.zone[i] != Config.Zone.NONE and map.level[i] >= 2:
+				var back: Dictionary = sim.recycle(map.zone[i], map.level[i])
+				for res: String in back:
+					_recycled[res] = float(_recycled.get(res, 0.0)) + float(back[res])
 			_clear(i)
 		Tool.RAISE, Tool.LOWER:
 			# Gebäude, Straßen, Gleise (samt Haltestelle/Bahnhof) und Parks passen nicht mehr -> weg
@@ -590,6 +611,14 @@ func range_preview(t: Vector2i) -> Dictionary:
 				return _with_delivery(_resource_preview(t, sp), t, sp)
 			if sp != Config.Special.NONE and Config.SPECIALS[sp].has("process"):
 				return _with_delivery({}, t, sp)
+			if sp in [Config.Special.NURSERY, Config.Special.PROSPECTOR]:
+				var rr := Config.NURSERY_RANGE if sp == Config.Special.NURSERY else Config.PROSPECT_RANGE
+				var ring := {}
+				for z in range(t.y - rr, t.y + rr + 1):
+					for x in range(t.x - rr, t.x + rr + 1):
+						if map.in_bounds(x, z) and (absi(x - t.x) == rr or absi(z - t.y) == rr):
+							ring[map.idx(x, z)] = RANGE_AREA
+				return ring
 			if sp == Config.Special.NONE or not Config.SPECIALS[sp].has("service"):
 				return out
 			var up := _upgrade_target()

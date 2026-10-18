@@ -144,6 +144,10 @@ $G --path . -- --demo --cam=32,32,60 --screenshot=/pfad/bild.png          # Scre
   Lieferweg: `_compute_delivery()` (Straßennetze, `_store_nets`) zu Beginn von `_produce`; `delivers(a)`,
   `delivery_at(t, s)` (Vorschau); `local_buffer` (gespeichert als "buffers") bei fehlendem Anschluss.
   Map-Save hat `ore_version`; neue Vorkommen-Arten für alte Saves in `from_dict` nachgenerieren (wie `_add_stone`). Balance-Messung: `--budgettest` (Demo + Megacity-Kopie).
+- **Erneuerung** (`Simulation._renew`, Etappe „abschluss“ vor `_produce`): Waldausbreitung und Ader-Regeneration als
+  **Stichprobe** (n·Rate zufällige Tiles statt Wurf je Tile — Volldurchlauf mit `randf()` kostete ~5 ms). Geänderte Tiles
+  **einzeln** melden: ein Sammel-Rechteck über verstreute Tiles wird schnell die ganze Karte ⇒ alle Chunks neu und
+  `FireDept._sync` verwirft bei voller Karte alle Einsätze. Recycling: `sim.recycle(zone, level)` aus dem Bulldozer.
 - **Speichern:** neue Map-Felder in `CityMap.SAVE_FIELDS` eintragen; fehlende Felder alter Saves werden genullt.
   `SaveManager.save` rotiert vorher Sicherungen (`<slot>.bak1..3`, nur Spieler-Slots). Tests, die Spieler-Slots
   benutzen wollen, stellen `SaveManager.dir` auf einen eigenen Ordner um (siehe `savetest`).
@@ -182,6 +186,8 @@ $G --path . -- --demo --cam=32,32,60 --screenshot=/pfad/bild.png          # Scre
 - **Performance-Änderungen an der Simulation** immer mit `--loadfile=build/backups/megacity_2026-10-12.citysave --determinism`
   vorher/nachher vergleichen (Prüfsummen müssen gleich bleiben). Fester Zufall braucht `seed()` **vor** jeder
   Neuberechnung und leere Vorgeschichte (`congestion`, `station_use`), sonst streut das Ergebnis.
+- `notify_changed` mit Rechteck = ganze Karte bedeutet für `FireDept` „neue Karte geladen“ (Einsätze weg) → nie Sammel-Rechtecke über die Karte melden.
+- GDScript-Lambdas fangen lokale Variablen **als Kopie** (`var n := 0; sig.connect(func(): n += 1)` zählt nicht) → Array nutzen.
 - Beim Ersetzen von Code per Skript nicht über Blockgrenzen schneiden (einmal ist so ein Config-Block verloren gegangen).
 
 ## Stil & Design (vom Nutzer gewünscht)

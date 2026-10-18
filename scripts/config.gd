@@ -10,7 +10,7 @@ const SNOW_HEIGHT := 11
 enum Zone { NONE, RES, COM, IND }
 enum Feature { NONE, TREE, PARK }
 enum Special { NONE, COAL, WIND, POLICE, FIRE, SCHOOL, HOSPITAL, LIBRARY, CINEMA, TOWNHALL, THEATER, STADIUM,
-	LUMBER, QUARRY, PIT, MINE, WAREHOUSE, SAWMILL, BRICKWORKS, GLASSWORKS, STEELWORKS }
+	LUMBER, QUARRY, PIT, MINE, WAREHOUSE, SAWMILL, BRICKWORKS, GLASSWORKS, STEELWORKS, NURSERY, PROSPECTOR, RECYCLER }
 # Bodenvorkommen (CityMap.ore): Art je Tile, Menge in CityMap.ore_amt
 enum Ore { NONE, COAL, IRON, GOLD, CLAY, SAND, STONE }
 enum Road { NONE, STREET }
@@ -98,6 +98,16 @@ const MATERIAL_COST := {
 	Zone.IND: [{}, {}, {"planks": 4, "bricks": 4}, {"bricks": 6, "steel": 8}],
 }
 const COAL_PLANT_USE := 8         # Kohle je Monat und Kohlekraftwerk (fehlt sie: Zukauf)
+# ---- Erneuerung ----
+const FOREST_SPREAD := 0.01        # Chance je Monat: freies Gras mit 2+ Baum-Nachbarn wird Wald
+const NURSERY_RANGE := 4
+const NURSERY_TREES := 2           # Bäume je Monat und Stufe
+const ORE_REGROW := 1.0 / 24.0     # Chance je Monat und Vorkommen-Tile (unter Startmenge): +1 Punkt (= ORE_UNIT)
+const PROSPECT_RANGE := 8
+const PROSPECT_CHANCE := 0.08
+const PROSPECT_MIN := 40            # gefundene Restadern: 40..ORE_MIN Einheiten je Tile (kleiner als Startvorkommen)      # je Monat und Stufe: neue Ader (Kohle/Eisen/Gold, 3-6 Tiles) gefunden
+const RECYCLE_SHARE := 0.4         # Anteil der verbauten Baustoffe, der beim Abriss zurückkommt ...
+const RECYCLE_SHARE_YARD := 0.8    # ... mit Recyclinghof
 const LOCAL_BUFFER := 50           # eigener Vorrat je Stufe für Abbau ohne Straße zum Lager
 const ORE_MIN := 120               # Startmenge je Vorkommen-Tile (bis 255) ...
 const ORE_UNIT := 10               # ... je Punkt 10 Einheiten Rohstoff (eine Ader hält Jahrzehnte)
@@ -173,6 +183,12 @@ const SPECIALS := {
 	Special.WAREHOUSE: {"name": "Lagerhaus", "size": 2, "cost": 1200, "upgrade": 1200, "upkeep": 5.0, "power": 0, "use": 1,
 		"storage": true},
 	# Verarbeitung je Monat (x Ausbaustufe): "in" wird verbraucht, "out" erzeugt; Teilmengen, wenn Rohstoff knapp
+	Special.NURSERY:    {"name": "Baumschule", "size": 1, "cost": 400, "upgrade": 500, "upkeep": 3.0, "power": 0, "use": 1,
+		"renew": "trees"},
+	Special.PROSPECTOR: {"name": "Prospektor", "size": 1, "cost": 1500, "upgrade": 1500, "upkeep": 10.0, "power": 0, "use": 1,
+		"renew": "prospect"},
+	Special.RECYCLER:   {"name": "Recyclinghof", "size": 2, "cost": 2000, "upkeep": 8.0, "power": 0, "use": 2,
+		"renew": "recycle"},
 	Special.SAWMILL:    {"name": "Sägewerk", "size": 2, "cost": 1500, "upgrade": 1500, "upkeep": 6.0, "power": 0, "use": 2,
 		"process": {"in": {"wood": 10}, "out": {"planks": 10}}},
 	Special.BRICKWORKS: {"name": "Ziegelei", "size": 2, "cost": 1800, "upgrade": 1800, "upkeep": 7.0, "power": 0, "use": 3,

@@ -1414,6 +1414,82 @@ static func restest() -> void:
 	sim.free()
 
 
+## Erneuerung: Waldausbreitung, Baumschule, Regeneration leerer Adern, Prospektor, Recycling beim Abriss.
+static func renewtest() -> void:
+	var m := CityMap.new()
+	m.height.fill(6)
+	var sim := Simulation.new()
+	sim.map = m
+	sim._rng.seed = 7
+	var put_special := func(x: int, z: int, sp: int) -> void:
+		var sz: int = Config.SPECIALS[sp]["size"]
+		var a := m.idx(x, z)
+		for dz in sz:
+			for dx in sz:
+				m.special[m.idx(x + dx, z + dz)] = sp
+				m.anchor[m.idx(x + dx, z + dz)] = a
+		m.slevel[a] = 1
+	for x in range(0, 60):
+		m.power_line[m.idx(x, 40)] = 1
+	put_special.call(0, 38, Config.Special.COAL)
+	for x in range(5, 15):              # Wäldchen 10x10 fern von allem
+		for z in range(5, 15):
+			m.feature[m.idx(x, z)] = Config.Feature.TREE
+	put_special.call(30, 41, Config.Special.NURSERY)
+	for x in range(80, 90):             # Hügel für den Prospektor
+		for z in range(30, 50):
+			m.height[m.idx(x, z)] = 12
+	for x in range(60, 85):
+		m.power_line[m.idx(x, 40)] = 1
+	put_special.call(84, 41, Config.Special.PROSPECTOR)
+	m.slevel[m.idx(84, 41)] = 3
+	for x in range(50, 70):             # 20 leergeräumte Kohle-Tiles
+		m.ore[m.idx(x, 10)] = Config.Ore.COAL
+		m.ore_amt[m.idx(x, 10)] = 0
+	var trees := func() -> int:
+		var c := 0
+		for i in m.size * m.size:
+			if m.feature[i] == Config.Feature.TREE:
+				c += 1
+		return c
+	var ores := func() -> int:
+		var c := 0
+		for i in m.size * m.size:
+			if m.ore[i] != Config.Ore.NONE and m.ore_amt[i] > 0:
+				c += 1
+		return c
+	var t0: int = trees.call()
+	var o0: int = ores.call()
+	var found: Array[String] = []
+	sim.alert.connect(func(t: String, _p: Vector2i) -> void: found.append(t))
+	var planted := 0
+	for k in 24:
+		sim._compute_power()
+		sim._renew()
+		planted += sim.planted
+	var near := 0
+	for i in m.size * m.size:
+		if m.feature[i] == Config.Feature.TREE and absi(i % m.size - 30) <= Config.NURSERY_RANGE + 1 \
+				and absi(i / m.size - 41) <= Config.NURSERY_RANGE + 1:
+			near += 1
+	print("renewtest 24 Monate: Bäume %d -> %d (Baumschule gepflanzt %d, davon im Umkreis %d)" % [t0, trees.call(), planted, near])
+	var regrown := 0
+	for x in range(50, 70):
+		regrown += m.ore_amt[m.idx(x, 10)]
+	print("renewtest 20 leere Kohle-Tiles: zusammen +%d Einheiten (Erwartung ~20 = 1 je Tile in 2 Jahren)" % regrown)
+	print("renewtest Prospektor Stufe 3: %d Funde, Vorkommen-Tiles %d -> %d, Meldungen %s" % [found.size(), o0, ores.call(),
+		found])
+	sim.stock["planks"] = 0.0
+	sim.stock["bricks"] = 0.0
+	var back := sim.recycle(Config.Zone.RES, 3)
+	print("renewtest Abriss Wohnen 3 ohne Recyclinghof: %s" % back)
+	put_special.call(40, 41, Config.Special.RECYCLER)
+	sim._compute_power()
+	back = sim.recycle(Config.Zone.RES, 3)
+	print("renewtest Abriss Wohnen 3 mit Recyclinghof: %s, Lager Bretter %d" % [back, int(sim.stock["planks"])])
+	sim.free()
+
+
 ## Anzahl Vorkommen-Tiles je Art auf der aktuellen Karte.
 static func orecount(game: Node) -> void:
 	var map: CityMap = game.map
@@ -1435,19 +1511,38 @@ static func place_resources(game: Node) -> void:
 	game.sim.money += 20000
 	for t: ToolController.Tool in [ToolController.Tool.MINE, ToolController.Tool.QUARRY, ToolController.Tool.PIT,
 			ToolController.Tool.LUMBER, ToolController.Tool.WAREHOUSE, ToolController.Tool.STEELWORKS,
-			ToolController.Tool.SAWMILL, ToolController.Tool.BRICKWORKS, ToolController.Tool.GLASSWORKS]:
+			ToolController.Tool.SAWMILL, ToolController.Tool.BRICKWORKS, ToolController.Tool.GLASSWORKS,
+			ToolController.Tool.NURSERY, ToolController.Tool.PROSPECTOR, ToolController.Tool.RECYCLER]:
 		_place_near_center(game.map, game.tools, t)
 	game.tools.set_tool(ToolController.Tool.INSPECT)
 	var map: CityMap = game.map
 	for i in map.size * map.size:
 		if map.anchor[i] == i and (Config.SPECIALS[map.special[i]].has("produce") or Config.SPECIALS[map.special[i]].has("storage")
-				or Config.SPECIALS[map.special[i]].has("process")):
+				or Config.SPECIALS[map.special[i]].has("process") or Config.SPECIALS[map.special[i]].has("renew")):
 			print("resbuild %s bei %d,%d" % [Config.SPECIALS[map.special[i]]["name"], i % map.size, i / map.size])
 	for k in 4:
 		game.sim.tick_month()
 	print("resbuild Lager nach 4 Monaten: %s, Förderung %s" % [game.sim.stock, game.sim.production])
 	for a: int in game.sim.producer_info:
 		print("resbuild   %s: %s" % [Config.SPECIALS[map.special[a]]["name"], game.sim.producer_info[a]])
+	game.hud._info_detail = true
+	for i in map.size * map.size:
+		if map.anchor[i] == i and Config.SPECIALS[map.special[i]].has("renew"):
+			game.hud._on_hover(Vector2i(i % map.size, i / map.size))
+			print("resbuild Info %s | %s" % [game.hud._info_title.text, game.hud._info_body.text.replace("\n", " | ")])
+	game.hud._info_detail = false
+	# Abriss eines Wohnhauses ab Stufe 2 -> Recycling-Meldung
+	var msgs: Array[String] = []
+	game.tools.message.connect(func(t: String) -> void: msgs.append(t))
+	for i in map.size * map.size:
+		if map.zone[i] == Config.Zone.RES and map.level[i] >= 2:
+			var before: float = float(game.sim.stock.get("bricks", 0.0))
+			game.tools.set_tool(ToolController.Tool.BULLDOZE)
+			game.tools._apply([Vector2i(i % map.size, i / map.size)] as Array[Vector2i])
+			print("resbuild Abriss Wohnen bei %d,%d: Ziegel %.1f -> %.1f, Meldungen %s" % [i % map.size, i / map.size,
+				before, float(game.sim.stock.get("bricks", 0.0)), msgs])
+			break
+	game.tools.set_tool(ToolController.Tool.INSPECT)
 
 
 ## Verarbeitung: 4 Werke mit Strom, knappe Rohstoffe -> anteilig; Kraftwerk verbraucht Kohle; Baustoffe beim Wachsen.

@@ -146,6 +146,8 @@ static func run(game: Node) -> void:
 		DevTests.processtest()
 	if has("--restest"):
 		DevTests.restest()
+	if has("--renewtest"):
+		DevTests.renewtest()
 	if has("--powertest"):
 		DevTests.powertest()
 	if has("--cartest"):

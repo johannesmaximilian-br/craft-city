@@ -33,7 +33,8 @@ const TOOLBAR := [
 	[ToolController.Tool.LIBRARY, ToolController.Tool.CINEMA, ToolController.Tool.TOWNHALL,
 		ToolController.Tool.THEATER, ToolController.Tool.STADIUM],
 	[ToolController.Tool.MINE, ToolController.Tool.QUARRY, ToolController.Tool.PIT, ToolController.Tool.LUMBER,
-		ToolController.Tool.WAREHOUSE],
+		ToolController.Tool.WAREHOUSE, ToolController.Tool.NURSERY, ToolController.Tool.PROSPECTOR,
+		ToolController.Tool.RECYCLER],
 	[ToolController.Tool.STEELWORKS, ToolController.Tool.SAWMILL, ToolController.Tool.BRICKWORKS,
 		ToolController.Tool.GLASSWORKS],
 	[],
@@ -1230,6 +1231,34 @@ func _on_hover(t: Vector2i) -> void:
 			add.call("Dienst", "Unterhalt $%d/Monat  ·  Strom %d MW" % [int(def["upkeep"] * Config.UPKEEP_LEVEL[lv]),
 				sim.tile_power_use(a)])
 			if lv < 3:
+				add.call("Dienst", "Ausbau (mehr Leistung): gleiches Werkzeug, $%d" % (int(def["upgrade"]) * lv))
+		elif def.has("renew"):
+			var a := map.anchor[i]
+			var lv := map.special_level(a)
+			title = "%s  ·  Stufe %d" % [def["name"], lv]
+			if not def.has("upgrade"):
+				title = def["name"]
+			match str(def["renew"]):
+				"trees":
+					summary = "Pflanzt %d Bäume/Monat im Umkreis von %d Tiles" % [Config.NURSERY_TREES * lv, Config.NURSERY_RANGE]
+					var got := int(sim.planted_at.get(a, -1))
+					if got >= 0:
+						add.call("Dienst", "Letzter Monat gepflanzt: %d Bäume" % got)
+					if got == 0:
+						problems.append("x Kein freies Gras im Umkreis - pflanzt nichts")
+				"prospect":
+					summary = "Sucht neue Adern im Umkreis von %d Tiles (%d%%/Monat)" % [Config.PROSPECT_RANGE,
+						roundi(Config.PROSPECT_CHANCE * lv * 100.0)]
+					add.call("Dienst", "Zuletzt gefunden: %s" % str(sim.last_found.get(a, "noch nichts")))
+					add.call("Dienst", "Nur auf freien Hügeln (2+ über Wasser): Kohle, höher Eisen/Gold")
+				"recycle":
+					summary = "Abriss gibt %d%% statt %d%% der Baustoffe zurück" % [roundi(Config.RECYCLE_SHARE_YARD * 100.0),
+						roundi(Config.RECYCLE_SHARE * 100.0)]
+			if not sim.special_powered(i):
+				problems.append("x Kein Strom - arbeitet nicht")
+			add.call("Dienst", "Unterhalt $%d/Monat  ·  Strom %d MW" % [int(def["upkeep"] * Config.UPKEEP_LEVEL[lv]),
+				sim.tile_power_use(a)])
+			if lv < 3 and def.has("upgrade"):
 				add.call("Dienst", "Ausbau (mehr Leistung): gleiches Werkzeug, $%d" % (int(def["upgrade"]) * lv))
 		elif def.has("produce") or def.has("storage"):
 			var a := map.anchor[i]
