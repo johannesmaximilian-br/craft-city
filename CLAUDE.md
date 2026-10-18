@@ -141,6 +141,8 @@ $G --path . -- --demo --cam=32,32,60 --screenshot=/pfad/bild.png          # Scre
   `_process_goods()` nach `_produce()` in „abschluss“, danach `_export_surplus()`. Baustoffe in `RESOURCES` mit `"good"`.
   Wachsen auf Stufe ≥ 2 ruft `_use_materials` (Zukauf über `_buy` → `_import_pending`, im Budget abgebucht).
   Kohlekraftwerke verbrauchen `COAL_PLANT_USE` – erst nach den Werken (Vorrang), Rest wird zugekauft.
+  Lieferweg: `_compute_delivery()` (Straßennetze, `_store_nets`) zu Beginn von `_produce`; `delivers(a)`,
+  `delivery_at(t, s)` (Vorschau); `local_buffer` (gespeichert als "buffers") bei fehlendem Anschluss.
   Map-Save hat `ore_version`; neue Vorkommen-Arten für alte Saves in `from_dict` nachgenerieren (wie `_add_stone`). Balance-Messung: `--budgettest` (Demo + Megacity-Kopie).
 - **Speichern:** neue Map-Felder in `CityMap.SAVE_FIELDS` eintragen; fehlende Felder alter Saves werden genullt.
   `SaveManager.save` rotiert vorher Sicherungen (`<slot>.bak1..3`, nur Spieler-Slots). Tests, die Spieler-Slots

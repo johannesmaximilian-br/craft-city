@@ -183,6 +183,7 @@ Werte und Reichweiten: `scripts/config.gd` (Abschnitte *Standortregeln*, *Zonen-
 | – | – | **Lagerhaus** (2×2) | +1.000 Lagerplatz je Rohstoff und Stufe |
 
 - Alle Abbau-Gebäude brauchen **Strom** (1–4 MW) und kosten Unterhalt. Ohne Wald/Vorkommen in Reichweite stehen sie still (Info-Karte nennt den Grund).
+- **Lieferweg**: Abbau-Gebäude und Werke liefern nur mit **Straße direkt am Gebäude**, die zum Lager führt (Netz mit Lagerhaus; ohne Lagerhaus das Straßennetz mit den meisten Einwohnern). Ohne Anschluss fördert ein Abbau-Gebäude in einen **eigenen Vorrat** (50 je Stufe, als Kistenstapel sichtbar) und steht still, wenn er voll ist; mit der Straße wird der Vorrat geliefert. Werke ohne Anschluss bekommen keine Rohstoffe. Warnung beim Wegfall, Info-Karte, **Ansicht Rohstoffe** färbt Gebäude grün/rot, Bau-Vorschau zeigt einen Rahmen grün (angeschlossen) / gelb (Straße, anderes Netz) / rot (keine Straße).
 - **Lager**: 200 je Rohstoff, + Lagerhäuser. Was nicht passt, wird **automatisch exportiert** (Holz 1, Stein/Sand 0,5, Ton 0,8, Kohle 1,5, Eisen 3, Gold 12 $ je Einheit) → Einnahme „Rohstoff-Export“.
 - **Endlich, aber langlebig**: je Vorkommen-Tile 1.200–2.550 Einheiten. Typische Karte 128×128: ~950.000 Stein (≈ 500 Fels-Tiles), ~200.000 Kohle, ~100.000 Eisen, ~30.000–55.000 Gold, Sand/Ton praktisch unerschöpflich. Eine Mine an einer Ader hält bei Stufe 3 rund 40–50 Spieljahre. Holz wächst (noch) nicht nach.
 - Sichtbar: Fels, Sand und Ton färben den Boden, Erzbrocken ragen aus dem Gras; **Ansicht Rohstoffe** (V) färbt alle Vorkommen (kräftig = voll, grau = erschöpft), die Ansicht-Liste zeigt die Restmengen. Mit einem Abbau-Werkzeug zeigt die Vorschau Vorkommen im Umkreis. HUD: Lager-Leiste (Tooltip: Förderung, Kapazität, Export).
@@ -309,6 +310,7 @@ python3 tools/audio/gen_audio.py sfx ambient  # nur Effekte + Loops (~3 s)
 - [ ] **Erneuerbare Energien** (Kohle ist endlich, Unabhängigkeit vom Handel): Windrad gibt es schon; dazu Solarfeld (Leistung nach Tageszeit), Wasserkraft (Damm an Fluss/See), Biomasse (verbrennt nachwachsendes Holz), Geothermie (mit der Untertage-Ebene). Schwankende Leistung → Speicher (Batterie, Pumpspeicher). Teils über Forschung freigeschaltet
 - [ ] Rohstoffe Schritt 4: Erneuerung (Aufforstung/Baumschule, Prospektion, Recycling)
 - [ ] **Forschung & Technik** (Nutzerwunsch, statt nur Handel): Upgrades wie Tiefbau (neue/tiefere Vorkommen), effizientere Verarbeitung (weniger Material je Gebäude), Recycling, Ersatzstoffe
+- [ ] **Lieferverkehr**: Liefermengen als LKW-Fahrten zum Lager (Straßenlast, sichtbare Laster), Güterbahnhof für entfernte Minen, Lieferweg-Kosten
 - [ ] Untertage-Ebene, Tunnel zu Nachbarstädten, Handel mit fiktiven Bürgermeistern
 - [ ] Budget-Fenster (Ressorts, Kredite, Jahresbilanz)
 - [x] Brände sichtbar (Flammen/Rauch/Ruinen), Feuerwehr-Einsätze mit Löschzügen, Meldungen mit Kamera-Sprung

@@ -1360,6 +1360,22 @@ static func restest() -> void:
 			m.ore[m.idx(x, z)] = [Config.Ore.COAL, Config.Ore.IRON, Config.Ore.GOLD][(x - 38) % 3]
 			m.ore_amt[m.idx(x, z)] = 200
 	put_special.call(40, 19, Config.Special.MINE)
+	# Lieferweg: Straße z=21 an allen Gebäuden vorbei, Lagerhaus am Ende; Stichstraße zum Holzfäller
+	for x in range(0, 50):
+		if x != 30:
+			m.road[m.idx(x, 21)] = 1
+	m.road[m.idx(12, 20)] = 1
+	for x in range(29, 32):           # Umfahrung der Grube (sonst zwei getrennte Netze)
+		m.road[m.idx(x, 22)] = 1
+	put_special.call(50, 21, Config.Special.WAREHOUSE)
+	# Mine ohne Straße (eigene Erzader) -> eigener Vorrat
+	for x in range(55, 60):
+		for z in range(5, 8):
+			m.ore[m.idx(x, z)] = Config.Ore.IRON
+			m.ore_amt[m.idx(x, z)] = 200
+	put_special.call(56, 8, Config.Special.MINE)
+	for z in range(10, 21):
+		m.power_line[m.idx(57, z)] = 1
 	var ore_before := 0
 	for i in m.size * m.size:
 		ore_before += m.ore_amt[i]
@@ -1380,9 +1396,21 @@ static func restest() -> void:
 		var info: Dictionary = sim.producer_info[a]
 		if str(info["issue"]) != "":
 			print("restest %s: %s" % [Config.SPECIALS[m.special[a]]["name"], info["issue"]])
-	put_special.call(50, 21, Config.Special.WAREHOUSE)
+	var lone := m.idx(56, 8)
+	print("restest Mine ohne Straße: liefert %s, eigener Vorrat %s, Hinweis: %s" % [sim.delivers(lone),
+		sim.local_buffer.get(lone, {}), sim.producer_info.get(lone, {}).get("issue", "")])
+	var iron_before: float = float(sim.stock["iron"])
+	sim.stock["iron"] = 0.0
+	for z in range(8, 22):
+		m.road[m.idx(58, z)] = 1         # Straße zur Mine nachbauen, bis zum Lagerhaus
+	for x in range(52, 58):
+		m.road[m.idx(x, 21)] = 1
 	sim._compute_power()
-	print("restest mit Lagerhaus: Lager %d" % sim.stock_capacity())
+	sim._produce()
+	print("restest nach Straßenbau: liefert %s, Eisen im Lager %d (Vorrat + Monatsförderung), eigener Vorrat %s" % [
+		sim.delivers(lone), int(sim.stock["iron"]), sim.local_buffer.get(lone, {})])
+	sim.stock["iron"] = iron_before
+	print("restest Lager mit Lagerhaus: %d" % sim.stock_capacity())
 	sim.free()
 
 
@@ -1438,7 +1466,9 @@ static func processtest() -> void:
 		m.slevel[a] = 1
 	for x in range(0, 40):
 		m.power_line[m.idx(x, 10)] = 1
+		m.road[m.idx(x, 10)] = 1      # Lieferweg
 	put_special.call(0, 8, Config.Special.COAL)
+	put_special.call(30, 8, Config.Special.WAREHOUSE)
 	put_special.call(5, 8, Config.Special.SAWMILL)
 	put_special.call(10, 8, Config.Special.BRICKWORKS)
 	put_special.call(15, 8, Config.Special.GLASSWORKS)

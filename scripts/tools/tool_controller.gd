@@ -587,7 +587,9 @@ func range_preview(t: Vector2i) -> Dictionary:
 		_:
 			var sp := _special_for_tool()
 			if sp != Config.Special.NONE and Config.SPECIALS[sp].has("produce"):
-				return _resource_preview(t, sp)
+				return _with_delivery(_resource_preview(t, sp), t, sp)
+			if sp != Config.Special.NONE and Config.SPECIALS[sp].has("process"):
+				return _with_delivery({}, t, sp)
 			if sp == Config.Special.NONE or not Config.SPECIALS[sp].has("service"):
 				return out
 			var up := _upgrade_target()
@@ -638,6 +640,19 @@ func _resource_preview(t: Vector2i, sp: int) -> Dictionary:
 				out[j] = c
 			else:
 				out[j] = Color(1, 1, 1, 0.12)
+	return out
+
+
+## Lieferweg-Anzeige: Rahmen um die Grundfläche grün (Straße zum Lager), gelb (Straße, aber anderes Netz), rot (keine Straße).
+func _with_delivery(out: Dictionary, t: Vector2i, sp: int) -> Dictionary:
+	var s: int = Config.SPECIALS[sp]["size"]
+	var state := sim.delivery_at(t, s)
+	var c: Color = [Color(1.0, 0.25, 0.2, 0.85), Color(1.0, 0.8, 0.2, 0.85), Color(0.3, 0.95, 0.4, 0.85)][state]
+	for z in range(t.y - 1, t.y + s + 1):
+		for x in range(t.x - 1, t.x + s + 1):
+			var edge := (x == t.x - 1 or x == t.x + s) != (z == t.y - 1 or z == t.y + s)
+			if edge and map.in_bounds(x, z) and (state == 0 or map.is_road(x, z)):
+				out[map.idx(x, z)] = c
 	return out
 
 

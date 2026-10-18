@@ -98,6 +98,7 @@ const MATERIAL_COST := {
 	Zone.IND: [{}, {}, {"planks": 4, "bricks": 4}, {"bricks": 6, "steel": 8}],
 }
 const COAL_PLANT_USE := 8         # Kohle je Monat und Kohlekraftwerk (fehlt sie: Zukauf)
+const LOCAL_BUFFER := 50           # eigener Vorrat je Stufe für Abbau ohne Straße zum Lager
 const ORE_MIN := 120               # Startmenge je Vorkommen-Tile (bis 255) ...
 const ORE_UNIT := 10               # ... je Punkt 10 Einheiten Rohstoff (eine Ader hält Jahrzehnte)
 

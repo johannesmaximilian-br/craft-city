@@ -79,6 +79,10 @@ var export_income := 0.0
 var last_materials := {}            # beim Wachsen verbaut (letzter Monat)
 var producer_info := {}
 var _ore_used := {}
+var _delivery_warned := {}
+var local_buffer := {}              # Anker -> {Rohstoff: Menge}: Vorrat von Abbau ohne Straße zum Lager
+var _road_net := PackedInt32Array() # Straßen-Tile -> Netz-Nummer (für Lieferwege)
+var _store_nets := {}               # Netz-Nummern mit Lager (bzw. Hauptnetz der Stadt)
 var coal_burned := 0.0             # Kraftwerkskohle aus dem eigenen Lager (letzter Monat)
 var imported := {}                  # Rohstoff -> zugekaufte Menge (Kraftwerkskohle, Baustoffe)
 var materials_used := {}            # Rohstoff -> beim Wachsen verbaut (laufender Monat)
@@ -160,8 +164,11 @@ func _process(delta: float) -> void:
 
 
 func to_dict() -> Dictionary:
+	var buffers := {}
+	for a: int in local_buffer:
+		buffers[str(a)] = local_buffer[a]
 	return {"money": money, "month": month, "year": year, "tax": tax, "fare": fare, "congestion": congestion,
-		"stock": stock}
+		"stock": stock, "buffers": buffers}
 
 
 func from_dict(d: Dictionary) -> void:
@@ -176,6 +183,9 @@ func from_dict(d: Dictionary) -> void:
 		tax[Config.Zone.RES] = d["tax_rate"]
 		tax[Config.Zone.COM] = d["tax_rate"]
 	fare = d.get("fare", 1)
+	local_buffer = {}
+	for k: String in (d.get("buffers", {}) as Dictionary):
+		local_buffer[int(k)] = d["buffers"][k]
 	stock = {}
 	for r: String in Config.RESOURCES:
 		stock[r] = float((d.get("stock", {}) as Dictionary).get(r, 0.0))
@@ -2057,6 +2067,7 @@ func _produce() -> void:
 		if not stock.has(r):
 			stock[r] = 0.0
 	producer_info = {}
+	_compute_delivery()
 	var changed := Rect2i()
 	var any := false
 	var size := map.size
@@ -2067,6 +2078,13 @@ func _produce() -> void:
 		var issue := ""
 		if not special_powered(a):
 			producer_info[a] = {"out": out, "issue": "Kein Strom - steht still"}
+			continue
+		var linked := delivers(a)
+		var buf: Dictionary = local_buffer.get(a, {})
+		var buf_cap := Config.LOCAL_BUFFER * lv
+		if not linked and _buffer_sum(buf) >= buf_cap:
+			producer_info[a] = {"out": out, "issue": "Keine Straße zum Lager - eigener Vorrat voll (%d/%d), steht still" % [
+				int(_buffer_sum(buf)), buf_cap]}
 			continue
 		match def["produce"]:
 			"wood":
@@ -2112,16 +2130,140 @@ func _produce() -> void:
 						any = true
 				if out.is_empty():
 					issue = "Kein Vorkommen mehr in Reichweite (%d Tiles) - Ansicht Rohstoffe" % rng_r
-		for res: String in out:
-			production[res] = float(production[res]) + float(out[res])
-			stock[res] = float(stock[res]) + float(out[res])
+		if linked:
+			# Anschluss da: eigener Vorrat (falls vorhanden) wird mitgeliefert
+			for res: String in buf:
+				stock[res] = float(stock.get(res, 0.0)) + float(buf[res])
+			local_buffer.erase(a)
+			for res: String in out:
+				production[res] = float(production[res]) + float(out[res])
+				stock[res] = float(stock[res]) + float(out[res])
+		else:
+			for res: String in out:
+				var room := float(buf_cap) - _buffer_sum(buf)
+				buf[res] = float(buf.get(res, 0.0)) + minf(float(out[res]), maxf(room, 0.0))
+			local_buffer[a] = buf
+			issue = "Keine Straße zum Lager - fördert in eigenen Vorrat (%d/%d)" % [int(_buffer_sum(buf)), buf_cap]
 		producer_info[a] = {"out": out, "issue": issue}
+	# Warnung, wenn ein Abbau-Gebäude neu ohne Lieferweg dasteht (einmal je Gebäude)
+	var unlinked := {}
+	var fresh: Array[int] = []
+	for a in _producers():
+		if special_powered(a) and not delivers(a):
+			unlinked[a] = true
+			if not _delivery_warned.has(a):
+				fresh.append(a)
+	_delivery_warned = unlinked
+	if not fresh.is_empty():
+		var f := fresh[0]
+		var text := "%s bei %d,%d: keine Straße zum Lager - fördert nur in eigenen Vorrat" % [
+			Config.SPECIALS[map.special[f]]["name"], f % size, f / size]
+		if fresh.size() > 1:
+			text = "%d Abbau-Gebäude ohne Straße zum Lager (z.B. %s bei %d,%d) - Ansicht Rohstoffe zeigt sie rot" % [
+				fresh.size(), Config.SPECIALS[map.special[f]]["name"], f % size, f / size]
+		alert.emit(text, Vector2i(f % size, f / size))
 	if any:
 		map.notify_changed(changed, false)
 
 
 ## Verarbeitung (Sägewerk, Ziegelei, Glashütte, Stahlwerk) und Kohleverbrauch der Kraftwerke.
 ## Knappe Rohstoffe -> anteilige Verarbeitung. Fehlende Kraftwerkskohle wird zugekauft.
+func _buffer_sum(buf: Dictionary) -> float:
+	var t := 0.0
+	for r: String in buf:
+		t += float(buf[r])
+	return t
+
+
+## Lieferwege: Straßennetze (zusammenhängende Straßen) bestimmen; "Lager-Netze" = Netze mit Lagerhaus,
+## ohne Lagerhaus das Netz mit den meisten Einwohnern (Hauptnetz der Stadt).
+func _compute_delivery() -> void:
+	var size := map.size
+	var n := size * size
+	var road := map.road
+	var h := map.height
+	var net := PackedInt32Array()
+	net.resize(n)
+	net.fill(-1)
+	var queue := PackedInt32Array()
+	var id := 0
+	for s in n:
+		if road[s] == 0 or net[s] != -1:
+			continue
+		net[s] = id
+		queue.resize(0)
+		queue.append(s)
+		var head := 0
+		while head < queue.size():
+			var u := queue[head]
+			head += 1
+			var x := u % size
+			var z := u / size
+			for v: int in [u + 1 if x + 1 < size else -1, u - 1 if x > 0 else -1, u + size if z + 1 < size else -1,
+					u - size if z > 0 else -1]:
+				if v >= 0 and road[v] != 0 and net[v] == -1 and absi(h[v] - h[u]) <= 1:
+					net[v] = id
+					queue.append(v)
+		id += 1
+	_road_net = net
+	_store_nets = {}
+	for a in _producers(true):
+		for r in _access_roads(a):
+			_store_nets[net[r]] = true
+	if _store_nets.is_empty() and road_src.size() == n:
+		var pop := {}
+		for i in n:
+			if map.zone[i] == Config.Zone.RES and map.level[i] > 0 and road_dist[i] <= Config.ROAD_ACCESS_RANGE:
+				var c := net[road_src[i]]
+				pop[c] = int(pop.get(c, 0)) + map.res_capacity(i)
+		var best := -1
+		for c: int in pop:
+			if best < 0 or int(pop[c]) > int(pop[best]):
+				best = c
+		if best >= 0:
+			_store_nets[best] = true
+
+
+## Straßen-Tiles direkt neben der Grundfläche eines Sonderbaus.
+func _access_roads(a: int) -> PackedInt32Array:
+	var size := map.size
+	var s: int = Config.SPECIALS[map.special[a]]["size"]
+	var ax := a % size
+	var az := a / size
+	var out := PackedInt32Array()
+	for z in range(az - 1, az + s + 1):
+		for x in range(ax - 1, ax + s + 1):
+			var edge := (x == ax - 1 or x == ax + s) != (z == az - 1 or z == az + s)
+			if edge and map.is_road(x, z):
+				out.append(map.idx(x, z))
+	return out
+
+
+## Liefert dieser Sonderbau ins Lager (Straße daneben, gleiches Netz wie ein Lager)?
+func delivers(a: int) -> bool:
+	if _road_net.size() != map.size * map.size:
+		return true
+	for r in _access_roads(a):
+		if _store_nets.has(_road_net[r]):
+			return true
+	return false
+
+
+## Für die Bau-Vorschau: Lage x,z (Größe s) hätte Straße daneben / Anschluss ans Lager?
+func delivery_at(t: Vector2i, s: int) -> int:
+	if _road_net.size() != map.size * map.size:
+		return 2
+	var any_road := false
+	for z in range(t.y - 1, t.y + s + 1):
+		for x in range(t.x - 1, t.x + s + 1):
+			var edge := (x == t.x - 1 or x == t.x + s) != (z == t.y - 1 or z == t.y + s)
+			if edge and map.is_road(x, z):
+				any_road = true
+				if _store_nets.has(_road_net[map.idx(x, z)]):
+					return 2       # angeschlossen
+	return 1 if any_road else 0    # 1 = Straße, aber anderes Netz; 0 = keine Straße
+
+
 func _process_goods() -> void:
 	coal_burned = 0.0
 	imported = {}
@@ -2144,6 +2286,9 @@ func _process_goods() -> void:
 		var lv := map.special_level(a)
 		if not special_powered(a):
 			producer_info[a] = {"out": {}, "in": {}, "issue": "Kein Strom - steht still"}
+			continue
+		if not delivers(a):
+			producer_info[a] = {"out": {}, "in": {}, "issue": "Keine Straße zum Lager - bekommt keine Rohstoffe"}
 			continue
 		# Anteil, der mit den vorhandenen Rohstoffen möglich ist
 		var share := 1.0

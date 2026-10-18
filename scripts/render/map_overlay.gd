@@ -135,8 +135,12 @@ func _rebuild() -> void:
 						var c: Color = NET_COLORS[sim.power_net[i] % NET_COLORS.size()]
 						colors.append(c)
 			Mode.RESOURCES:
-				# Vorkommen in Rohstoff-Farbe (je voller, desto kräftiger), Wald grün, erschöpft grau
-				if map.ore[i] != Config.Ore.NONE:
+				# Abbau-Gebäude/Werke: grün mit Lieferweg, rot ohne; Vorkommen in Rohstoff-Farbe, Wald grün, erschöpft grau
+				var a := map.anchor[i]
+				if a >= 0 and (Config.SPECIALS[map.special[i]].has("produce") or Config.SPECIALS[map.special[i]].has("process")):
+					items.append(i)
+					colors.append(GREEN if sim.delivers(a) else RED)
+				elif map.ore[i] != Config.Ore.NONE:
 					items.append(i)
 					if map.ore_amt[i] == 0:
 						colors.append(Color(0.5, 0.5, 0.5, 0.5))
