@@ -23,6 +23,7 @@ var villa: PackedByteArray      # 1 = Wohnen Stufe 3 ist eine Villa (statt Wohnb
 var worn: PackedByteArray       # 1 = Gebäude verfällt (sinkt bald ab) -> abgenutzte Optik
 var empty: PackedByteArray      # Leerstand 0..100 % (0 = voll belegt; Default -> alte Saves/Tests voll); 100 = aufgegeben
 var vacant: PackedByteArray     # Monate im Leerstand (nach VACANT_MONTHS abgerissen)
+var construct: PackedByteArray  # Baustelle: verbleibende Bauzeit in halben Monaten (0 = fertig; Sonderbau: am Anker)
 var hightech: PackedByteArray   # 1 = Industrie-Zone als Hightech (Forschung, eigenes Werkzeug)
 var ore: PackedByteArray        # Bodenvorkommen (Config.Ore)
 var ore_amt: PackedByteArray    # Restmenge des Vorkommens (0 = erschöpft)
@@ -50,6 +51,7 @@ func _init(map_size: int = Config.MAP_SIZE) -> void:
 	empty.resize(n)
 	vacant.resize(n)
 	hightech.resize(n)
+	construct.resize(n)
 	ore.resize(n)
 	ore_amt.resize(n)
 
@@ -94,6 +96,8 @@ func res_capacity(i: int) -> int:
 
 ## Tatsächliche Einwohner (Kapazität × Belegung).
 func residents(i: int) -> float:
+	if construct[i] > 0:
+		return 0.0                  # Baustelle: noch niemand eingezogen
 	return res_capacity(i) * (100 - empty[i]) * 0.01
 
 
@@ -104,6 +108,8 @@ func occupancy(i: int) -> int:
 
 ## Tatsächliche Arbeitsplätze eines Gewerbe-/Industrie-Tiles (Kapazität × Belegung).
 func jobs_at(i: int) -> float:
+	if construct[i] > 0:
+		return 0.0
 	match zone[i]:
 		Config.Zone.COM: return Config.COM_CAPACITY[level[i]] * (100 - empty[i]) * 0.01
 		Config.Zone.IND: return Config.IND_CAPACITY[level[i]] * (100 - empty[i]) * 0.01
@@ -240,7 +246,7 @@ func notify_changed(rect: Rect2i, infra := true) -> void:
 	tiles_changed.emit(rect)
 
 
-const SAVE_FIELDS := ["height", "zone", "road", "level", "feature", "power_line", "special", "anchor", "rail", "transit", "slevel", "burning", "ruin", "villa", "worn", "ore", "ore_amt", "empty", "vacant", "hightech"]
+const SAVE_FIELDS := ["height", "zone", "road", "level", "feature", "power_line", "special", "anchor", "rail", "transit", "slevel", "burning", "ruin", "villa", "worn", "ore", "ore_amt", "empty", "vacant", "hightech", "construct"]
 
 
 const ORE_VERSION := 2          # 2 = mit Fels (Ore.STONE)

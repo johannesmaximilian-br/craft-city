@@ -188,6 +188,10 @@ func _emit_tile(tx: int, tz: int) -> void:
 	if map.power_line[i] == 1:
 		_emit_power_line(tx, tz, base)
 
+	if map.anchor[i] == i and map.construct[i] > 0 and map.special[i] != Config.Special.NONE:
+		var s_c: int = Config.SPECIALS[map.special[i]]["size"]
+		StructureGenerator.scaffold(_b, base, s_c * B, 2 + s_c * 2)      # Sonderbau im Bau
+		return
 	if map.anchor[i] == i:
 		match map.special[i]:
 			Config.Special.COAL: StructureGenerator.coal(_b, base)
@@ -238,6 +242,8 @@ func _emit_tile(tx: int, tz: int) -> void:
 			for sz in B:
 				for sx in B:
 					_b.put(plate, base + Vector3(sx, 0, sz))
+		elif map.construct[i] > 0:
+			StructureGenerator.scaffold(_b, base, B, [0, 2, 3, 6, 12][lv])    # Haus im Bau (Höhe der neuen Stufe)
 		else:
 			_b.base = base
 			var worn := map.worn[i] == 1 or map.is_vacant(i)

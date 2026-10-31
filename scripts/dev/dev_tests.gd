@@ -1134,12 +1134,25 @@ static func buildstarttest(game: Node) -> void:
 	tools.set_tool(ToolController.Tool.INSPECT)
 	print("buildstart Holzfäller bei %s, Steinbruch bei %s, Kasse $%d, Holz %d, Meldungen %s" % [lum, qua, int(sim.money),
 		int(sim.stock["wood"]), msgs])
-	for m in 36:
+	print("buildstart Baustellen direkt nach dem Bau: Holzfäller %d, Steinbruch %d halbe Monate, Lager-Kreis am Holzfäller %d" % [
+		map.construct[map.idx(lum.x, lum.y)] if lum.x >= 0 else -1, map.construct[map.idx(qua.x, qua.y)] if qua.x >= 0 else -1,
+		sim.store_cover[map.idx(lum.x, lum.y)] if lum.x >= 0 and sim.store_cover.size() > 0 else -1])
+	# Grube weit draußen (außerhalb des Rathaus-Kreises) -> doppelte Bauzeit
+	var far := hp._place_at(ToolController.Tool.PIT, Vector2i(hx + 30, hz + 30))
+	var months := int(DevTools.value("--bsmonths")) if DevTools.value("--bsmonths") != "" else 36
+	for m in months:
+		if m < 4 and far.x >= 0:
+			print("buildstart Monat %d: Grube weit draußen (Kreis %d) Rest %d, Holzfäller Rest %d" % [m, sim.store_cover[map.idx(far.x, far.y)],
+				map.construct[map.idx(far.x, far.y)], map.construct[map.idx(lum.x, lum.y)] if lum.x >= 0 else -1])
 		sim.tick_month()
 		if m % 6 == 5:
 			var nx := sim.hall_next()
-			print("buildstart Monat %d: Einw. %d, Holz %d, Stein %d, Steuern $%d, Kasse $%d, Stufe 2 fehlt: %s" % [m + 1,
-				sim.population, int(sim.stock["wood"]), int(sim.stock["stone"]), roundi(float(sim.income_parts.get("Wohnen", 0.0))),
+			var sites := 0
+			for i in map.size * map.size:
+				if map.construct[i] > 0:
+					sites += 1
+			print("buildstart Monat %d: Einw. %d, Baustellen %d, Holz %d, Stein %d, Steuern $%d, Kasse $%d, Stufe 2 fehlt: %s" % [m + 1,
+				sim.population, sites, int(sim.stock["wood"]), int(sim.stock["stone"]), roundi(float(sim.income_parts.get("Wohnen", 0.0))),
 				int(sim.money), nx.get("missing", [])])
 			if bool(nx.get("ok", false)):
 				print("buildstart Ausbau: '%s' -> Stufe %d, Gewerbe jetzt '%s'" % [sim.upgrade_hall(), sim.hall_level,

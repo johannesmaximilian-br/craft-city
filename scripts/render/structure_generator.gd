@@ -372,6 +372,23 @@ static func cityhall(b: BlockBatch, base: Vector3, lv: int) -> void:
 		b.put_box("wood", base + Vector3(x + 0.5, 0.35, 0.05), Vector3(1.0, 0.7, 0.08))
 
 
+## Baustelle: Holzgerüst (Pfosten + Bohlen-Ebenen) über w x w Blöcken bis Höhe h, Materialstapel, ab h >= 6 ein Kran.
+static func scaffold(b: BlockBatch, base: Vector3, w: int, h: int) -> void:
+	for p: Vector2 in [Vector2(0.15, 0.15), Vector2(w - 0.15, 0.15), Vector2(0.15, w - 0.15), Vector2(w - 0.15, w - 0.15)]:
+		b.put_box("log", base + Vector3(p.x, h * 0.5, p.y), Vector3(0.18, float(h), 0.18))
+	for y in range(1, h + 1, 2):
+		b.put_box("wood", base + Vector3(w * 0.5, float(y), 0.15), Vector3(float(w), 0.1, 0.35))
+		b.put_box("wood", base + Vector3(w * 0.5, float(y), w - 0.15), Vector3(float(w), 0.1, 0.35))
+		b.put_box("wood", base + Vector3(0.15, float(y), w * 0.5), Vector3(0.35, 0.1, float(w)))
+		b.put_box("wood", base + Vector3(w - 0.15, float(y), w * 0.5), Vector3(0.35, 0.1, float(w)))
+	b.put_box("greybrick", base + Vector3(w * 0.5, 0.5, w * 0.5), Vector3(w - 1.0, 1.0, w - 1.0))   # Fundament/erste Mauer
+	b.put_box("brick", base + Vector3(0.7, 0.25, 0.7), Vector3(0.8, 0.5, 0.6))                     # Materialstapel
+	b.put_box("wood", base + Vector3(w - 0.8, 0.15, 0.6), Vector3(0.9, 0.3, 0.5))
+	if h >= 6:
+		b.put_box("vox_yellow", base + Vector3(w - 0.6, h + 1.5, w - 0.6), Vector3(0.25, h + 3.0, 0.25))   # Kran
+		b.put_box("vox_yellow", base + Vector3(w * 0.5, h + 3.0, w - 0.6), Vector3(float(w) + 1.0, 0.2, 0.2))
+
+
 ## Universität (9x9): Hauptgebäude mit Säulenportal und Kuppel vorn, zwei Seitenflügel, Rasen-Innenhof.
 static func university(b: BlockBatch, base: Vector3, lv: int) -> void:
 	var f := lv + 2

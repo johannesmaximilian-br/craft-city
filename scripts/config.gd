@@ -406,6 +406,12 @@ const START_MONEY := 20000.0
 # ---- Aufbau-Start (Spielmodus "build") ----
 const BUILD_START_MONEY := 3000.0                 # Gründungskasse (Straßen)
 const BUILD_START_STOCK := {"wood": 200, "stone": 150}
+# Baustellen + Lager-Netz (nur Aufbau-Start)
+const BUILD_MONTHS_ZONE := [0, 1, 2, 3, 3]        # Bauzeit (Monate) beim Wachsen auf Stufe n
+const BUILD_MONTHS_SPECIAL := [0, 1, 2, 3]        # Bauzeit je Grundfläche 1x1 / 2x2 / 3x3
+const STORE_RADIUS := [0, 14, 20, 26]             # Einzugskreis Lagerhaus je Stufe (Tiles) ...
+const HALL_STORE_RADIUS := 18                     # ... und Rathaus-Hof
+const STORE_SLOW := 2                             # Baustelle außerhalb eines Lager-Kreises: so viel langsamer
 const FOUNDING_JOBS_HALL := 30.0                  # Gründung: Arbeitsplätze am Rathaus ...
 const FOUNDING_JOBS_PRODUCER := 15.0              # ... und je Abbau-Betrieb mit Strom (Gewerbe/Industrie erst ab Stufe 2)
 const BUILD_FOUNDING_COST := 0.1                  # Gründung (Rathaus-Stufe 1): Sonderbauten kosten 10 % des Geldpreises, kein Unterhalt

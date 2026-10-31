@@ -94,6 +94,7 @@ var jobs_hightech := 0              # davon Hightech-Jobs (höhere Steuer)
 var last_maint := {}                # Instandhaltung: Bedarf je Material im letzten Monat
 var maint_recycled := 0.0           # davon von Recyclinghöfen zurückgeholt (Einheiten)
 var maint_short := 0.0              # Anteil Instandhaltung, der mangels Geld ausblieb (0..1) -> Verfall
+var store_cover := PackedByteArray()   # Lager-Netz: 1 = Tile im Einzugskreis eines Lagers (Aufbau-Start)
 var game_mode := "classic"          # "classic" (Startkapital, alles nach Einwohnern) | "build" (Aufbau-Start, Rathaus-Stufen)
 var hall_level := 0                 # Rathaus-Stufe (nur Aufbau-Start; 0 = klassisch)
 var interest_cost := 0.0            # Schuldzinsen im letzten Monat
@@ -263,6 +264,8 @@ func refresh(staged := false) -> void:
 	_compute_road_distance()
 	_compute_junctions()
 	_compute_power()
+	if game_mode == "build":
+		_compute_store_cover()
 	Perf.end("sim.strassen+strom", t)
 	t = Perf.begin()
 	_request_commute()
@@ -370,6 +373,7 @@ func _tick_stage(stage: String) -> void:
 		"strom2":
 			_compute_power()
 		"abschluss":
+			_advance_construction()
 			_recount()
 			_update_demand()
 			_renew()
@@ -1369,7 +1373,7 @@ func tile_power_use(i: int) -> int:
 ## Sonderbau (beliebiges Tile davon) hat Strom? Kraftwerke immer.
 func special_powered(i: int) -> bool:
 	var a := map.anchor[i]
-	return a >= 0 and powered.size() > a and powered[a] == 1
+	return a >= 0 and powered.size() > a and powered[a] == 1 and map.construct[a] == 0   # Baustelle arbeitet nicht
 
 
 ## Stromnetze: zusammenhängende leitende Tiles (Leitungen, Zonen, Sonderbauten; Straßen leiten nicht).
@@ -1427,7 +1431,7 @@ func _compute_power() -> void:
 			head += 1
 			if anchor[i] == i:
 				var pdef: Dictionary = Config.SPECIALS[special[i]]
-				var p: int = pdef["power"]
+				var p: int = pdef["power"] if map.construct[i] == 0 else 0     # Kraftwerk im Bau liefert nichts
 				capacity += p
 				if not pdef.has("solar"):
 					night += p
@@ -1614,7 +1618,7 @@ func _recount() -> void:
 	for i in map.size * map.size:
 		var lv := level[i]
 		var zn := zone[i]
-		var occ := (100 - empty[i]) * 0.01
+		var occ := (100 - empty[i]) * 0.01 if map.construct[i] == 0 else 0.0
 		if zn == Config.Zone.RES:
 			if villa[i] == 1 and lv == 3:
 				pop_f += Config.VILLA_POP * occ
@@ -1824,6 +1828,9 @@ func _grow_rows(z_from: int, z_to: int) -> void:
 				# sanft: zu groß für die Lage / Villenlage weg (Abstieg auf kleinere Stufe) und keine Nachfrage
 				hard = (zn == Config.Zone.RES and happiness[i] < Config.HAPPY_LEAVE) or not ok
 				var unmaintained := new_lv >= 2 and maint_short > 0.0 and _rng.randf() < maint_short * 0.5
+				if game_mode == "build" and new_lv >= 2 and population >= Config.MATERIAL_FROM_POP \
+						and store_cover.size() > i and store_cover[i] == 0 and _rng.randf() < 0.1:
+					unmaintained = true     # außerhalb jedes Lager-Kreises kommt die Instandhaltung schlecht an
 				if hard or demand < -0.25 or new_lv > mx or unmaintained \
 						or (zn == Config.Zone.RES and new_lv == 3 and map.villa[i] == 1 and villa_lost(i)):
 					worn = 1
@@ -1831,6 +1838,8 @@ func _grow_rows(z_from: int, z_to: int) -> void:
 			var occ := 100 - int(map.empty[i])
 			if new_lv > lv:
 				occ = 100
+				if game_mode == "build":
+					map.construct[i] = Config.BUILD_MONTHS_ZONE[new_lv] * 2       # halbe Monate
 			elif new_lv > 0:
 				if worn == 1 and not hard:
 					occ = maxi(mini(occ, maxi(occ - Config.OCC_DROP_DEMAND, Config.OCC_SOFT_FLOOR)), 0)
@@ -2185,7 +2194,7 @@ func _producers(storage := false) -> PackedInt32Array:
 	for i in map.size * map.size:
 		if anchor[i] == i and special[i] != Config.Special.NONE:
 			var def: Dictionary = Config.SPECIALS[special[i]]
-			if (storage and def.has("storage")) or (not storage and def.has("produce")):
+			if ((storage and def.has("storage")) or (not storage and def.has("produce"))) and map.construct[i] == 0:
 				out.append(i)
 	return out
 
@@ -2726,6 +2735,46 @@ func materials_on() -> bool:
 ## Zukauf (Handel) möglich? Im Aufbau-Start erst ab Rathaus-Stufe 2 – vorher nur selbst gesammeltes Material.
 func can_trade() -> bool:
 	return game_mode != "build" or hall_level >= 2
+
+
+## Lager-Netz: Einzugskreise von Rathaus-Hof und Lagerhäusern (fertig gebaut, mit Strom) -> store_cover je Tile.
+func _compute_store_cover() -> void:
+	var n := map.size * map.size
+	store_cover.resize(n)
+	store_cover.fill(0)
+	for a in n:
+		if map.anchor[a] != a or map.special[a] == Config.Special.NONE:
+			continue
+		if not Config.SPECIALS[map.special[a]].has("storage") or map.construct[a] > 0:
+			continue
+		var r := Config.HALL_STORE_RADIUS if map.special[a] == Config.Special.CITYHALL else \
+			int(Config.STORE_RADIUS[map.special_level(a)])
+		var s: int = Config.SPECIALS[map.special[a]]["size"]
+		var cx := a % map.size + (s - 1) * 0.5
+		var cz := a / map.size + (s - 1) * 0.5
+		for z in range(maxi(int(cz) - r, 0), mini(int(cz) + r + 2, map.size)):
+			for x in range(maxi(int(cx) - r, 0), mini(int(cx) + r + 2, map.size)):
+				if Vector2(x - cx, z - cz).length() <= r:
+					store_cover[z * map.size + x] = 1
+
+
+## Baustellen (nur Aufbau-Start) einen Monat weiterbauen: im Lager-Kreis 2 halbe Monate, sonst 1 (STORE_SLOW).
+func _advance_construction() -> void:
+	if game_mode != "build":
+		return
+	_compute_store_cover()
+	var n := map.size * map.size
+	var con := map.construct
+	for i in n:
+		if con[i] == 0:
+			continue
+		var step := 2 if store_cover[i] == 1 else 2 / Config.STORE_SLOW
+		con[i] = maxi(int(con[i]) - step, 0)
+		if con[i] == 0:
+			var s := 1
+			if map.special[i] != Config.Special.NONE and map.anchor[i] == i:
+				s = Config.SPECIALS[map.special[i]]["size"]
+			map.notify_changed(Rect2i(i % map.size, i / map.size, s, s), map.special[i] != Config.Special.NONE)
 
 
 ## Gründung (Aufbau-Start, Stufe 1): Arbeitsplätze am Rathaus und in Abbau-Betrieben mit Strom (es gibt noch kein

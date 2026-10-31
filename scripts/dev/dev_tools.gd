@@ -145,6 +145,16 @@ static func run(game: Node) -> void:
 			elif mp.zone[i] == Config.Zone.IND and mp.level[i] > 0:
 				mp.hightech[i] = 1
 		mp.notify_changed(Rect2i(0, 0, mp.size, mp.size), false)
+	if has("--construct"):
+		# Screenshot: jedes 3. Gebäude als Baustelle (nur Optik)
+		var mpc: CityMap = game.map
+		var kc := 0
+		for i in mpc.size * mpc.size:
+			if mpc.level[i] > 0 and mpc.zone[i] != Config.Zone.NONE:
+				kc += 1
+				if kc % 3 == 0:
+					mpc.construct[i] = 2
+		mpc.notify_changed(Rect2i(0, 0, mpc.size, mpc.size), false)
 	if has("--vacant"):
 		# jedes 3. Gebäude als Leerstand markieren (Screenshot)
 		var mp: CityMap = game.map

@@ -2013,6 +2013,15 @@ func _on_hover(t: Vector2i) -> void:
 		add.call("Lage", "Bodenwert %d%%  ·  Verschmutzung %.1f%s" % [roundi(sim.land_value[i] * 100.0), sim.pollution[i],
 			("  (Grün filtert %d%%)" % roundi(gf * 100.0)) if gf > 0.0 else ""])
 	add.call("Lage", "Tile %d, %d  ·  Höhe %d" % [t.x, t.y, map.height[i]])
+	# Baustelle / Lager-Netz (Aufbau-Start)
+	if sim.game_mode == "build":
+		var ci := map.anchor[i] if map.special[i] != Config.Special.NONE and map.anchor[i] >= 0 else i
+		var outside := sim.store_cover.size() > i and sim.store_cover[i] == 0
+		if map.construct[ci] > 0:
+			summary = "Baustelle: fertig in ~%d Monat(en)%s" % [ceili(map.construct[ci] * 0.5 * (Config.STORE_SLOW if outside else 1)),
+				"" if not outside else " (langsam)"]
+		if outside and (map.zone[i] != Config.Zone.NONE or map.special[i] != Config.Special.NONE):
+			problems.append("x Kein Lager in Reichweite - Bauen dauert %dx so lange, Instandhaltung kommt schlecht an" % Config.STORE_SLOW)
 	if map.anchor[i] >= 0 and map.special[i] != Config.Special.NONE:
 		var sdef: Dictionary = Config.SPECIALS[map.special[i]]
 		if sim.tech("deep_mining") and sdef.has("produce") and str(sdef["produce"]) != "wood":
@@ -2031,6 +2040,11 @@ func _on_hover(t: Vector2i) -> void:
 ## Info-Karte aufbauen: Titel, Kernzeile, roter Problemkasten; mit Details (Taste I) Abschnitte als Zeilen
 ## Bezeichnung | Wert (aus den Texten zerlegt, siehe _info_rows).
 func _show_info(title: String, summary: String, problems: PackedStringArray) -> void:
+	var uniq := PackedStringArray()
+	for pr in problems:
+		if not uniq.has(pr):
+			uniq.append(pr)
+	problems = uniq
 	var sig := "%s|%s|%s|%s|%s" % [title, summary, problems, _info_sections, _info_detail]
 	if sig == _info_sig:
 		return

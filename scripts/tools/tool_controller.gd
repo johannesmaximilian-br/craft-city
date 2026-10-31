@@ -755,6 +755,9 @@ func _place_special(tiles: Array[Vector2i]) -> void:
 		map.special[i] = sp
 		map.anchor[i] = a
 	map.slevel[a] = 1
+	if sim.game_mode == "build":
+		# Baustelle: Bauzeit nach Grundfläche, außerhalb eines Lager-Kreises länger (s. _advance_construction)
+		map.construct[a] = Config.BUILD_MONTHS_SPECIAL[clampi(int(Config.SPECIALS[sp]["size"]), 1, 3)] * 2
 
 
 ## Gibt das geänderte Rechteck zurück (Sonderbauten können größer sein).
@@ -865,6 +868,19 @@ func range_preview(t: Vector2i) -> Dictionary:
 						if map.in_bounds(x, z) and (absi(x - t.x) == rr or absi(z - t.y) == rr):
 							ring[map.idx(x, z)] = RANGE_AREA
 				return ring
+			if sp == Config.Special.WAREHOUSE:
+				var up_w := _upgrade_target()
+				var lv_w := mini(map.special_level(up_w) + 1, 3) if up_w >= 0 else 1
+				var origin_w := Vector2i(up_w % map.size, up_w / map.size) if up_w >= 0 else t
+				var rr: int = Config.STORE_RADIUS[lv_w]
+				for dz in range(-rr, rr + 2):
+					for dx in range(-rr, rr + 2):
+						var d := Vector2(dx - 0.5, dz - 0.5).length()
+						var x := origin_w.x + dx
+						var z := origin_w.y + dz
+						if map.in_bounds(x, z) and d <= rr and d > rr - 1.0 and not map.is_water(x, z):
+							out[map.idx(x, z)] = RANGE_AREA
+				return out
 			if sp == Config.Special.NONE or not (Config.SPECIALS[sp].has("service") or sp == Config.Special.RECYCLER):
 				return out
 			var up := _upgrade_target()

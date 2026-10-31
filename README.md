@@ -77,7 +77,11 @@ Menü → **„Neue Stadt: Aufbau“** oder **„Neue Stadt: Klassisch“**. Alt
 | 4 | Stadt | 3.000 Einw. + 400 Ziegel, 150 Glas, 100 Stahl | Bahn, Bibliothek, Kino, Bürgerhaus, Stahlwerk, Recyclinghof, Prospektor, Betonwerk |
 | 5 | Großstadt | 6.000 Einw. + 600 Ziegel, 300 Glas, 300 Stahl, 50 Gold | Universität, Institut, Theater, Stadion, Hightech, Solar/Speicher/Wasserkraft (+ Forschung) |
 
-Test `--buildstart` (Gründung, Sperren, Abbau, Wachstum, Ausbau).
+- **Baustellen** (Schritt 2): Wächst ein Haus, ist es erst eine Baustelle (Holzgerüst, Materialstapel, ab Stufe 3 Kran) – Bauzeit Stufe 1/2/3+ = 1/2/3 Monate, solange wohnt/arbeitet dort niemand. Auch Sonderbauten sind erst Baustelle (1×1 = 1, 2×2 = 2, 3×3 = 3 Monate) und liefern solange nichts (kein Strom, keine Förderung, kein Dienst).
+- **Lager-Netz:** Rathaus-Hof (18 Tiles) und Lagerhäuser (14 / 20 / 26 Tiles je Stufe) haben einen Einzugskreis. Baustellen außerhalb dauern **doppelt so lange**; ab 2.000 Einwohnern verfallen Gebäude außerhalb leichter (Instandhaltung kommt schlecht an). Info-Karte: „Baustelle: fertig in ~N Monaten (langsam)“, „Kein Lager in Reichweite“; Bau-Vorschau des Lagerhauses zeigt den Kreis.
+- Nur im Aufbau-Start (klassische Spiele unverändert).
+
+Test `--buildstart [--bsmonths=N]` (Gründung, Sperren, Abbau, Baustellen, Lager-Kreis, Wachstum, Ausbau), Screenshot-Flag `--construct`.
 
 ## Regeln (Kurz)
 
@@ -447,7 +451,7 @@ python3 tools/audio/gen_audio.py sfx ambient  # nur Effekte + Loops (~3 s)
   - **Lager-Netz:** Lagerhäuser mit Einzugskreis; Baustellen und Instandhaltung außerhalb werden langsamer beliefert → verteilte Lager nötig.
   - **Bürgermeister-Figur** am Rathaus: verkündet dauerhaft alle Meldungen per Sprechblase und läuft zum Ort; Klick = Berater (wichtigste Baustellen der Stadt) und anfangs Aufgabenliste.
   - **Arbeiter-Figuren** laufen dauerhaft sichtbar (Lager ↔ Baustellen/Werke); später Lieferwagen (Lieferverkehr).
-  - Umsetzung in Schritten: **1 Spielmodus + Rathaus-Stufen + Gründung (fertig 31.10.)** · 2 Baustellen + Lager-Netz · 3 Bürgermeister + Sprechblasen + Berater · 4 Arbeiter-Figuren
+  - Umsetzung in Schritten: **1 Spielmodus + Rathaus-Stufen + Gründung (fertig 31.10.)** · **2 Baustellen + Lager-Netz (fertig 31.10.)** · 3 Bürgermeister + Sprechblasen + Berater · 4 Arbeiter-Figuren
 - [ ] **Lieferverkehr**: Liefermengen als LKW-Fahrten zum Lager (Straßenlast, sichtbare Laster), Güterbahnhof für entfernte Minen, Lieferweg-Kosten
 - [ ] Untertage-Ebene, Tunnel zu Nachbarstädten, Handel mit fiktiven Bürgermeistern
 - [ ] **U-Bahn** (Untertage-Ebene, Stationen, kein Flächenverbrauch an der Oberfläche)

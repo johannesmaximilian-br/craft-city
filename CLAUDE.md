@@ -247,6 +247,11 @@ $G --path . -- --demo --cam=32,32,60 --screenshot=/pfad/bild.png          # Scre
   × `BUILD_FOUNDING_COST`, `founding_jobs()` statt Gewerbe/Industrie, RES ohne Pendel-Pflicht (`_can_grow`,
   `growth_blockers`). Stufe-1-Material `BUILD_LV1_COST` über `growth_materials` (Wachstum 0→1 ruft `_use_materials`).
   Rathaus-Fenster: HUD-Popup "hall" (`_fill_hall`), Ausbau `sim.upgrade_hall()`.
+- **Baustellen/Lager-Netz (nur Aufbau-Start):** Map-Feld `construct` (halbe Monate, Sonderbau am Anker). `residents`/
+  `jobs_at`/`_recount` zählen Baustellen nicht, `special_powered` ist false und Kraftwerke liefern 0, `_producers` überspringt.
+  `_advance_construction()` (abschluss, vor `_recount`) zieht im Lager-Kreis 2, sonst 1 ab und meldet fertige Tiles einzeln;
+  `_compute_store_cover()` → `store_cover`. Start der Bauzeit: `_grow_rows` (Stufe hoch) bzw. `ToolController._place_special`.
+  Renderer: `StructureGenerator.scaffold` statt Gebäude.
 - **Progression über Rathaus-Stufen (Nutzer-Grundsatz 31.10.):** Jede neue Großfunktion (U-Bahn, Wasserleitungen,
   Flughafen, …) wird künftig an eine Rathaus-Stufe gebunden, deren Ausbau Material kostet – nicht nur an Einwohnerzahlen.
   Konzept Aufbau-Start: README → Roadmap.
