@@ -271,20 +271,52 @@ static func run(game: Node) -> void:
 			print("hover Kostenblase: %s" % game.hud._cost.text.replace("\n", " | "))
 			game.hud._cost_pill.set_meta("pin", true)
 	if has("--popflash"):
-		# Popover darf beim Monats-Neuaufbau nicht kurz auf Maximalhöhe springen
+		# Popover/Info-Karte dürfen weder beim Öffnen noch beim Monats-Neuaufbau kurz die Höhe springen lassen.
+		# Je Frame Höhe protokollieren; "Zucken" = Höhe weicht ab und kehrt danach zurück.
+		var jitter := func(h: Array[int]) -> int:
+			var n := 0
+			for k in range(1, h.size() - 1):
+				if h[k] != h[k - 1] and h[k + 1] != h[k] and h[k + 1] == h[k - 1]:
+					n += 1
+			return n
 		for kind: String in ["happy", "view", "research", "log"]:
-			game.hud._toggle_popup(kind)
-			for k in 4:
-				await game.get_tree().process_frame
-			var settled: float = game.hud._popup.size.y
 			var heights: Array[int] = []
-			game.sim.tick_month()             # löst stats_changed -> Neuaufbau aus
+			game.hud._toggle_popup(kind)
+			await RenderingServer.frame_pre_draw
 			heights.append(int(game.hud._popup.size.y))
-			for k in 12:
-				await game.get_tree().process_frame
+			for m in 3:
+				for k in 3:
+					await RenderingServer.frame_pre_draw
+					heights.append(int(game.hud._popup.size.y))
+				game.sim.tick_month()             # löst stats_changed -> Neuaufbau aus
+				await RenderingServer.frame_pre_draw   # gemessen wird, was gezeichnet wird (nach dem Layout im Frame)
 				heights.append(int(game.hud._popup.size.y))
-			print("popflash %s: vorher %d, nach Neuaufbau je Frame %s" % [kind, int(settled), heights])
+			for k in 3:
+				await RenderingServer.frame_pre_draw
+				heights.append(int(game.hud._popup.size.y))
+			print("popflash %s: Höhen je Frame %s -> Zucker %d" % [kind, heights, jitter.call(heights)])
 			game.hud._close_popup()
+		# Info-Karte über einem Wohnhaus, Details an
+		var mp: CityMap = game.map
+		var target := Vector2i(-1, -1)
+		for i in mp.size * mp.size:
+			if mp.zone[i] == Config.Zone.RES and mp.level[i] > 0:
+				target = Vector2i(i % mp.size, i / mp.size)
+				break
+		game.hud._info_detail = true
+		game.tools.hover = target
+		game.hud._on_hover(target)
+		var hs: Array[int] = []
+		for m in 3:
+			for k in 3:
+				await RenderingServer.frame_pre_draw
+				hs.append(int(game.hud._info_card.size.y))
+			game.sim.tick_month()
+			game.hud._on_hover(target)
+			await RenderingServer.frame_pre_draw
+			hs.append(int(game.hud._info_card.size.y))
+		print("popflash info: Höhen je Frame %s -> Zucker %d" % [hs, jitter.call(hs)])
+
 	if value("--techs") != "":
 		# --techs=plant_filter,deep_mining: Projekte als erforscht setzen (Screenshots der Wirkung)
 		for id: String in value("--techs").split(","):

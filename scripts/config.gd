@@ -282,25 +282,25 @@ const ACADEMICS_PER_LEVEL := 1500    # Akademiker (von Unis versorgte Einwohner)
 const RESEARCH_BUDGET_REF := 1000.0  # Budget ($/Monat) für Faktor 1
 const RESEARCH_BUDGET_STEPS := [0, 250, 500, 1000, 2000, 3000]
 const RESEARCH_MIN_ACADEMICS := 0.1  # Untergrenze des Akademiker-Faktors (ein Institut forscht immer ein wenig)
-# Projekte: points = Forschungspunkte (×3 seit 23.10.: 1 Institut Stufe 1 + 1.000 $ ≈ 4 Jahre), gold = einmalig beim Start (fehlt es: Zukauf), requires = Vorgänger
+# Projekte: group = Bereich im Forschungsfenster (aufklappbar), points = Forschungspunkte (×3 seit 23.10.: 1 Institut Stufe 1 + 1.000 $ ≈ 4 Jahre), gold = einmalig beim Start (fehlt es: Zukauf), requires = Vorgänger
 const RESEARCH := {
-	"deep_mining": {"name": "Tiefbau", "desc": "Minen, Steinbrüche und Gruben fördern 50 % mehr",
+	"deep_mining": {"group": "Rohstoffe & Industrie", "name": "Tiefbau", "desc": "Minen, Steinbrüche und Gruben fördern 50 % mehr",
 		"points": 1500, "gold": 30, "requires": []},
-	"efficient_build": {"name": "Effiziente Bauweise", "desc": "25 % weniger Baumaterial beim Bauen und Wachsen",
+	"efficient_build": {"group": "Rohstoffe & Industrie", "name": "Effiziente Bauweise", "desc": "25 % weniger Baumaterial beim Bauen und Wachsen",
 		"points": 1800, "gold": 20, "requires": []},
-	"plant_filter": {"name": "Kraftwerksfilter", "desc": "Kohlekraftwerke verschmutzen halb so viel",
+	"plant_filter": {"group": "Energie", "name": "Kraftwerksfilter", "desc": "Kohlekraftwerke verschmutzen halb so viel",
 		"points": 1500, "gold": 30, "requires": []},
-	"solar": {"name": "Solarenergie", "desc": "Solarfeld bauen: 50 MW, aber nur tagsüber (nachts fehlt der Strom)",
+	"solar": {"group": "Energie", "name": "Solarenergie", "desc": "Solarfeld bauen: 50 MW, aber nur tagsüber (nachts fehlt der Strom)",
 		"points": 1800, "gold": 30, "requires": []},
-	"battery": {"name": "Batteriespeicher", "desc": "Batterie speichert Tagesüberschuss und liefert nachts bis 40 MW",
+	"battery": {"group": "Energie", "name": "Batteriespeicher", "desc": "Batterie speichert Tagesüberschuss und liefert nachts bis 40 MW",
 		"points": 2100, "gold": 50, "requires": ["solar"]},
-	"hydro": {"name": "Wasserkraft", "desc": "Wasserkraftwerk an Fluss/See: 120 MW Tag und Nacht, sauber, aber teuer",
+	"hydro": {"group": "Energie", "name": "Wasserkraft", "desc": "Wasserkraftwerk an Fluss/See: 120 MW Tag und Nacht, sauber, aber teuer",
 		"points": 2400, "gold": 40, "requires": []},
-	"pumped": {"name": "Pumpspeicher", "desc": "Pumpspeicher am Hang über Wasser: speichert 150 MW für die Nacht",
+	"pumped": {"group": "Energie", "name": "Pumpspeicher", "desc": "Pumpspeicher am Hang über Wasser: speichert 150 MW für die Nacht",
 		"points": 2700, "gold": 50, "requires": ["battery"]},
-	"salt": {"name": "Salzspeicher", "desc": "Flüssigsalz-Wärmespeicher (Carnot-Batterie): 300 MW für die Nacht, Kohlekraftwerke umrüstbar",
+	"salt": {"group": "Energie", "name": "Salzspeicher", "desc": "Flüssigsalz-Wärmespeicher (Carnot-Batterie): 300 MW für die Nacht, Kohlekraftwerke umrüstbar",
 		"points": 3600, "gold": 80, "requires": ["pumped"]},
-	"blast_furnace": {"name": "Moderne Hochöfen", "desc": "Werke brauchen halb so viel Kohle und verschmutzen 40 % weniger",
+	"blast_furnace": {"group": "Rohstoffe & Industrie", "name": "Moderne Hochöfen", "desc": "Werke brauchen halb so viel Kohle und verschmutzen 40 % weniger",
 		"points": 2100, "gold": 40, "requires": ["deep_mining"]},
 }
 const TECH_MINING := 1.5             # Faktor Förderung mit Tiefbau

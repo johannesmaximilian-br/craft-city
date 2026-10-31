@@ -64,8 +64,12 @@ var _popup_col: VBoxContainer
 var _popup_kind := ""
 var _research_btn: Button
 var _num_re := RegEx.create_from_string("[-+$]?\\d")    # erste Zahl in einer Info-Zeile
-var _fit_token := 0                  # zählt Neuaufbauten; nur der letzte passt die Höhe an
-var _fitted_kind := ""               # Popover-Art, für die die Höhe schon einmal angepasst wurde
+var _fit_pending := false
+var _fit_frame := -1
+var _fit_count := 0
+var _power_dark := 0                  # Gebäude ohne Strom (letzte Berechnung)
+var _power_night_shown := false       # Stromanzeige zeigt gerade die Nachtbilanz
+var _research_open := {}              # Forschungsfenster: Bereich -> aufgeklappt
 var _popup_btn: Button               # Knopf, unter dem das offene Popover hängt
 var _popup_scroll: ScrollContainer   # Popover scrollt, wenn es höher als der Bildschirm wäre
 var _breakthrough: PanelContainer     # Durchbruch-Karte (Forschung fertig)              # "view" / "happy" / "" = zu
@@ -329,11 +333,15 @@ func _build() -> void:
 	_popup.visible = false
 	_popup_scroll = ScrollContainer.new()
 	_popup_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	# Platz der Bildlaufleiste immer reservieren: sonst ändert ihr Ein-/Ausblenden die Breite -> Text bricht neu um
+	# -> Höhe ändert sich -> Leiste verschwindet ... (Schaukeln bis zum Absturz "Message queue out of memory")
+	_popup_scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_RESERVE
 	_popup.add_child(_popup_scroll)
 	_popup_col = VBoxContainer.new()
 	_popup_col.add_theme_constant_override("separation", 6)
 	_popup_col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_popup_scroll.add_child(_popup_col)
+	_popup_col.minimum_size_changed.connect(_on_popup_content_changed)
 
 	_flyout = _card(root, 10, 6)
 	_flyout.visible = false
@@ -650,12 +658,14 @@ func _toggle_popup(kind: String) -> void:
 	btn.set_pressed_no_signal(true)
 
 
-## Forschungsfenster: Kopf, Labor (Institute, Akademiker, Budget), Projektkarten mit Status/Dauer/Fortschritt.
+## Forschungsfenster: kompakter Kopf (Labor, Budget), darunter Bereiche zum Aufklappen; je Bereich die Projekte in
+## Abhängigkeitsreihenfolge (eingerückt = baut auf dem darüber auf), je Projekt eine Zeile; Beschreibung/Start nur bei
+## verfügbaren oder laufenden Projekten. (Nutzer: vorher zu lang und überladen.)
 func _fill_research() -> void:
 	var inst := sim.institute_levels()
 	PopUI.header(_popup_col, icons.get_icon("institute"), "Forschung",
 		("%d P/Monat" % roundi(sim.research_points())) if inst > 0 else "", UiTheme.GOOD,
-		"Ein Projekt gleichzeitig - kostet Zeit, Budget und Gold")
+		"Ein Projekt gleichzeitig - Projekte bauen aufeinander auf")
 	if inst == 0:
 		var req := PopUI.section(_popup_col, "Voraussetzungen")
 		var uni_def: Dictionary = Config.SPECIALS[Config.Special.UNIVERSITY]
@@ -670,62 +680,135 @@ func _fill_research() -> void:
 		PopUI.row(req, "Universität gebaut", "ja" if has_uni else "nein", check.call(has_uni))
 		PopUI.row(req, "Forschungsinstitut mit Strom", "nein", UiTheme.BAD)
 	else:
-		var lab := PopUI.section(_popup_col, "Labor")
 		var need := float(Config.ACADEMICS_PER_LEVEL * inst)
 		var acad := sim.academics_count()
-		PopUI.row(lab, "Institute (Summe der Stufen)", str(inst))
-		PopUI.row(lab, "Akademiker / benötigt", "%s / %s" % [_fmt(int(acad)), _fmt(int(need))],
-			UiTheme.GOOD if acad >= need else UiTheme.WARN,
-			"" if acad >= need else "Universität ausbauen oder weitere bauen (%d %% Leistung)" % roundi(sim.academic_factor() * 100.0))
-		PopUI.bar(lab, acad / need, UiTheme.GOOD if acad >= need else UiTheme.IND)
-	var bud := PopUI.section(_popup_col, "Budget")
+		PopUI.row(_popup_col, "Institute %d  ·  Akademiker %s / %s" % [inst, _fmt(int(acad)), _fmt(int(need))],
+			"%d %% Leistung" % roundi(sim.academic_factor() * 100.0), UiTheme.GOOD if acad >= need else UiTheme.WARN)
+	# Budget in einer Zeile
 	var brow := HBoxContainer.new()
 	brow.add_theme_constant_override("separation", 8)
-	bud.add_child(brow)
+	_popup_col.add_child(brow)
+	var bt := PopUI.label(brow, "Budget", 16, UiTheme.TEXT_DIM)
+	bt.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	bt.tooltip_text = "Wird nur ausgegeben, solange ein Projekt läuft. Gold wird beim Start verbraucht (fehlt es: Zukauf)."
+	bt.mouse_filter = Control.MOUSE_FILTER_PASS
 	_text_button(brow, "-", _research_budget.bind(-1), "Budget senken")
-	var bl := PopUI.label(brow, "$%s / Monat" % _fmt(int(sim.research_budget)), 18, UiTheme.TEXT, true)
+	var bl := PopUI.label(brow, "$%s / Monat" % _fmt(int(sim.research_budget)), 16, UiTheme.TEXT, true)
+	bl.custom_minimum_size.x = 150
 	bl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	bl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_text_button(brow, "+", _research_budget.bind(1), "Budget erhöhen (mehr Geld = schneller, abnehmender Ertrag)")
-	PopUI.row(bud, "Tempo", "x%.2f" % Simulation.budget_factor(sim.research_budget))
-	PopUI.note(bud, "Wird nur ausgegeben, solange ein Projekt läuft. Gold wird beim Start verbraucht (fehlt es: Zukauf).")
-	var prj := PopUI.section(_popup_col, "Projekte")
+	PopUI.label(brow, "Tempo x%.2f" % Simulation.budget_factor(sim.research_budget), 14, UiTheme.TEXT_DIM)
+	# Bereiche
+	var groups: Array[String] = []
 	for id: String in Config.RESEARCH:
-		var def: Dictionary = Config.RESEARCH[id]
-		var why := sim.research_blocker(id)
-		var running := why == "läuft"
-		var done := why == "erforscht"
-		var card := PopUI.box(prj, UiTheme.GOOD if done else (UiTheme.BTN_ON_EDGE if running else UiTheme.BTN_EDGE))
-		var top := HBoxContainer.new()
-		top.add_theme_constant_override("separation", 8)
-		card.add_child(top)
-		var nm := PopUI.label(top, def["name"], 17, UiTheme.TEXT, true)
-		nm.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		if done:
-			PopUI.chip(top, "ERFORSCHT", UiTheme.GOOD)
-		elif running:
-			PopUI.chip(top, "LÄUFT", UiTheme.COM)
-		elif why == "":
-			PopUI.chip(top, "BEREIT", UiTheme.WARN)
-		else:
-			PopUI.chip(top, "GESPERRT", UiTheme.TEXT_DIM)
-		PopUI.note(card, def["desc"], UiTheme.TEXT)
-		if done:
-			continue
-		var eta := sim.research_eta(id, sim.research_budget)
-		var eta_max := sim.research_eta(id, float(Config.RESEARCH_BUDGET_STEPS[-1]))
-		var dur := "Dauer: ?" if eta < 0 else "Dauer: ~%d Monate (bei $%s: ~%d)" % [eta,
-			_fmt(int(Config.RESEARCH_BUDGET_STEPS[-1])), eta_max]
-		PopUI.note(card, "%s Punkte  ·  %d Gold  ·  %s" % [_fmt(int(def["points"])), int(def["gold"]), dur])
+		var g: String = Config.RESEARCH[id].get("group", "Sonstiges")
+		if not groups.has(g):
+			groups.append(g)
+	for g in groups:
+		var ids := _research_ordered(g)
+		var done := 0
+		var running := false
+		var ready := false
+		for id in ids:
+			var why := sim.research_blocker(id)
+			done += 1 if why == "erforscht" else 0
+			running = running or why == "läuft"
+			ready = ready or why == ""
+		if not _research_open.has(g):
+			_research_open[g] = running or ready
+		var open: bool = _research_open[g]
+		var state := "%d/%d erforscht" % [done, ids.size()]
 		if running:
-			var frac := sim.research_progress / float(def["points"])
-			PopUI.bar(card, frac, UiTheme.COM)
-			PopUI.note(card, "%d %% erforscht" % roundi(frac * 100.0))
-		elif why == "":
-			var b := _text_button(card, "Projekt starten", _start_research.bind(id), "")
-			b.size_flags_horizontal = Control.SIZE_SHRINK_END
-		else:
-			PopUI.note(card, why.capitalize() if why.begins_with("kein") else why, UiTheme.BAD)
+			state += "  ·  1 läuft"
+		elif ready:
+			state += "  ·  bereit"
+		PopUI.list_item(_popup_col, ("-  " if open else "+  ") + g, state, "", running, _toggle_research_group.bind(g))
+		if not open:
+			continue
+		var list := VBoxContainer.new()
+		list.add_theme_constant_override("separation", 6)
+		_popup_col.add_child(list)
+		for id in ids:
+			_research_row(list, id)
+
+
+## Projekte eines Bereichs in Abhängigkeitsreihenfolge (Vorgänger zuerst).
+func _research_ordered(g: String) -> Array[String]:
+	var out: Array[String] = []
+	var left: Array[String] = []
+	for id: String in Config.RESEARCH:
+		if str(Config.RESEARCH[id].get("group", "Sonstiges")) == g:
+			left.append(id)
+	while not left.is_empty():
+		var progress := false
+		for id in left.duplicate():
+			var ok := true
+			for r: String in Config.RESEARCH[id]["requires"]:
+				if left.has(r):
+					ok = false
+			if ok:
+				out.append(id)
+				left.erase(id)
+				progress = true
+		if not progress:
+			out.append_array(left)
+			break
+	return out
+
+
+## Projektkarte: Name + Plakette, Beschreibung, Kosten/Dauer, Starten bzw. Fortschritt. Gesperrte Karten ausgegraut mit
+## Voraussetzung, erforschte kompakt. Reihenfolge = Abhängigkeit (Vorgänger zuerst), ohne Einrückung (Nutzerwunsch).
+func _research_row(list: VBoxContainer, id: String) -> void:
+	var def: Dictionary = Config.RESEARCH[id]
+	var why := sim.research_blocker(id)
+	var done := why == "erforscht"
+	var running := why == "läuft"
+	var ready := why == ""
+	var card := PopUI.box(list, UiTheme.GOOD if done else (UiTheme.COM if running else (UiTheme.BTN_ON_EDGE if ready else UiTheme.BTN_EDGE)),
+		Color("eef7e6") if done else Color("fffaf0"))
+	var top := HBoxContainer.new()
+	top.add_theme_constant_override("separation", 8)
+	card.add_child(top)
+	var nm := PopUI.label(top, def["name"], 17, UiTheme.TEXT, true)
+	nm.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	if done:
+		PopUI.chip(top, "ERFORSCHT", UiTheme.GOOD)
+		nm.tooltip_text = str(def["desc"])
+		nm.mouse_filter = Control.MOUSE_FILTER_PASS
+		return
+	if running:
+		PopUI.chip(top, "LÄUFT", UiTheme.COM)
+	elif ready:
+		PopUI.chip(top, "BEREIT", UiTheme.WARN)
+	else:
+		PopUI.chip(top, "GESPERRT", UiTheme.TEXT_DIM)
+	PopUI.note(card, str(def["desc"]), UiTheme.TEXT)
+	var eta := sim.research_eta(id, sim.research_budget)
+	var bottom := HBoxContainer.new()
+	bottom.add_theme_constant_override("separation", 8)
+	card.add_child(bottom)
+	var info := PopUI.label(bottom, "%s Punkte  ·  %d Gold%s" % [_fmt(int(def["points"])), int(def["gold"]),
+		("  ·  ~%d Monate" % eta) if eta > 0 else ""], 14, UiTheme.TEXT_DIM)
+	info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	if running:
+		var frac := sim.research_progress / float(def["points"])
+		PopUI.label(bottom, "%d %%" % roundi(frac * 100.0), 14, UiTheme.COM, true)
+		PopUI.bar(card, frac, UiTheme.COM)
+	elif ready:
+		_text_button(bottom, "Projekt starten", _start_research.bind(id), "")
+	else:
+		var need := why
+		if why.begins_with("braucht: "):
+			need = "Voraussetzung: %s erforschen" % why.trim_prefix("braucht: ")
+		elif why.begins_with("kein"):
+			need = "Voraussetzung: Forschungsinstitut mit Strom"
+		PopUI.note(card, need, UiTheme.BAD)
+		card.get_parent().modulate = Color(1, 1, 1, 0.55)       # ausgegraut
+
+
+func _toggle_research_group(g: String) -> void:
+	_research_open[g] = not bool(_research_open.get(g, false))
+	_fill_popup()
 
 
 ## Große Karte in der Bildmitte, wenn ein Forschungsprojekt fertig ist: Wirkung in Zahlen + Hinspringen.
@@ -754,11 +837,12 @@ func _on_research_finished(id: String) -> void:
 			focus_requested.emit(tile)
 			_close_breakthrough(), "")
 	_text_button(btns, "Weiter", _close_breakthrough, "")
-	_breakthrough.reset_size()
-	await get_tree().process_frame
+	_breakthrough.modulate.a = 0.0           # erst zeigen, wenn Größe/Position fertig sind (kein Springen)
+	await RenderingServer.frame_pre_draw
 	if is_instance_valid(_breakthrough):
 		_breakthrough.reset_size()
 		_breakthrough.position = (_ui_size() - _breakthrough.size) * 0.5
+		_breakthrough.modulate.a = 1.0
 
 
 func _close_breakthrough() -> void:
@@ -797,37 +881,53 @@ func _place_popup() -> void:
 
 
 ## Größe des Popovers: Breite fest für neue Karten (Umbruch), Höhe bis zum Bildschirmrand, darüber scrollen.
-func _fit_popup(second := false) -> void:
-	var w := float(PopUI.WIDTH)
-	_popup_col.custom_minimum_size.x = w
-	_fit_token += 1
-	var token := _fit_token
-	if not second and _popup.visible and _popup_scroll.custom_minimum_size.y > 0.0 and _popup_kind == _fitted_kind:
-		# Neuaufbau eines offenen Popovers (Monatswechsel): alte Höhe halten, erst nach dem Layout einmal anpassen –
-		# sonst misst der erste Durchgang umbrochene Texte zu hoch und das Popover blitzt auf Maximalhöhe auf.
-		# Nur der letzte Neuaufbau misst (ein Monat baut oft mehrfach neu auf).
-		await get_tree().process_frame
-		await get_tree().process_frame
-		if _popup.visible and token == _fit_token:
-			_fit_popup(true)
+## Größe des Popovers: feste Breite (Umbruch), Höhe = Inhalt bis über die Werkzeugleiste, darüber scrollen.
+## Kein Messen mit Verzögerung: das Popover folgt dem Signal minimum_size_changed seines Inhalts. Godot ordnet Container
+## und umbrochene Texte innerhalb desselben Frames fertig an, bevor gezeichnet wird -> im Bild nur die Endgröße
+## (früher: Messen vor dem Layout + Korrektur einen Frame später = sichtbares Zucken).
+func _popup_width() -> float:
+	return 620.0 if _popup_kind == "research" else float(PopUI.WIDTH)
+
+
+func _fit_popup() -> void:
+	_popup_col.custom_minimum_size.x = _popup_width()
+	_fit_pending = false
+	_apply_fit()
+
+
+func _on_popup_content_changed() -> void:
+	if _popup_kind == "" or _fit_pending:
 		return
-	_fitted_kind = _popup_kind
-	var want := _popup_col.get_combined_minimum_size()
-	var room := _ui_size().y - maxf(_popup.position.y, 100.0) - 130.0     # Platz bis über die Werkzeugleiste
-	_popup_scroll.custom_minimum_size = Vector2(want.x, minf(want.y, maxf(room, 200.0)))
+	_fit_pending = true
+	_apply_fit.call_deferred()     # gebündelt, läuft noch im selben Frame vor dem Zeichnen
+
+
+func _apply_fit() -> void:
+	_fit_pending = false
+	if _popup_kind == "":
+		return
+	var frame := Engine.get_process_frames()
+	if frame != _fit_frame:
+		_fit_frame = frame
+		_fit_count = 0
+	_fit_count += 1
+	if _fit_count > 6:
+		return                     # Notbremse gegen Schaukeln
+	var want := _popup_col.get_combined_minimum_size().y
+	var room := maxf(_ui_size().y - maxf(_popup.position.y, 100.0) - 130.0, 200.0)   # bis über die Werkzeugleiste
+	var h := minf(want, room)
+	var w := _popup_width()
+	if absf(h - _popup_scroll.custom_minimum_size.y) < 0.5 and _popup_scroll.custom_minimum_size.x == w:
+		return
+	_popup_col.custom_minimum_size.x = w
+	_popup_scroll.custom_minimum_size = Vector2(w, h)
 	_popup.reset_size()
-	if not second:
-		# Umbrochene Texte kennen ihre Höhe erst nach dem Layout -> nach einem Frame nachmessen
-		await get_tree().process_frame
-		if _popup.visible and token == _fit_token:
-			_fit_popup(true)
-			_place_popup()      # Kopfzeile kann sich im Öffnungs-Frame noch umsortiert haben
+	_place_popup()
 
 
 func _close_popup() -> void:
 	_popup.visible = false
 	_popup_kind = ""
-	_fitted_kind = ""
 	_happy_btn.set_pressed_no_signal(false)
 	_bell_btn.set_pressed_no_signal(false)
 	_research_btn.set_pressed_no_signal(false)
@@ -1111,6 +1211,8 @@ func _text_button(parent: Node, text: String, cb: Callable, tip: String) -> Butt
 # ---------------------------------------------------------------- Laufzeit
 
 func _process(delta: float) -> void:
+	if (GraphicsSettings.day_night and DayNight.daylight < 0.45) != _power_night_shown and _power != null:
+		_update_power_label()
 	if not _cost_pill.has_meta("pin"):       # Testlauf (--hover): Blase bleibt in der Bildmitte
 		var mp := _cost_pill.get_viewport().get_mouse_position() / scale
 		_cost_pill.position = mp + Vector2(20, 14)
@@ -1377,6 +1479,27 @@ func _refresh() -> void:
 	Perf.end("hud.aktualisieren", tp)
 
 
+## Stromanzeige oben: tagsüber Tagesbilanz, während der sichtbaren Nacht die Nachtbilanz (Bedarf 75 %, Solar 0,
+## Speicher) – so fällt ein nächtlicher Engpass dann auf, wenn es dunkel ist.
+func _update_power_label() -> void:
+	var night := GraphicsSettings.day_night and DayNight.daylight < 0.45
+	_power_night_shown = night
+	if not night:
+		_power.text = "%d / %d MW" % [sim.power_demand, sim.power_supply]
+		_power.add_theme_color_override("font_color", UiTheme.BAD if _power_dark > 0 else UiTheme.TEXT)
+		return
+	var need := 0.0
+	var have := 0
+	var short := false
+	for net: Dictionary in sim.power_nets:
+		need += int(net["demand"]) * Config.NIGHT_DEMAND
+		have += int(net.get("night", net["capacity"]))
+		if bool(net.get("night_limited", false)) and int(net["unserved"]) > 0:
+			short = true
+	_power.text = "Nacht %d / %d MW" % [roundi(need), have]
+	_power.add_theme_color_override("font_color", UiTheme.BAD if short or _power_dark > 0 else UiTheme.COM)
+
+
 func _refresh_inner() -> void:
 	_money.text = "$ %s" % _fmt(int(sim.money))
 	_money.add_theme_color_override("font_color", UiTheme.BAD if sim.money < 0 else UiTheme.TEXT)
@@ -1409,8 +1532,8 @@ func _refresh_inner() -> void:
 					int(net["store_used"]), "  -> nachts zu knapp!" if bool(net["night_limited"]) and int(net["unserved"]) > 0 else ""])
 	if dark > 0:
 		tip.append("%d Gebäude ohne Strom - Ansicht Strom (V) zeigt wo" % dark)
-	_power.text = "%d / %d MW" % [sim.power_demand, sim.power_supply]
-	_power.add_theme_color_override("font_color", UiTheme.BAD if dark > 0 else UiTheme.TEXT)
+	_power_dark = dark
+	_update_power_label()
 	_power.tooltip_text = "\n".join(tip)
 	_power.mouse_filter = Control.MOUSE_FILTER_PASS
 	_refresh_stock()

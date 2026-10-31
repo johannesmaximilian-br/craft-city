@@ -181,9 +181,12 @@ $G --path . -- --demo --cam=32,32,60 --screenshot=/pfad/bild.png          # Scre
 - **Popover/Karten-UI:** Bausteine in `PopUI` (`pop_ui.gd`: header, section, row, bar, diverging, chip, box, problems,
   list_item, note). Popover = `_popup` → `_popup_scroll` → `_popup_col`; nach dem Füllen immer `_fit_popup()` (feste
   Breite, Höhe bis über die Werkzeugleiste, zweiter Durchgang nach einem Frame, weil umbrochene Labels ihre Höhe erst
-  nach dem Layout kennen). Bei offenem Popover (Monatswechsel baut neu auf) hält `_fit_popup` die alte Höhe und misst
-  erst 2 Frames später – nur der letzte Neuaufbau (`_fit_token`); sonst blitzte das Popover kurz auf Maximalhöhe auf
-  (Test `--popflash`). Info-Karte: `_show_info()` baut nur bei geändertem Inhalt neu (Signatur), `_info_rows()`
+  nach dem Layout kennen). **Größe nie verzögert nachmessen** (früher 2 Durchgänge mit `await` → sichtbares Zucken):
+  `_popup_col.minimum_size_changed` → gebündelt per `call_deferred` → `_apply_fit` (noch im selben Frame vor dem
+  Zeichnen, Notbremse 6 Anpassungen/Frame). Bildlaufleiste mit `SCROLL_MODE_RESERVE`, sonst schaukelt Breite ↔ Umbruch
+  ↔ Höhe bis „Message queue out of memory“ (Absturz). Test `--popflash` misst je **gezeichnetem** Frame
+  (`RenderingServer.frame_pre_draw`) – Messungen direkt nach einem Neuaufbau zeigen Zwischenstände, die nie gezeichnet
+  werden. Info-Karte: `_show_info()` baut nur bei geändertem Inhalt neu (Signatur), `_info_rows()`
   zerlegt Zeilen; Klartext für Tests in `hud.info_text`. Neue Info-Zeilen deshalb als „Bezeichnung Wert“ bzw. „A: B“,
   mehrere mit „  ·  “ trennen.
 - **Sichtbare Forschung:** `StructureGenerator.techs` (aus `sim.research_done`, gesetzt in main.gd bei stats_changed und
@@ -202,6 +205,12 @@ $G --path . -- --demo --cam=32,32,60 --screenshot=/pfad/bild.png          # Scre
 - **Tageszyklus (Optik):** `DayNight` (render/day_night.gd, in main vor ShaderWarmup) steuert Sonne, Himmel, Nebel,
   Umgebungslicht und das Leuchten des Fensterblocks "ice" (Emission dauerhaft an, nur Stärke ändert sich – Umschalten von
   `emission_enabled` würde Shader neu kompilieren). Testläufe frieren die Uhrzeit ein (`frozen`, `--time=`).
+  `DAY_BIAS` verschiebt die Sonnenhöhe (Nacht ~25 % des Zyklus). **Lichtrichtung bleibt fest** (`SUN_DIR`): eine je Frame
+  gedrehte Sonne dreht das Schattenkarten-Raster mit → Schatten flimmern (Nutzer). HUD-Stromanzeige zeigt bei `DayNight.daylight < 0.45`
+  die Nachtbilanz (`_update_power_label`, Wechsel in `Hud._process` erkannt).
+- **Forschungsfenster:** Projekte tragen `"group"` in `Config.RESEARCH`; `_fill_research` baut je Bereich einen
+  aufklappbaren `PopUI.list_item` (`_research_open`), darunter Karten (`_research_row`, `PopUI.box`) in Reihenfolge
+  `_research_ordered` (Vorgänger zuerst); gesperrt = ausgegraut + „Voraussetzung: …“ (keine Einrückung/Pfeile, Nutzerwunsch). Breite je Popover-Art in `_popup_width()`. Neues Projekt ⇒ `group` setzen.
 - **Speichern:** neue Map-Felder in `CityMap.SAVE_FIELDS` eintragen; fehlende Felder alter Saves werden genullt.
   `SaveManager.save` rotiert vorher Sicherungen (`<slot>.bak1..3`, nur Spieler-Slots). Tests, die Spieler-Slots
   benutzen wollen, stellen `SaveManager.dir` auf einen eigenen Ordner um (siehe `savetest`).
