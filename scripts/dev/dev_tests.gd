@@ -1067,6 +1067,97 @@ static func energytest() -> void:
 	s.free()
 
 
+## Aufbau-Start: Rathaus, Sperren, kein Handel vor Stufe 2, Holz für Häuser, Ausbau auf Stufe 2.
+static func buildstarttest(game: Node) -> void:
+	var map: CityMap = game.map
+	var sim: Simulation = game.sim
+	var tools: ToolController = game.tools
+	game._new_city("build")
+	var hall := -1
+	for a in map.size * map.size:
+		if map.anchor[a] == a and map.special[a] == Config.Special.CITYHALL:
+			hall = a
+	var hx := hall % map.size
+	var hz := hall / map.size
+	print("buildstart Rathaus bei %d,%d, Kasse $%d, Lager Holz %d Stein %d, Lagerkapazität %d" % [hx, hz, int(sim.money),
+		int(sim.stock["wood"]), int(sim.stock["stone"]), sim.stock_capacity()])
+	print("buildstart Sperren: Gewerbe '%s' | Schule '%s' | Wohnen '%s' | Holzfäller '%s'" % [
+		tools.locked_reason(ToolController.Tool.COM), tools.locked_reason(ToolController.Tool.SCHOOL),
+		tools.locked_reason(ToolController.Tool.RES), tools.locked_reason(ToolController.Tool.LUMBER)])
+	var msgs: Array[String] = []
+	tools.message.connect(func(t: String) -> void: msgs.append(t))
+	# Straße + Wohnzone entlang des Straßenstücks, Holzfäller am nächsten Wald, Steinbruch am Fels
+	var road: Array[Vector2i] = []
+	var dir := 1 if map.road[map.idx(hx + 3, hz + 1)] == 1 else -1
+	var sx := hx + 3 if dir > 0 else hx - 1
+	for k in range(0, 14):
+		road.append(Vector2i(sx + k * dir, hz + 1))
+	tools.set_tool(ToolController.Tool.ROAD)
+	tools._apply(road)
+	var zone: Array[Vector2i] = []
+	for k in range(1, 13):
+		zone.append(Vector2i(sx + k * dir, hz))
+		zone.append(Vector2i(sx + k * dir, hz + 2))
+	tools.set_tool(ToolController.Tool.RES)
+	tools._apply(zone)
+	tools.set_tool(ToolController.Tool.INSPECT)
+	var hp := HumanPlayer.new()
+	hp.game = game
+	hp.map = map
+	hp.sim = sim
+	hp.tools = tools
+	hp.c = map.size / 2
+	var lum := hp._place_at(ToolController.Tool.LUMBER, hp._near_feature(Config.Feature.TREE))
+	var qua := hp._place_at(ToolController.Tool.QUARRY, hp._near_ore(Config.Ore.STONE))
+	# Abbau an Straße + Strom anschließen (L-Weg zum Straßenstück vor dem Rathaus, Leitung auf der Straße)
+	for site: Vector2i in [lum, qua]:
+		if site.x < 0:
+			continue
+		var path: Array[Vector2i] = []
+		var sz: int = Config.SPECIALS[map.special[map.idx(site.x, site.y)]]["size"]
+		var goal := Vector2i(sx, hz + 1)
+		var z := site.y + sz if goal.y > site.y else site.y - 1       # neben dem Gebäude starten, nicht hindurch
+		var x := site.x
+		while z != goal.y:
+			path.append(Vector2i(x, z))
+			z += signi(goal.y - z)
+		while x != goal.x:
+			path.append(Vector2i(x, z))
+			x += signi(goal.x - x)
+		path.append(goal)
+		tools.set_tool(ToolController.Tool.ROAD)
+		tools._apply(path)
+		tools.set_tool(ToolController.Tool.POWERLINE)
+		tools._apply(path)
+	tools.set_tool(ToolController.Tool.POWERLINE)
+	tools._apply([Vector2i(sx, hz + 1), Vector2i(sx, hz), Vector2i(sx, hz + 2)] as Array[Vector2i])
+	tools.set_tool(ToolController.Tool.INSPECT)
+	print("buildstart Holzfäller bei %s, Steinbruch bei %s, Kasse $%d, Holz %d, Meldungen %s" % [lum, qua, int(sim.money),
+		int(sim.stock["wood"]), msgs])
+	for m in 36:
+		sim.tick_month()
+		if m % 6 == 5:
+			var nx := sim.hall_next()
+			print("buildstart Monat %d: Einw. %d, Holz %d, Stein %d, Steuern $%d, Kasse $%d, Stufe 2 fehlt: %s" % [m + 1,
+				sim.population, int(sim.stock["wood"]), int(sim.stock["stone"]), roundi(float(sim.income_parts.get("Wohnen", 0.0))),
+				int(sim.money), nx.get("missing", [])])
+			if bool(nx.get("ok", false)):
+				print("buildstart Ausbau: '%s' -> Stufe %d, Gewerbe jetzt '%s'" % [sim.upgrade_hall(), sim.hall_level,
+					tools.locked_reason(ToolController.Tool.COM)])
+	var why := {}
+	for i in map.size * map.size:
+		if map.zone[i] != Config.Zone.NONE:
+			for b: String in sim.growth_blockers(i):
+				why[b.substr(0, 40)] = int(why.get(b.substr(0, 40), 0)) + 1
+	print("buildstart Blocker Wohnen: %s, Nachfrage W %.2f" % [why, sim.demand_res])
+	for a: int in sim.producer_info:
+		print("buildstart %s: %s" % [Config.SPECIALS[map.special[a]]["name"], sim.producer_info[a]])
+	var d := sim.to_dict()
+	print("buildstart Speichern: Modus %s, Stufe %d" % [d["game_mode"], d["hall_level"]])
+	game.hud._toggle_popup("hall")
+	await game.get_tree().process_frame
+
+
 ## Forschung Schritt 3 (mit --loadfile=<große Stadt mit Uni>): Stadt-Projekte erforscht setzen, Hightech-Zone an der
 ## Uni ausweisen, 12 Monate -> Hochhäuser, Bürotürme, Hightech, Stau, Einnahmen.
 static func citytechtest(game: Node) -> void:

@@ -11,7 +11,7 @@ enum Zone { NONE, RES, COM, IND }
 enum Feature { NONE, TREE, PARK }
 enum Special { NONE, COAL, WIND, POLICE, FIRE, SCHOOL, HOSPITAL, LIBRARY, CINEMA, TOWNHALL, THEATER, STADIUM,
 	LUMBER, QUARRY, PIT, MINE, WAREHOUSE, SAWMILL, BRICKWORKS, GLASSWORKS, STEELWORKS, NURSERY, PROSPECTOR, RECYCLER,
-	UNIVERSITY, INSTITUTE, BIOMASS, SOLAR, BATTERY, HYDRO, PUMPED, SALT, CONCRETE }
+	UNIVERSITY, INSTITUTE, BIOMASS, SOLAR, BATTERY, HYDRO, PUMPED, SALT, CONCRETE, CITYHALL }
 # Bodenvorkommen (CityMap.ore): Art je Tile, Menge in CityMap.ore_amt
 enum Ore { NONE, COAL, IRON, GOLD, CLAY, SAND, STONE }
 enum Road { NONE, STREET }
@@ -117,7 +117,7 @@ const BUILD_MATERIALS := {
 const UPGRADE_MATERIALS := 0.5      # Ausbau eines Sonderbaus: Baumaterial × aktuelle Stufe × Faktor
 const SPECIAL_MATERIALS := {        # Zukaufwert ca. 15-25 % des Geldpreises
 	Special.COAL: {"bricks": 60, "steel": 30},
-	Special.WIND: {"steel": 6},
+	Special.WIND: {"wood": 15, "stone": 10},      # ohne Stahl: im Aufbau-Start ab Stufe 1 baubar
 	Special.BIOMASS: {"bricks": 30, "wood": 40},
 	Special.SOLAR: {"glass": 40, "steel": 15, "gold": 4},
 	Special.BATTERY: {"steel": 25, "gold": 8},
@@ -135,8 +135,8 @@ const SPECIAL_MATERIALS := {        # Zukaufwert ca. 15-25 % des Geldpreises
 	Special.STADIUM: {"stone": 300, "bricks": 150, "steel": 120},
 	Special.UNIVERSITY: {"stone": 100, "bricks": 200, "glass": 60, "steel": 40},
 	Special.INSTITUTE: {"bricks": 80, "glass": 40, "steel": 30},
-	Special.LUMBER: {"wood": 30, "planks": 10},
-	Special.QUARRY: {"wood": 40, "steel": 6},
+	Special.LUMBER: {"wood": 30},                  # Startbauten nur aus Holz/Stein (Aufbau-Start)
+	Special.QUARRY: {"wood": 40, "stone": 10},
 	Special.PIT: {"wood": 20},
 	Special.MINE: {"wood": 60, "stone": 40, "steel": 25},
 	Special.WAREHOUSE: {"planks": 30, "bricks": 20},
@@ -242,6 +242,9 @@ const SPECIALS := {
 		"need_tech": "solar"},
 	Special.BATTERY: {"name": "Batteriespeicher", "size": 1, "cost": 3000, "upkeep": 10.0, "power": 0, "storage_mw": 40,
 		"need_tech": "battery"},
+	# Rathaus (Aufbau-Start): Startgebäude mit Lagerhof, nicht baubar/abreißbar, Stufen über Simulation.hall_level
+	Special.CITYHALL: {"name": "Rathaus", "size": 3, "cost": 0, "upkeep": 5.0, "power": 30, "use": 0, "storage": true,
+		"hall": true},
 	# Teil B: Standortregeln über "site" (ToolController.site_reason)
 	Special.HYDRO: {"name": "Wasserkraftwerk", "size": 2, "cost": 9000, "upkeep": 20.0, "power": 120, "need_tech": "hydro",
 		"site": "water"},
@@ -400,6 +403,23 @@ const POWER_USE := {
 }
 
 const START_MONEY := 20000.0
+# ---- Aufbau-Start (Spielmodus "build") ----
+const BUILD_START_MONEY := 3000.0                 # Gründungskasse (Straßen)
+const BUILD_START_STOCK := {"wood": 200, "stone": 150}
+const FOUNDING_JOBS_HALL := 30.0                  # Gründung: Arbeitsplätze am Rathaus ...
+const FOUNDING_JOBS_PRODUCER := 15.0              # ... und je Abbau-Betrieb mit Strom (Gewerbe/Industrie erst ab Stufe 2)
+const BUILD_FOUNDING_COST := 0.1                  # Gründung (Rathaus-Stufe 1): Sonderbauten kosten 10 % des Geldpreises, kein Unterhalt
+const BUILD_LV1_COST := {Zone.RES: {"wood": 3}, Zone.COM: {"wood": 3}, Zone.IND: {"wood": 3, "stone": 2}}
+# Rathaus-Stufen: Ausbau braucht Einwohner + Material aus dem Lager. Freischaltungen je Werkzeug: ToolController.HALL_LEVEL.
+# Grundsatz (Nutzer): jede künftige Großfunktion (U-Bahn, Wasser, Flughafen ...) bekommt hier eine Stufe.
+const HALL_LEVELS := [
+	{},
+	{"name": "Gründung"},
+	{"name": "Dorf", "pop": 200, "mats": {"wood": 150, "stone": 150}},
+	{"name": "Kleinstadt", "pop": 1000, "mats": {"planks": 200, "bricks": 300}},
+	{"name": "Stadt", "pop": 3000, "mats": {"bricks": 400, "glass": 150, "steel": 100}},
+	{"name": "Großstadt", "pop": 6000, "mats": {"bricks": 600, "glass": 300, "steel": 300, "gold": 50}},
+]
 const CHEAT_MONEY := 50000.0          # Strg/Cmd + Shift + G
 const START_YEAR := 1980
 

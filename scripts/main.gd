@@ -181,10 +181,17 @@ func _load(slot: String) -> void:
 		else ("Slot ist leer" if err == ERR_FILE_NOT_FOUND else "Laden fehlgeschlagen: %s" % error_string(err)))
 
 
-func _new_city() -> void:
+func _new_city(mode := "classic") -> void:
 	map.generate(randi())
 	sim.reset()
-	hud.show_message("Neue Stadt gegründet")
+	current_slot = ""
+	hud._current_slot_hint = ""
+	if mode == "build":
+		var spot := CityStart.setup_build(map, sim)
+		cam.focus_tile(spot + Vector2i(1, 1), map.h(spot.x, spot.y))
+		hud.show_message("Aufbau-Start: erst Holz und Stein sammeln - Holzfäller am Wald, Steinbruch am Fels")
+	else:
+		hud.show_message("Neue Stadt gegründet")
 
 
 func _setup_environment() -> void:

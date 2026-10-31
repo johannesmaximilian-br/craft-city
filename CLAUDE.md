@@ -240,6 +240,17 @@ $G --path . -- --demo --cam=32,32,60 --screenshot=/pfad/bild.png          # Scre
   `SaveManager.save` rotiert vorher Sicherungen (`<slot>.bak1..3`, nur Spieler-Slots). Tests, die Spieler-Slots
   benutzen wollen, stellen `SaveManager.dir` auf einen eigenen Ordner um (siehe `savetest`).
 
+- **Spielmodus:** `sim.game_mode` ("classic" | "build", gespeichert; alte Saves = classic), `sim.hall_level`. Aufbau-Start:
+  `CityStart.setup_build` (Rathaus `Special.CITYHALL` 3x3 mit `"storage"` + 30 MW, Lichtung, Straßenstück). Sperren über
+  `ToolController.HALL_LEVEL` (Tool → Stufe) in `locked_reason`. Vor Stufe 2: `can_trade()` false (kein Zukauf, Werkzeuge
+  verweigern bei fehlendem Material: `_no_trade_reason`), keine Steuern/kein Unterhalt (`_budget`), Sonderbauten
+  × `BUILD_FOUNDING_COST`, `founding_jobs()` statt Gewerbe/Industrie, RES ohne Pendel-Pflicht (`_can_grow`,
+  `growth_blockers`). Stufe-1-Material `BUILD_LV1_COST` über `growth_materials` (Wachstum 0→1 ruft `_use_materials`).
+  Rathaus-Fenster: HUD-Popup "hall" (`_fill_hall`), Ausbau `sim.upgrade_hall()`.
+- **Progression über Rathaus-Stufen (Nutzer-Grundsatz 31.10.):** Jede neue Großfunktion (U-Bahn, Wasserleitungen,
+  Flughafen, …) wird künftig an eine Rathaus-Stufe gebunden, deren Ausbau Material kostet – nicht nur an Einwohnerzahlen.
+  Konzept Aufbau-Start: README → Roadmap.
+
 ## Fallstricke (schon einmal hineingetappt)
 
 - GDScript: Warnungen „type inferred from Variant“ sind hier **Fehler** → bei Dictionary/Array-Werten explizit typisieren

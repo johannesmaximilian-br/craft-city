@@ -4,7 +4,7 @@ extends CanvasLayer
 
 signal save_requested(slot: String)
 signal load_requested(slot: String)
-signal new_city_requested
+signal new_city_requested(mode: String)   # "build" = Aufbau-Start, "classic" = Startkapital
 signal quit_requested(save_slot: String)   # "" = ohne Speichern
 signal overlay_selected(mode: int)   # MapOverlay.Mode
 signal graphics_changed
@@ -73,7 +73,8 @@ var _power_night_shown := false       # Stromanzeige zeigt gerade die Nachtbilan
 var _quit_card: PanelContainer        # Abfrage "Spiel beenden?"
 var _quit_speed := 1
 var _current_slot_hint := ""          # vom Spiel: zuletzt benutzter Speicherplatz
-var _research_open := {}              # Forschungsfenster: Bereich -> aufgeklappt
+var _research_open := {}
+var _hall_btn: Button              # Forschungsfenster: Bereich -> aufgeklappt
 var _popup_btn: Button               # Knopf, unter dem das offene Popover hängt
 var _popup_scroll: ScrollContainer   # Popover scrollt, wenn es höher als der Bildschirm wäre
 var _breakthrough: PanelContainer     # Durchbruch-Karte (Forschung fertig)              # "view" / "happy" / "" = zu
@@ -236,6 +237,8 @@ func _build() -> void:
 	_research_btn = _text_button(tc_row, "", _toggle_popup.bind("research"),
 		"Forschung: Projekte, Budget, Fortschritt")
 	_set_btn_icon(_research_btn, "institute")
+	_hall_btn = _text_button(tc_row, "", _toggle_popup.bind("hall"), "Rathaus: Stufe, Ausbau, Freischaltungen")
+	_set_btn_icon(_hall_btn, "cityhall")
 
 	# Lager: je Rohstoff Icon + Menge (erst sichtbar, sobald es Abbau oder Vorrat gibt)
 	_stock_card = _card(left)
@@ -502,7 +505,10 @@ func _build_menu(root: Control) -> void:
 		row.add_child(slider)
 	col.add_child(HSeparator.new())
 	var bottom := _row(col, 8)
-	_text_button(bottom, "Neue Stadt", func(): new_city_requested.emit(); toggle_menu(), "Neue Karte, Startkapital").custom_minimum_size.x = 160
+	_text_button(bottom, "Neue Stadt: Aufbau", func(): new_city_requested.emit("build"); toggle_menu(),
+		"Aufbau-Start: Rathaus + Lager, erst Material sammeln, Freischaltungen über Rathaus-Stufen").custom_minimum_size.x = 230
+	_text_button(bottom, "Neue Stadt: Klassisch", func(): new_city_requested.emit("classic"); toggle_menu(),
+		"Klassisch: 20.000 $ Startkapital, alles nach Einwohnerzahl").custom_minimum_size.x = 250
 	_text_button(bottom, "Weiter", toggle_menu, "").custom_minimum_size.x = 120
 	_text_button(bottom, "Beenden", func(): ask_quit(_current_slot_hint), "Spiel beenden (fragt nach dem Speichern)").custom_minimum_size.x = 130
 	_text_button(bottom, "Spielstand-Ordner öffnen", UserData.open_saves_folder,
@@ -683,7 +689,8 @@ func set_overlay_mode(mode: int, mode_name: String, quiet := false) -> void:
 
 
 func _toggle_popup(kind: String) -> void:
-	var btn: Button = {"view": _view_btn, "happy": _happy_btn, "log": _bell_btn, "research": _research_btn}[kind]
+	var btn: Button = {"view": _view_btn, "happy": _happy_btn, "log": _bell_btn, "research": _research_btn,
+		"hall": _hall_btn}[kind]
 	if kind == "log":
 		_unread = 0
 		_update_bell()
@@ -854,6 +861,61 @@ func _toggle_research_group(g: String) -> void:
 	_fill_popup()
 
 
+## Rathaus-Fenster: aktuelle Stufe, Bedingungen der nächsten (Einwohner + Material mit Häkchen), Ausbauen, Freischaltungen.
+func _fill_hall() -> void:
+	if sim.game_mode != "build":
+		PopUI.header(_popup_col, icons.get_icon("cityhall"), "Rathaus", "", UiTheme.TEXT, "Klassisches Spiel")
+		PopUI.note(_popup_col, "Im klassischen Spiel ist alles nach Einwohnerzahl freigeschaltet. Rathaus-Stufen gibt es im Aufbau-Start (Menü -> Neue Stadt: Aufbau).")
+		return
+	var cur: Dictionary = Config.HALL_LEVELS[sim.hall_level]
+	PopUI.header(_popup_col, icons.get_icon("cityhall"), "Rathaus  ·  %s" % cur["name"], "Stufe %d" % sim.hall_level,
+		UiTheme.GOOD, "Steuern und Zukauf ab Stufe 2" if sim.hall_level < 2 else "Lager im Rathaus-Hof")
+	var nxt := sim.hall_next()
+	if nxt.is_empty():
+		PopUI.note(_popup_col, "Höchste Stufe erreicht.")
+	else:
+		var sec := PopUI.section(_popup_col, "Nächste Stufe: %s" % nxt["name"])
+		var need_pop: int = nxt["pop"]
+		PopUI.row(sec, "Einwohner", "%s / %s" % [_fmt(sim.population), _fmt(need_pop)],
+			UiTheme.GOOD if sim.population >= need_pop else UiTheme.BAD)
+		var mats: Dictionary = nxt["mats"]
+		for r: String in mats:
+			var have := int(sim.stock.get(r, 0.0))
+			PopUI.row(sec, Config.RESOURCES[r]["name"], "%s / %s" % [_fmt(have), _fmt(int(mats[r]))],
+				UiTheme.GOOD if have >= int(mats[r]) else UiTheme.BAD)
+		if bool(nxt["ok"]):
+			var b := _text_button(sec, "Rathaus ausbauen", _upgrade_hall, "Material wird aus dem Lager genommen")
+			b.size_flags_horizontal = Control.SIZE_SHRINK_END
+		else:
+			PopUI.note(sec, "Es fehlen: " + ", ".join(nxt["missing"]), UiTheme.BAD)
+		var unl := PopUI.section(_popup_col, "Neu mit Stufe %d" % int(nxt["level"]))
+		PopUI.note(unl, _hall_unlocks(int(nxt["level"])), UiTheme.TEXT)
+	var now := PopUI.section(_popup_col, "Freigeschaltet")
+	var parts := PackedStringArray()
+	for lv in range(1, sim.hall_level + 1):
+		parts.append(_hall_unlocks(lv))
+	PopUI.note(now, "  ·  ".join(parts))
+
+
+func _hall_unlocks(lv: int) -> String:
+	var names := PackedStringArray()
+	if lv == 1:
+		names.append("Straßen, Wohnen, Strom, Abbau, Lager")
+	if lv == 2:
+		names.append("Steuern + Zukauf")
+	for t: int in ToolController.HALL_LEVEL:
+		if int(ToolController.HALL_LEVEL[t]) == lv:
+			names.append(str(ToolController.TOOLS[t]["name"]))
+	return ", ".join(names)
+
+
+func _upgrade_hall() -> void:
+	var err := sim.upgrade_hall()
+	if err != "":
+		show_message(err)
+	_fill_popup()
+
+
 ## Große Karte in der Bildmitte, wenn ein Forschungsprojekt fertig ist: Wirkung in Zahlen + Hinspringen.
 func _on_research_finished(id: String) -> void:
 	if _breakthrough != null:
@@ -974,6 +1036,7 @@ func _close_popup() -> void:
 	_happy_btn.set_pressed_no_signal(false)
 	_bell_btn.set_pressed_no_signal(false)
 	_research_btn.set_pressed_no_signal(false)
+	_hall_btn.set_pressed_no_signal(false)
 	_view_btn.set_pressed_no_signal(_overlay_mode != 0)
 
 
@@ -984,6 +1047,8 @@ func _fill_popup() -> void:
 	match _popup_kind:
 		"research":
 			_fill_research()
+		"hall":
+			_fill_hall()
 		"log":
 			_fill_log()
 		"view":
@@ -1544,6 +1609,7 @@ func _update_power_label() -> void:
 
 
 func _refresh_inner() -> void:
+	_hall_btn.visible = sim.game_mode == "build"
 	_money.text = "$ %s" % _fmt(int(sim.money))
 	_money.add_theme_color_override("font_color", UiTheme.BAD if sim.money < 0 else UiTheme.TEXT)
 	var delta := sim.last_income - sim.last_expense
@@ -1747,7 +1813,14 @@ func _on_hover(t: Vector2i) -> void:
 			var a := map.anchor[i]
 			var lv := map.special_level(a)
 			title = "%s  ·  Stufe %d" % [def["name"], lv]
-			if def.has("storage"):
+			if def.has("hall"):
+				title = "Rathaus  ·  Stufe %d (%s)" % [sim.hall_level, Config.HALL_LEVELS[maxi(sim.hall_level, 1)]["name"]]
+				summary = "Sitz des Bürgermeisters + Lagerhof  ·  Lager je Rohstoff: %s" % _fmt(sim.stock_capacity())
+				var nx := sim.hall_next()
+				if not nx.is_empty():
+					add.call("Dienst", "Nächste Stufe %s: %s" % [nx["name"], "bereit - Rathaus-Fenster oben" if bool(nx["ok"])
+						else "es fehlen " + ", ".join(nx["missing"])])
+			elif def.has("storage"):
 				summary = "Lager je Rohstoff: %s" % _fmt(sim.stock_capacity())
 			else:
 				var info: Dictionary = sim.producer_info.get(a, {})

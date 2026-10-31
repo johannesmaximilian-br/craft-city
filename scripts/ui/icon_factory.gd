@@ -44,7 +44,7 @@ const SERVICE_ICONS := {
 	"university": Config.Special.UNIVERSITY, "institute": Config.Special.INSTITUTE,
 	"biomass": Config.Special.BIOMASS, "solar": Config.Special.SOLAR, "battery": Config.Special.BATTERY,
 	"hydro": Config.Special.HYDRO, "pumped": Config.Special.PUMPED, "salt": Config.Special.SALT,
-	"concrete": Config.Special.CONCRETE,
+	"concrete": Config.Special.CONCRETE, "cityhall": Config.Special.CITYHALL,
 }
 
 var lib: BlockLibrary
@@ -154,7 +154,7 @@ func _content(icon_name: String) -> Node3D:
 			StructureGenerator.coal(b, Vector3(0, 1, 0))
 		"police", "fire", "school", "hospital", "library", "cinema", "townhall", "theater", "stadium", \
 				"lumber", "quarry", "pit", "mine", "warehouse", "sawmill", "brickworks", "glassworks", "steelworks", \
-				"nursery", "prospector", "recycler", "university", "institute", "biomass", "solar", "battery", "hydro", "pumped", "salt", "concrete":
+				"nursery", "prospector", "recycler", "university", "institute", "biomass", "solar", "battery", "hydro", "pumped", "salt", "concrete", "cityhall":
 			var sp: int = SERVICE_ICONS[icon_name]
 			var s: int = Config.SPECIALS[sp]["size"] * Config.TILE_BLOCKS
 			_ground(b, s)

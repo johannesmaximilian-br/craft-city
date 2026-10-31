@@ -212,6 +212,8 @@ static func service(b: BlockBatch, base: Vector3, sp: int, lv: int) -> void:
 			salt(b, base)
 		Config.Special.CONCRETE:
 			concrete(b, base, lv)
+		Config.Special.CITYHALL:
+			cityhall(b, base, lv)
 		Config.Special.INSTITUTE:
 			institute(b, base, lv)
 		Config.Special.STEELWORKS:
@@ -341,6 +343,33 @@ static func concrete(b: BlockBatch, base: Vector3, lv: int) -> void:
 	b.put_xf("vox_yellow", Transform3D(Basis(Vector3.RIGHT, 0.3).scaled(Vector3(1.0, 1.0, 1.6)), base + Vector3(4.6, 0.8, 4.3)))
 	b.put_box("stone", base + Vector3(1.0, 0.35, 4.6), Vector3(1.4, 0.7, 1.4))               # Kies
 	b.put_box("sand", base + Vector3(2.6, 0.3, 4.8), Vector3(1.2, 0.6, 1.2))
+
+
+## Rathaus mit Lagerhof (9x9): Ziegel-Rathaus mit Uhrturm und Fahne hinten, vorn Hof mit Holz-/Steinstapeln und Kisten.
+## Wächst mit der Stufe (lv = min(Rathaus-Stufe, 3)): mehr Stockwerke, höherer Turm.
+static func cityhall(b: BlockBatch, base: Vector3, lv: int) -> void:
+	var f := 1 + lv
+	_hull(b, base + Vector3(1, 0, 5), 7, 4, 0, f, "stone", "brick", "ice")
+	_roof(b, base + Vector3(1, 0, 5), 7, 4, f, "darkbrick")
+	for y in range(f, f + 2 + lv):                                                             # Uhrturm
+		for z in range(6, 8):
+			for x in range(4, 6):
+				b.put("yellowbrick" if y < f + 1 + lv else "darkbrick", base + Vector3(x, y, z))
+	b.put_box("vox_white", base + Vector3(5.0, f + 1.0 + lv * 0.5, 5.97), Vector3(1.2, 1.2, 0.08))   # Uhr
+	b.put_box("vox_dark", base + Vector3(5.0, f + 1.0 + lv * 0.5, 5.92), Vector3(0.12, 0.7, 0.04))
+	b.segment("metal", base + Vector3(5.0, f + 2 + lv, 7.0), base + Vector3(5.0, f + 4.5 + lv, 7.0), 0.08)   # Fahne
+	b.put_box("vox_red", base + Vector3(5.6, f + 4.0 + lv, 7.0), Vector3(1.0, 0.6, 0.06))
+	b.put_box("wood", base + Vector3(4.5, 0.9, 4.97), Vector3(1.4, 1.8, 0.08))               # Tor
+	# Lagerhof vorn: Stammstapel, Steinhaufen, Kisten, Zaun
+	for k in 3:
+		b.put_box("log", base + Vector3(1.6, 0.3 + k * 0.5, 1.5), Vector3(2.2, 0.45, 0.45), PI * 0.5)
+	b.put_box("stone", base + Vector3(4.5, 0.4, 1.6), Vector3(1.6, 0.8, 1.4))
+	b.put_box("stone", base + Vector3(4.5, 1.0, 1.6), Vector3(0.9, 0.4, 0.8))
+	b.put("crate", base + Vector3(7, 0, 1))
+	b.put("crate", base + Vector3(7, 0, 2))
+	b.put("crate", base + Vector3(7, 1, 1))
+	for x in 9:
+		b.put_box("wood", base + Vector3(x + 0.5, 0.35, 0.05), Vector3(1.0, 0.7, 0.08))
 
 
 ## Universität (9x9): Hauptgebäude mit Säulenportal und Kuppel vorn, zwei Seitenflügel, Rasen-Innenhof.

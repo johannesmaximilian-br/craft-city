@@ -94,6 +94,8 @@ var jobs_hightech := 0              # davon Hightech-Jobs (höhere Steuer)
 var last_maint := {}                # Instandhaltung: Bedarf je Material im letzten Monat
 var maint_recycled := 0.0           # davon von Recyclinghöfen zurückgeholt (Einheiten)
 var maint_short := 0.0              # Anteil Instandhaltung, der mangels Geld ausblieb (0..1) -> Verfall
+var game_mode := "classic"          # "classic" (Startkapital, alles nach Einwohnern) | "build" (Aufbau-Start, Rathaus-Stufen)
+var hall_level := 0                 # Rathaus-Stufe (nur Aufbau-Start; 0 = klassisch)
 var interest_cost := 0.0            # Schuldzinsen im letzten Monat
 var admin_cost := 0.0               # Verwaltungskosten im letzten Monat
 var build_imports := 0.0           # Sofort-Zukauf von Baumaterial beim Bauen (Summe seit Spielstart, nicht gespeichert)
@@ -188,7 +190,7 @@ func to_dict() -> Dictionary:
 	for a: int in local_buffer:
 		buffers[str(a)] = local_buffer[a]
 	return {"money": money, "month": month, "year": year, "tax": tax, "fare": fare, "congestion": congestion,
-		"stock": stock, "buffers": buffers,
+		"stock": stock, "buffers": buffers, "game_mode": game_mode, "hall_level": hall_level,
 		"research": {"done": research_done, "current": research_current, "progress": research_progress,
 			"budget": research_budget}}
 
@@ -205,6 +207,8 @@ func from_dict(d: Dictionary) -> void:
 		tax[Config.Zone.RES] = d["tax_rate"]
 		tax[Config.Zone.COM] = d["tax_rate"]
 	fare = d.get("fare", 1)
+	game_mode = str(d.get("game_mode", "classic"))
+	hall_level = int(d.get("hall_level", 0))
 	var rs: Dictionary = d.get("research", {})
 	research_done.clear()
 	for id: String in (rs.get("done", []) as Array):
@@ -1649,7 +1653,7 @@ func _recount() -> void:
 func _update_demand() -> void:
 	var pop := float(population)
 	var workforce := pop * 0.55
-	var jobs := float(jobs_com + jobs_ind)
+	var jobs := float(jobs_com + jobs_ind) + founding_jobs()
 	# Wohnen: Zuzug, wenn Jobs frei sind (+ Grundattraktivität)
 	demand_res = (jobs - workforce + 60.0) / maxf(60.0, workforce * 0.4 + 40.0)
 	# Industrie: Exportmarkt + wächst mit Bevölkerung
@@ -1696,7 +1700,9 @@ func growth_blockers(i: int) -> PackedStringArray:
 	if powered.size() > i and powered[i] == 0:
 		out.append("Kein Strom")
 	if _src(i) >= 0:
-		if map.zone[i] == Config.Zone.RES:
+		if map.zone[i] == Config.Zone.RES and game_mode == "build" and hall_level < 2:
+			pass                        # Gründung: Siedler arbeiten am Rathaus/im Abbau
+		elif map.zone[i] == Config.Zone.RES:
 			if not _reaches(i, true):
 				out.append("Keine Jobs erreichbar")
 			elif tile_commute(i) > LONG_COMMUTE:
@@ -1749,6 +1755,8 @@ func _can_grow(i: int) -> bool:
 	if _src(i) < 0 or powered[i] == 0:
 		return false
 	if map.zone[i] == Config.Zone.RES:
+		if game_mode == "build" and hall_level < 2:
+			return true             # Gründung: Siedler arbeiten am Rathaus/im Abbau, kein Pendelweg nötig
 		return _reaches(i, true) and tile_commute(i) <= LONG_COMMUTE
 	return _reaches(i, false)
 
@@ -1798,7 +1806,7 @@ func _grow_rows(z_from: int, z_to: int) -> void:
 					chance *= 1.5
 				if _rng.randf() < chance:
 					new_lv = lv + 1
-					if new_lv >= 2 and not _use_materials(zn, new_lv):
+					if new_lv >= 1 and not _use_materials(zn, new_lv):
 						new_lv = lv       # Baustoffe fehlen und kein Geld für den Zukauf
 			elif lv > _max_level(i) and _rng.randf() < 0.05:
 				new_lv = lv - 1       # Bodenwert/Lage reicht nur für kleineres Gebäude -> Abstieg
@@ -2708,6 +2716,71 @@ func vacant_count() -> int:
 	return c
 
 
+# ---------------------------------------------------------------- Aufbau-Start / Rathaus
+
+## Baustoffe beim Wachsen: im Aufbau-Start immer (auch Stufe 1: etwas Holz), klassisch erst ab MATERIAL_FROM_POP.
+func materials_on() -> bool:
+	return game_mode == "build" or population >= Config.MATERIAL_FROM_POP
+
+
+## Zukauf (Handel) möglich? Im Aufbau-Start erst ab Rathaus-Stufe 2 – vorher nur selbst gesammeltes Material.
+func can_trade() -> bool:
+	return game_mode != "build" or hall_level >= 2
+
+
+## Gründung (Aufbau-Start, Stufe 1): Arbeitsplätze am Rathaus und in Abbau-Betrieben mit Strom (es gibt noch kein
+## Gewerbe/keine Industrie). Sonst 0.
+func founding_jobs() -> float:
+	if game_mode != "build" or hall_level >= 2:
+		return 0.0
+	var jobs := 0.0
+	for a in map.size * map.size:
+		if map.anchor[a] != a or map.special[a] == Config.Special.NONE:
+			continue
+		if map.special[a] == Config.Special.CITYHALL:
+			jobs += Config.FOUNDING_JOBS_HALL
+		elif Config.SPECIALS[map.special[a]].has("produce") and special_powered(a):
+			jobs += Config.FOUNDING_JOBS_PRODUCER
+	return jobs
+
+
+## Was fehlt für die nächste Rathaus-Stufe: {"level", "name", "pop", "mats", "missing": [Texte], "ok": bool}.
+func hall_next() -> Dictionary:
+	var nxt := hall_level + 1
+	if game_mode != "build" or nxt >= Config.HALL_LEVELS.size():
+		return {}
+	var def: Dictionary = Config.HALL_LEVELS[nxt]
+	var missing := PackedStringArray()
+	if population < int(def.get("pop", 0)):
+		missing.append("%d Einwohner" % (int(def["pop"]) - population))
+	var mats: Dictionary = def.get("mats", {})
+	for r: String in mats:
+		var short := float(mats[r]) - float(stock.get(r, 0.0))
+		if short > 0.0:
+			missing.append("%d %s" % [ceili(short), Config.RESOURCES[r]["name"]])
+	return {"level": nxt, "name": def["name"], "pop": int(def.get("pop", 0)), "mats": mats, "missing": missing,
+		"ok": missing.is_empty()}
+
+
+## Rathaus ausbauen: Material aus dem Lager. Rückgabe: Fehlertext oder "".
+func upgrade_hall() -> String:
+	var nxt := hall_next()
+	if nxt.is_empty():
+		return "Keine weitere Stufe"
+	if not bool(nxt["ok"]):
+		return "Es fehlen noch: " + ", ".join(nxt["missing"])
+	for r: String in (nxt["mats"] as Dictionary):
+		stock[r] = float(stock.get(r, 0.0)) - float(nxt["mats"][r])
+	hall_level = int(nxt["level"])
+	for a in map.size * map.size:
+		if map.anchor[a] == a and map.special[a] == Config.Special.CITYHALL:
+			map.slevel[a] = mini(hall_level, 3)
+			map.notify_changed(Rect2i(a % map.size, a / map.size, 3, 3), false)
+	message.emit("Rathaus ausgebaut: Stufe %d (%s)" % [hall_level, nxt["name"]])
+	stats_changed.emit()
+	return ""
+
+
 ## Zufriedenheits-Abzug durch die Wohnsteuer (negativ = Bonus bei Steuer unter neutral).
 func tax_happiness() -> float:
 	var d := float(tax[Config.Zone.RES]) - Config.TAX_NEUTRAL[Config.Zone.RES]
@@ -3028,7 +3101,7 @@ func _buy(res: String, amount: float) -> void:
 
 ## Baustoffe für das Wachsen von Zone zn auf Stufe lv: [fehlende Mengen, Zukaufpreis]. Leer, wenn nichts nötig.
 func material_need(zn: int, lv: int) -> Array:
-	if population < Config.MATERIAL_FROM_POP or not Config.MATERIAL_COST.has(zn):
+	if not materials_on() or not Config.MATERIAL_COST.has(zn):
 		return [{}, 0.0]
 	var cost := growth_materials(zn, lv)
 	var missing := {}
@@ -3044,6 +3117,8 @@ func material_need(zn: int, lv: int) -> Array:
 ## Baustoffbedarf fürs Wachsen auf Stufe lv (mit Forschung "Effiziente Bauweise" weniger).
 func growth_materials(zn: int, lv: int) -> Dictionary:
 	var cost: Dictionary = Config.MATERIAL_COST[zn][lv]
+	if lv == 1:
+		cost = Config.BUILD_LV1_COST[zn] if game_mode == "build" else {}
 	return cost if build_factor() == 1.0 else scale_materials(cost, build_factor())
 
 
@@ -3053,9 +3128,11 @@ func build_factor() -> float:
 
 ## Baustoffe beim Wachsen verbrauchen (fehlendes zukaufen). false = kein Geld für den Zukauf -> kein Wachstum.
 func _use_materials(zn: int, lv: int) -> bool:
-	if population < Config.MATERIAL_FROM_POP or not Config.MATERIAL_COST.has(zn):
+	if not materials_on() or not Config.MATERIAL_COST.has(zn):
 		return true
 	var need := material_need(zn, lv)
+	if not (need[0] as Dictionary).is_empty() and not can_trade():
+		return false                  # Aufbau-Start vor Rathaus-Stufe 2: kein Zukauf, nur eigenes Material
 	if float(need[1]) > 0.0 and money - _import_pending - float(need[1]) < -Config.MATERIAL_DEBT:
 		return false
 	var cost := growth_materials(zn, lv)
@@ -3234,11 +3311,12 @@ func _fires() -> void:
 
 func _budget() -> void:
 	var jobs := jobs_com + jobs_ind
+	var taxes_on := game_mode != "build" or hall_level >= 2
 	income_parts = {
-		"Wohnen": population * Config.TAX_BASE_RES * float(tax[Config.Zone.RES]) * 12.0,
-		"Gewerbe": jobs_com * Config.TAX_BASE_JOB * float(tax[Config.Zone.COM]) * 12.0,
-		"Industrie": (jobs_ind - jobs_hightech) * Config.TAX_BASE_JOB * float(tax[Config.Zone.IND]) * 12.0,
-		"Hightech": jobs_hightech * Config.TAX_BASE_JOB * float(tax[Config.Zone.IND]) * 12.0 * Config.HIGHTECH_TAX,
+		"Wohnen": (population if taxes_on else 0) * Config.TAX_BASE_RES * float(tax[Config.Zone.RES]) * 12.0,
+		"Gewerbe": (jobs_com if taxes_on else 0) * Config.TAX_BASE_JOB * float(tax[Config.Zone.COM]) * 12.0,
+		"Industrie": ((jobs_ind - jobs_hightech) if taxes_on else 0) * Config.TAX_BASE_JOB * float(tax[Config.Zone.IND]) * 12.0,
+		"Hightech": (jobs_hightech if taxes_on else 0) * Config.TAX_BASE_JOB * float(tax[Config.Zone.IND]) * 12.0 * Config.HIGHTECH_TAX,
 		"ÖPNV": (bus_riders + rail_riders) * float(Config.FARE_PRICE[fare]),
 		"Bodenabgabe": villa_count * Config.VILLA_LEVY,
 		"Rohstoff-Export": export_income,
@@ -3252,6 +3330,8 @@ func _budget() -> void:
 		+ line_count * Config.UPKEEP_POWERLINE + special_upkeep \
 		+ rail_count * Config.UPKEEP_RAIL + bus_stop_count * Config.UPKEEP_BUS_STOP \
 		+ station_count * Config.UPKEEP_STATION + _import_pending
+	if game_mode == "build" and hall_level < 2:
+		last_expense = 0.0            # Gründung: keine Steuern, aber auch kein Unterhalt (Material ist die Währung)
 	import_cost = _import_pending
 	_import_pending = 0.0
 	last_materials = materials_used

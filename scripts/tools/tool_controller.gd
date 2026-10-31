@@ -231,11 +231,27 @@ func special_for(t: Tool) -> int:
 
 
 ## Werkzeug noch gesperrt? Liefert Hinweistext oder "".
+## Aufbau-Start: Rathaus-Stufe, ab der ein Werkzeug freigeschaltet ist (nicht aufgeführt = Stufe 1).
+## Grundsatz: künftige Großfunktionen (U-Bahn, Wasser, Flughafen ...) hier mit einer Stufe eintragen.
+const HALL_LEVEL := {
+	Tool.COM: 2, Tool.IND: 2, Tool.PARK: 2, Tool.SAWMILL: 2, Tool.BRICKWORKS: 2, Tool.FIRE: 2, Tool.POLICE: 2,
+	Tool.NURSERY: 2, Tool.BIOMASS: 2,
+	Tool.SCHOOL: 3, Tool.HOSPITAL: 3, Tool.BUS_STOP: 3, Tool.COAL: 3, Tool.GLASSWORKS: 3, Tool.MINE: 3,
+	Tool.RAIL: 4, Tool.STATION: 4, Tool.LIBRARY: 4, Tool.CINEMA: 4, Tool.TOWNHALL: 4, Tool.STEELWORKS: 4,
+	Tool.RECYCLER: 4, Tool.PROSPECTOR: 4, Tool.CONCRETE: 4,
+	Tool.UNIVERSITY: 5, Tool.INSTITUTE: 5, Tool.THEATER: 5, Tool.STADIUM: 5, Tool.HIGHTECH: 5,
+	Tool.SOLAR: 5, Tool.BATTERY: 5, Tool.HYDRO: 5, Tool.PUMPED: 5, Tool.SALT: 5,
+}
+
+
 func locked_reason(t: Tool) -> String:
 	var prev := tool
 	tool = t
 	var sp := _special_for_tool()
 	tool = prev
+	if sim.game_mode == "build" and sim.hall_level < int(HALL_LEVEL.get(t, 1)):
+		var lv: int = HALL_LEVEL[t]
+		return "Erst Rathaus Stufe %d (%s) - Rathaus-Fenster oben" % [lv, Config.HALL_LEVELS[lv]["name"]]
 	if t == Tool.HIGHTECH and not sim.tech("hightech"):
 		return "Erst erforschen: Hightech-Industrie (Forschungsfenster)"
 	if sp == Config.Special.NONE:
@@ -441,8 +457,13 @@ func tile_cost(t: Vector2i) -> int:
 			# Kosten nur auf dem Ursprungs-Tile, Rest muss frei sein
 			if water or special or building or rail or map.road[i] != 0: return -1
 			if t == hover and site_reason(sp, hover) != "": return -1
-			return Config.SPECIALS[sp]["cost"] if t == hover else 0
+			var price: int = Config.SPECIALS[sp]["cost"]
+			if sim.game_mode == "build" and sim.hall_level < 2:
+				price = maxi(roundi(price * Config.BUILD_FOUNDING_COST), 1)   # Gründung: Material ist die Währung
+			return price if t == hover else 0
 		Tool.BULLDOZE:
+			if special and map.special[i] == Config.Special.CITYHALL:
+				return -1               # Rathaus bleibt stehen
 			if special:
 				var s: int = Config.SPECIALS[map.special[i]]["size"]
 				return Config.COST_BULLDOZE_BUILDING * s * s
@@ -550,6 +571,19 @@ func _convert_to_salt(a: int) -> void:
 	applied.emit(tool)
 
 
+## Aufbau-Start vor Rathaus-Stufe 2: kein Zukauf -> fehlendes Material verhindert den Bau. "" = ok.
+func _no_trade_reason(mats: Dictionary) -> String:
+	if sim.can_trade() or mats.is_empty():
+		return ""
+	var missing: Dictionary = sim.build_need(mats)[0]
+	if missing.is_empty():
+		return ""
+	var parts := PackedStringArray()
+	for r: String in missing:
+		parts.append("%d %s" % [ceili(float(missing[r])), Config.RESOURCES[r]["name"]])
+	return "Material fehlt: %s (Zukauf erst ab Rathaus Stufe 2)" % ", ".join(parts)
+
+
 ## Gibt es mindestens einen Sonderbau dieser Art? (gecacht: locked_reason läuft je Tile und Mausbewegung)
 func _special_present(sp: int) -> bool:
 	if not _present.has(sp):
@@ -624,6 +658,10 @@ func _apply(tiles: Array[Vector2i]) -> void:
 	if todo.is_empty():
 		return
 	var mats := materials_for(todo)
+	var trade_why := _no_trade_reason(mats)
+	if trade_why != "":
+		message.emit(trade_why)
+		return
 	var import_price: float = sim.build_need(mats)[1]
 	if not sim.can_afford(total + import_price):
 		if import_price > 0.0:
@@ -687,6 +725,9 @@ func _upgrade(a: int) -> void:
 		return
 	var cost := int(Config.SPECIALS[sp]["upgrade"]) * lv
 	var mats := Simulation.scale_materials(Config.SPECIAL_MATERIALS.get(sp, {}), Config.UPGRADE_MATERIALS * lv * sim.build_factor())
+	if _no_trade_reason(mats) != "":
+		message.emit(_no_trade_reason(mats))
+		return
 	var import_price: float = sim.build_need(mats)[1]
 	if not sim.can_afford(cost + import_price):
 		message.emit("Nicht genug Geld für den Ausbau (benötigt $%d)" % (cost + int(import_price)))
@@ -924,6 +965,8 @@ func _update_preview() -> void:
 	preview_convert = _convert_target() >= 0
 	preview_site = site_reason(sp_prev, hover) if sp_prev != Config.Special.NONE and not preview_convert \
 		and map.in_bounds(hover.x, hover.y) and locked_reason(tool) == "" else ""
+	if preview_site == "" and valid:
+		preview_site = _no_trade_reason(materials_for(tiles))
 	preview_materials = materials_for(tiles) if valid else {}
 	var need := sim.build_need(preview_materials)
 	preview_missing = need[0]
