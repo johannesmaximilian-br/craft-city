@@ -49,6 +49,10 @@ static func run(game: Node) -> void:
 	# des Nutzers (der gerade woanders tippt) im Spiel und wählen z.B. Werkzeuge
 	automated = has("--quit") or value("--screenshot") != ""
 	if automated:
+		# Testläufe: feste Uhrzeit (Mittag), außer --time=0..1 (0 Mitternacht, 0.25 Morgen, 0.75 Abend)
+		game.day_night.frozen = true
+		DayNight.time = float(value("--time")) if value("--time") != "" else 0.42
+	if automated:
 		game.get_viewport().gui_disable_input = true    # auch keine Klicks des Nutzers auf Buttons (z.B. Menü)
 	if has("--demo"):
 		DemoCity.build(game)
@@ -130,6 +134,18 @@ static func run(game: Node) -> void:
 		DevTests.decaytest()
 	if has("--worn"):
 		DevTests.mark_worn(game)
+	if has("--vacant"):
+		# jedes 3. Gebäude als Leerstand markieren (Screenshot)
+		var mp: CityMap = game.map
+		var k := 0
+		for i in mp.size * mp.size:
+			if mp.level[i] > 0 and mp.zone[i] != Config.Zone.NONE:
+				k += 1
+				if k % 3 == 0:
+					mp.empty[i] = 100
+					mp.vacant[i] = 5
+		mp.notify_changed(Rect2i(0, 0, mp.size, mp.size), false)
+		game.sim.refresh()
 	if has("--fronttest"):
 		DevTests.fronttest(game)
 	if has("--loadreport"):
@@ -148,6 +164,34 @@ static func run(game: Node) -> void:
 		DevTests.restest()
 	if has("--renewtest"):
 		DevTests.renewtest()
+	if value("--freshrun") != "":
+		DevTests.freshrun(game, int(value("--freshrun")))
+	if has("--econreport"):
+		DevTests.econreport(game)
+	if has("--researchtest"):
+		await DevTests.researchtest(game)
+	if has("--energybuild"):
+		# Biomasse, Solarfeld, Batterie in die Demo setzen (Forschung freigeschaltet) – Screenshots
+		game.sim.money += 30000
+		for id: String in ["solar", "battery"]:
+			if not game.sim.research_done.has(id):
+				game.sim.research_done.append(id)
+		for t: ToolController.Tool in [ToolController.Tool.BIOMASS, ToolController.Tool.SOLAR, ToolController.Tool.BATTERY]:
+			DevTests._place_near_center(game.map, game.tools, t)
+		game.tools.set_tool(ToolController.Tool.INSPECT)
+		for k in 2:
+			game.sim.tick_month()
+		for i in game.map.size * game.map.size:
+			if game.map.anchor[i] == i and game.map.special[i] in [Config.Special.BIOMASS, Config.Special.SOLAR, Config.Special.BATTERY]:
+				print("energybuild %s bei %d,%d" % [Config.SPECIALS[game.map.special[i]]["name"], i % game.map.size, i / game.map.size])
+	if has("--energytest"):
+		DevTests.energytest()
+	if has("--energytestb"):
+		DevTests.energytest_b(game)
+	if has("--vacancytest"):
+		DevTests.vacancytest()
+	if has("--treereport"):
+		DevTests.treereport(game)
 	if has("--powertest"):
 		DevTests.powertest()
 	if has("--cartest"):
@@ -223,6 +267,35 @@ static func run(game: Node) -> void:
 		game.tools.hover = Vector2i(int(hv[0]), int(hv[1]))
 		game.hud._on_hover(game.tools.hover)
 		game.tools._update_preview()
+		if game.hud._cost.text != "":
+			print("hover Kostenblase: %s" % game.hud._cost.text.replace("\n", " | "))
+			game.hud._cost_pill.set_meta("pin", true)
+	if has("--popflash"):
+		# Popover darf beim Monats-Neuaufbau nicht kurz auf Maximalhöhe springen
+		for kind: String in ["happy", "view", "research", "log"]:
+			game.hud._toggle_popup(kind)
+			for k in 4:
+				await game.get_tree().process_frame
+			var settled: float = game.hud._popup.size.y
+			var heights: Array[int] = []
+			game.sim.tick_month()             # löst stats_changed -> Neuaufbau aus
+			heights.append(int(game.hud._popup.size.y))
+			for k in 12:
+				await game.get_tree().process_frame
+				heights.append(int(game.hud._popup.size.y))
+			print("popflash %s: vorher %d, nach Neuaufbau je Frame %s" % [kind, int(settled), heights])
+			game.hud._close_popup()
+	if value("--techs") != "":
+		# --techs=plant_filter,deep_mining: Projekte als erforscht setzen (Screenshots der Wirkung)
+		for id: String in value("--techs").split(","):
+			if Config.RESEARCH.has(id) and not game.sim.research_done.has(id):
+				game.sim.research_done.append(id)
+		StructureGenerator.techs = game.sim.research_done
+		game.map.notify_changed(Rect2i(0, 0, game.map.size, game.map.size), false)
+	if value("--breakthrough") != "":
+		# --breakthrough=deep_mining: Durchbruch-Karte zeigen (Screenshot)
+		await game.get_tree().process_frame
+		game.hud._on_research_finished(value("--breakthrough"))
 	if has("--notify"):
 		# Beispiel-Warnungen für Screenshots der Meldungsleiste
 		game.hud.notify("Stromengpass im Netz bei 30,30: Bedarf 48 MW > Leistung 30 MW", Vector2i(30, 30))
@@ -231,27 +304,13 @@ static func run(game: Node) -> void:
 		game.hud.show_message("Ansicht: Strom")
 	if has("--hidehud"):
 		game.hud.toggle_hud()
-	if has("--splash"):
-		# Startbild: HUD aus, großer Titel (mit --screenshot=pfad aufnehmen)
+	if has("--splash") or value("--splash") != "":
+		# Startbild: HUD aus, 3D-Block-Logo + Effekte (mit --screenshot=pfad aufnehmen), --splash=grass|stone|brick
 		game.hud.visible = false
 		game.get_node("StatusMarkers").visible = false
-		var title := Label.new()
-		title.text = "CUBE CITY"
-		title.add_theme_font_override("font", UiTheme.font(true))
-		title.add_theme_font_size_override("font_size", 120)
-		title.add_theme_color_override("font_color", Color("fbf3e2"))
-		title.add_theme_color_override("font_outline_color", Color("6b4423"))
-		title.add_theme_constant_override("outline_size", 28)
-		title.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.35))
-		title.add_theme_constant_override("shadow_offset_y", 10)
-		title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		title.set_anchors_preset(Control.PRESET_CENTER_TOP)
-		title.position = Vector2(-500, 90)
-		title.size = Vector2(1000, 160)
-		var layer := CanvasLayer.new()
-		layer.layer = 10
-		layer.add_child(title)
-		game.add_child(layer)
+		var art := SplashArt.new()
+		game.add_child(art)
+		art.setup(game.lib, value("--splash"), game.cam.camera)
 	if value("--appicon") != "":
 		# --appicon=pfad.png: App-Icon (1024 px) rendern
 		await game.get_node("Icons").render_app_icon(value("--appicon"))

@@ -240,8 +240,10 @@ func _emit_tile(tx: int, tz: int) -> void:
 					_b.put(plate, base + Vector3(sx, 0, sz))
 		else:
 			_b.base = base
-			var worn := map.worn[i] == 1
+			var worn := map.worn[i] == 1 or map.is_vacant(i)
 			var put := _put_worn.bind(absi(hash(Vector2i(tx, tz)))) if worn else _b.put_local
+			if map.is_vacant(i):
+				put = _put_vacant.bind(absi(hash(Vector2i(tx, tz))))
 			BuildingGenerator.emit(zn, lv, hash(Vector3i(tx, tz, lv)), put, _b.prop_local, map.villa[i] == 1)
 			if worn:
 				_emit_worn_props(tx, tz)
@@ -295,6 +297,15 @@ const WORN_KEYS := {"brick": "darkbrick", "yellowbrick": "darkbrick", "wood": "d
 
 func _put_worn(key: String, p: Vector3i, seed_value: int) -> void:
 	if WORN_KEYS.has(key) and absi(hash(p) + seed_value) % 100 < 35:
+		key = WORN_KEYS[key]
+	_b.put_local(key, p)
+
+
+## Leerstand: Fenster mit Brettern vernagelt, mehr Verwitterung als bei bloßem Verfall.
+func _put_vacant(key: String, p: Vector3i, seed_value: int) -> void:
+	if key == "ice":
+		key = "wood"
+	elif WORN_KEYS.has(key) and absi(hash(p) + seed_value) % 100 < 60:
 		key = WORN_KEYS[key]
 	_b.put_local(key, p)
 

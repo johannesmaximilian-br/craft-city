@@ -7,6 +7,7 @@ signal power_changed
 signal traffic_changed
 signal message(text: String)
 signal alert(text: String, tile: Vector2i)   # Meldung mit Ort (Klick/Tab springt hin)
+signal research_finished(id: String)          # Projekt abgeschlossen -> HUD zeigt Durchbruch-Karte
 
 const SECONDS_PER_MONTH := [0.0, 3.0, 1.5, 0.5]
 const MONTH_NAMES := ["Jan", "Feb", "Mär", "Apr", "Mai", "Jun", "Jul", "Aug", "Sep", "Okt", "Nov", "Dez"]
@@ -80,6 +81,16 @@ var last_materials := {}            # beim Wachsen verbaut (letzter Monat)
 var producer_info := {}
 var _ore_used := {}
 var _delivery_warned := {}
+# Forschung
+var research_done: Array[String] = []
+var research_current := ""          # laufendes Projekt (Config.RESEARCH-Schlüssel) oder ""
+var research_progress := 0.0        # gesammelte Punkte des laufenden Projekts
+var research_budget := 0.0          # eingestelltes Budget $/Monat (Config.RESEARCH_BUDGET_STEPS)
+var research_rate := 0.0            # Punkte im letzten Monat
+var _inst_levels := 0
+var research_spent := 0.0           # Forschungsausgaben im letzten Monat
+var admin_cost := 0.0               # Verwaltungskosten im letzten Monat
+var build_imports := 0.0           # Sofort-Zukauf von Baumaterial beim Bauen (Summe seit Spielstart, nicht gespeichert)
 var planted := 0                    # Bäume, die Baumschulen im letzten Monat gepflanzt haben
 var planted_at := {}                # Baumschul-Anker -> gepflanzte Bäume im letzten Monat (nicht gespeichert)
 var last_found := {}                # Prospektor-Anker -> zuletzt gefundene Ader (Text)
@@ -171,7 +182,9 @@ func to_dict() -> Dictionary:
 	for a: int in local_buffer:
 		buffers[str(a)] = local_buffer[a]
 	return {"money": money, "month": month, "year": year, "tax": tax, "fare": fare, "congestion": congestion,
-		"stock": stock, "buffers": buffers}
+		"stock": stock, "buffers": buffers,
+		"research": {"done": research_done, "current": research_current, "progress": research_progress,
+			"budget": research_budget}}
 
 
 func from_dict(d: Dictionary) -> void:
@@ -186,6 +199,18 @@ func from_dict(d: Dictionary) -> void:
 		tax[Config.Zone.RES] = d["tax_rate"]
 		tax[Config.Zone.COM] = d["tax_rate"]
 	fare = d.get("fare", 1)
+	var rs: Dictionary = d.get("research", {})
+	research_done.clear()
+	for id: String in (rs.get("done", []) as Array):
+		if Config.RESEARCH.has(id):
+			research_done.append(id)
+	research_current = str(rs.get("current", ""))
+	if not Config.RESEARCH.has(research_current):
+		research_current = ""
+	research_progress = float(rs.get("progress", 0.0))
+	research_budget = float(rs.get("budget", 0.0))
+	research_rate = 0.0
+	research_spent = 0.0
 	local_buffer = {}
 	for k: String in (d.get("buffers", {}) as Dictionary):
 		local_buffer[int(k)] = d["buffers"][k]
@@ -341,6 +366,7 @@ func _tick_stage(stage: String) -> void:
 			_produce()
 			_process_goods()
 			_export_surplus()
+			_research()
 			_budget()
 			month += 1
 			if month >= 12:
@@ -577,9 +603,9 @@ func _compute_commute() -> void:
 		var lv := map.level[i]
 		var amount := 0.0
 		if zn == Config.Zone.RES:
-			amount = map.res_capacity(i) * WORK_SHARE
+			amount = map.residents(i) * WORK_SHARE
 		else:
-			amount = Config.COM_CAPACITY[lv] if zn == Config.Zone.COM else Config.IND_CAPACITY[lv]
+			amount = map.jobs_at(i)
 		for k in range(0, acc.size(), 2):
 			var r := int(acc[k])
 			var share := acc[k + 1]
@@ -1081,14 +1107,17 @@ func _env_begin() -> void:
 
 	pollution.resize(n)
 	pollution.fill(0.0)
+	var coal_f := Config.TECH_FILTER if tech("plant_filter") else 1.0
+	var works_f := Config.TECH_FURNACE_POLLUTION if tech("blast_furnace") else 1.0
 	for i in n:
 		if zone[i] == Config.Zone.IND and level[i] > 0:
 			_stamp(i, Config.POLLUTION_IND_PER_LEVEL[level[i]], Config.POLLUTION_IND_RANGE)
 		elif anchor[i] == i and special[i] == Config.Special.COAL:
-			_stamp(i, Config.POLLUTION_COAL, Config.POLLUTION_COAL_RANGE)
+			_stamp(i, Config.POLLUTION_COAL * coal_f, Config.POLLUTION_COAL_RANGE)
 		elif anchor[i] == i and special[i] != Config.Special.NONE and Config.SPECIALS[special[i]].has("pollution"):
 			var pol: Array = Config.SPECIALS[special[i]]["pollution"]
-			_stamp(i, float(pol[0]) * map.special_level(i), int(pol[1]))
+			_stamp(i, float(pol[0]) * map.special_level(i) * (works_f if Config.SPECIALS[special[i]].has("process") else 1.0),
+				int(pol[1]))
 		elif road[i] != 0 and congestion[i] > 0.3:
 			_stamp(i, Config.POLLUTION_TRAFFIC * minf(congestion[i], 2.0), Config.POLLUTION_TRAFFIC_RANGE)
 
@@ -1120,13 +1149,13 @@ func _env_begin() -> void:
 			if f == Config.Feature.TREE: rt += 1.0
 			elif f == Config.Feature.PARK: rp += 1.0
 			if zone[i] == Config.Zone.RES:
-				rpop += map.res_capacity(i)
+				rpop += map.residents(i)
 				rres += 1.0
 			elif zone[i] == Config.Zone.COM:
-				rjobs += Config.COM_CAPACITY[level[i]]
+				rjobs += map.jobs_at(i)
 				if level[i] > 0: rcom += 1.0
 			elif zone[i] == Config.Zone.IND:
-				rjobs += Config.IND_CAPACITY[level[i]]
+				rjobs += map.jobs_at(i)
 				rind += 1.0
 			var o := (z + 1) * s + x + 1
 			var up := z * s + x + 1
@@ -1378,13 +1407,19 @@ func _compute_power() -> void:
 		var head := 0
 		var plants: Array[int] = []
 		var capacity := 0
+		var night := 0           # Leistung nachts (ohne Solar)
+		var storage := 0         # Speicher-Leistung (Batterien), lädt tagsüber aus dem Überschuss
 		var demand := 0
 		while head < comp.size():
 			var i := comp[head]
 			head += 1
 			if anchor[i] == i:
-				var p: int = Config.SPECIALS[special[i]]["power"]
+				var pdef: Dictionary = Config.SPECIALS[special[i]]
+				var p: int = pdef["power"]
 				capacity += p
+				if not pdef.has("solar"):
+					night += p
+				storage += int(pdef.get("storage_mw", 0))
 				if p > 0:
 					plants.append(i)
 			demand += use[i]
@@ -1402,6 +1437,13 @@ func _compute_power() -> void:
 			if z > 0 and net[i - size] == -1 and cond[i - size] == 1:
 				net[i - size] = id
 				comp.append(i - size)
+		# Tag/Nacht: versorgt wird nach der knapperen Tageshälfte. Nachts 75 % Bedarf, Speicher geben den Tagesüberschuss
+		# ab (höchstens ihre Leistung). Ohne Solar ist das Ergebnis = Tagesleistung (wie früher).
+		var day_cap := capacity
+		var store_used := mini(storage, maxi(day_cap - demand, 0))
+		var night_cap := night + store_used
+		var night_limited := float(night_cap) / Config.NIGHT_DEMAND < float(day_cap)
+		capacity = mini(day_cap, int(float(night_cap) / Config.NIGHT_DEMAND))
 		# 2) Versorgen in BFS-Reihenfolge ab den Kraftwerken
 		var left := capacity
 		var unserved := 0
@@ -1468,7 +1510,8 @@ func _compute_power() -> void:
 		power_demand += demand
 		power_served += capacity - left
 		power_nets.append({"capacity": capacity, "demand": demand, "plants": plants.size(),
-			"unserved": unserved, "dark": dark, "key": start})
+			"unserved": unserved, "dark": dark, "key": start, "day": day_cap, "night": night_cap,
+			"storage": storage, "store_used": store_used, "night_limited": night_limited})
 	power_net = net
 	powered = pw
 	# Restliche Tiles eines Dienstbaus übernehmen den Zustand ihres Ursprungs-Tiles
@@ -1519,6 +1562,8 @@ func _power_alerts() -> void:
 	else:
 		text = "Stromengpass im Netz bei %d,%d: Bedarf %d MW > Leistung %d MW" % [t.x, t.y,
 			int(net["demand"]), int(net["capacity"])]
+		if bool(net.get("night_limited", false)):
+			text += " - nachts (Solar liefert nur tagsüber: Speicher oder Grundlast bauen)"
 	if fresh.size() > 1:
 		text += " (+%d weitere Netze)" % (fresh.size() - 1)
 	alert.emit(text, t)
@@ -1536,6 +1581,7 @@ func _recount() -> void:
 	bus_stop_count = 0
 	station_count = 0
 	special_upkeep = 0.0
+	_inst_levels = 0
 	var zone := map.zone
 	var level := map.level
 	var villa := map.villa
@@ -1548,19 +1594,25 @@ func _recount() -> void:
 	var res_cap: Array = Config.RES_CAPACITY
 	var com_cap: Array = Config.COM_CAPACITY
 	var ind_cap: Array = Config.IND_CAPACITY
+	var empty := map.empty
+	var pop_f := 0.0
+	var com_f := 0.0
+	var ind_f := 0.0
 	for i in map.size * map.size:
 		var lv := level[i]
 		var zn := zone[i]
+		var occ := (100 - empty[i]) * 0.01
 		if zn == Config.Zone.RES:
 			if villa[i] == 1 and lv == 3:
-				population += Config.VILLA_POP
-				villa_count += 1
+				pop_f += Config.VILLA_POP * occ
+				if occ > 0.0:
+					villa_count += 1
 			else:
-				population += res_cap[lv]
+				pop_f += res_cap[lv] * occ
 		elif zn == Config.Zone.COM:
-			jobs_com += com_cap[lv]
+			com_f += com_cap[lv] * occ
 		elif zn == Config.Zone.IND:
-			jobs_ind += ind_cap[lv]
+			ind_f += ind_cap[lv] * occ
 		if road[i] != 0: road_count += 1
 		line_count += line[i]
 		if rail[i] != 0: rail_count += 1
@@ -1570,8 +1622,14 @@ func _recount() -> void:
 		if feature[i] == Config.Feature.PARK:
 			park_count += 1
 		if anchor[i] == i:
-			var lvl := map.special_level(i) if Config.SPECIALS[map.special[i]].has("service") else 1
+			var sdef: Dictionary = Config.SPECIALS[map.special[i]]
+			var lvl := map.special_level(i) if sdef.has("service") or sdef.has("research") else 1
+			if map.special[i] == Config.Special.INSTITUTE and special_powered(i):
+				_inst_levels += lvl
 			special_upkeep += Config.SPECIALS[map.special[i]]["upkeep"] * Config.UPKEEP_LEVEL[lvl]
+	population = roundi(pop_f)
+	jobs_com = roundi(com_f)
+	jobs_ind = roundi(ind_f)
 
 
 func _update_demand() -> void:
@@ -1679,6 +1737,7 @@ func _grow() -> void:
 
 
 var _grow_changed := Rect2i()
+var _vacant_new: Array[int] = []      # in diesem Monat neu aufgegebene Gebäude (Meldung)
 var _grow_any := false
 
 
@@ -1701,15 +1760,16 @@ func _grow_rows(z_from: int, z_to: int) -> void:
 			var demand := demand_for(zn)
 			var ok := _can_grow(i)
 			var new_lv := lv
-			if zn == Config.Zone.RES and lv == 3 and map.villa[i] == 1 and villa_lost(i):
+			var was_vacant := lv > 0 and map.empty[i] >= 100
+			if was_vacant:
+				pass                  # Leerstand: keine Stufenwechsel, nur Belegung/Abriss (unten)
+			elif zn == Config.Zone.RES and lv == 3 and map.villa[i] == 1 and villa_lost(i):
 				if _rng.randf() < Config.VILLA_DECAY:
 					new_lv = 2        # Villenlage verloren -> Einfamilienhaus
-			elif zn == Config.Zone.RES and lv > 0 and happiness[i] < Config.HAPPY_LEAVE and _rng.randf() < 0.08:
-				new_lv = lv - 1       # Unzufriedenheit -> Wegzug
+			elif zn == Config.Zone.RES and lv > 0 and happiness[i] < Config.HAPPY_LEAVE:
+				pass                  # Unzufriedenheit -> Auszug über die Belegung (unten), kein Stufen-Abstieg
 			elif not ok:
-				# Ohne Straße/Strom/Erreichbarkeit verfällt Bebauung
-				if lv > 0 and _rng.randf() < 0.06:
-					new_lv = lv - 1
+				pass                  # ohne Straße/Strom/Erreichbarkeit: Auszug über die Belegung
 			elif demand > 0.0 and lv < _max_level(i):
 				var chance := 0.3 * demand / (1.0 + lv) * _growth_factor(i, zn)
 				if lv == 0:
@@ -1719,22 +1779,49 @@ func _grow_rows(z_from: int, z_to: int) -> void:
 					if new_lv >= 2 and not _use_materials(zn, new_lv):
 						new_lv = lv       # Baustoffe fehlen und kein Geld für den Zukauf
 			elif lv > _max_level(i) and _rng.randf() < 0.05:
-				new_lv = lv - 1       # Bodenwert gesunken -> Abwanderung
-			elif demand < -0.25 and lv > 0 and _rng.randf() < 0.04:
-				new_lv = lv - 1
+				new_lv = lv - 1       # Bodenwert/Lage reicht nur für kleineres Gebäude -> Abstieg
+			# keine Nachfrage (demand < -0.25): Auszug über die Belegung
 			if new_lv != lv:
 				map.level[i] = new_lv
 				# Wohnen Stufe 3: in Villenlage eine Villa statt Wohnblock
 				map.villa[i] = 1 if zn == Config.Zone.RES and new_lv == 3 and villa_site(i) else 0
 			# Verfall sichtbar machen, bevor das Gebäude absinkt (gleiche Bedingungen wie decay_reason)
 			var worn := 0
+			var hard := false         # echter Mangel -> schneller Auszug; nur "keine Nachfrage" -> sanft (gleicht sich aus)
 			if new_lv > 0:
 				var mx := _max_level(i)
-				if (zn == Config.Zone.RES and new_lv == 3 and map.villa[i] == 1 and villa_lost(i)) \
-						or (zn == Config.Zone.RES and happiness[i] < Config.HAPPY_LEAVE) \
-						or not ok or new_lv > mx or demand < -0.25:
+				# hart: unzufrieden, kein Strom/Straße/Erreichbarkeit -> Leerstand möglich
+				# sanft: zu groß für die Lage / Villenlage weg (Abstieg auf kleinere Stufe) und keine Nachfrage
+				hard = (zn == Config.Zone.RES and happiness[i] < Config.HAPPY_LEAVE) or not ok
+				if hard or demand < -0.25 or new_lv > mx \
+						or (zn == Config.Zone.RES and new_lv == 3 and map.villa[i] == 1 and villa_lost(i)):
 					worn = 1
-			if new_lv != lv or worn != map.worn[i]:
+			# Belegung: bei Verfall Auszug, sonst Zuzug; 0 % = Leerstand, nach VACANT_MONTHS Abriss
+			var occ := 100 - int(map.empty[i])
+			if new_lv > lv:
+				occ = 100
+			elif new_lv > 0:
+				if worn == 1 and not hard:
+					occ = maxi(mini(occ, maxi(occ - Config.OCC_DROP_DEMAND, Config.OCC_SOFT_FLOOR)), 0)
+				elif worn == 1:
+					occ = maxi(occ - (Config.OCC_DROP if not ok else Config.OCC_DROP_UNHAPPY), 0)
+				else:
+					occ = mini(occ + Config.OCC_RISE, 100)
+			if new_lv > 0 and occ == 0:
+				if not was_vacant:
+					_vacant_new.append(i)
+				map.vacant[i] = mini(int(map.vacant[i]) + 1, 255)
+				if map.vacant[i] >= Config.VACANT_MONTHS:
+					new_lv = 0              # lange leer -> abgerissen, Zone bleibt
+					map.level[i] = 0
+					map.villa[i] = 0
+					map.vacant[i] = 0
+					worn = 0
+			else:
+				map.vacant[i] = 0
+			map.empty[i] = 100 - occ if new_lv > 0 else 0
+			var vacant_now := new_lv > 0 and occ == 0
+			if new_lv != lv or worn != map.worn[i] or vacant_now != was_vacant:
 				map.worn[i] = worn
 				var r := Rect2i(x, z, 1, 1)
 				changed = r if not any else changed.merge(r)
@@ -1748,6 +1835,15 @@ func _grow_finish() -> void:
 		map.notify_changed(_grow_changed, false)    # nur Gebäudestufen
 	_grow_any = false
 	_grow_changed = Rect2i()
+	if not _vacant_new.is_empty():
+		var i: int = _vacant_new[0]
+		var why := decay_reason(i)
+		var what: String = Config.ZONE_NAMES[map.zone[i]]
+		alert.emit("Leerstand: %s bei %d,%d aufgegeben%s%s" % [what, i % map.size, i / map.size,
+			(" (" + why + ")") if why != "" else "",
+			(" - und %d weitere" % (_vacant_new.size() - 1)) if _vacant_new.size() > 1 else ""],
+			Vector2i(i % map.size, i / map.size))
+		_vacant_new.clear()
 
 
 ## Höchste erreichbare Stufe (Wohnen: begrenzt durch Bodenwert).
@@ -1909,9 +2005,9 @@ func _compute_services() -> void:
 	work.resize(n)
 	for i in n:
 		match map.zone[i]:
-			Config.Zone.RES: people[i] = map.res_capacity(i)
-			Config.Zone.COM: work[i] = Config.COM_CAPACITY[map.level[i]]
-			Config.Zone.IND: work[i] = Config.IND_CAPACITY[map.level[i]]
+			Config.Zone.RES: people[i] = map.residents(i)
+			Config.Zone.COM: work[i] = map.jobs_at(i)
+			Config.Zone.IND: work[i] = map.jobs_at(i)
 	for st: Array in stations:
 		var i: int = st[0]
 		var cat: String = st[1]
@@ -1923,11 +2019,11 @@ func _compute_services() -> void:
 			var w := people[j] + (Config.FIRE_JOB_WEIGHT * work[j] if cat == "fire" else 0.0)
 			served += w / maxi(cnt[j], 1)
 		# Auslastung; Überlast schwächt die Wirkung
-		var load := served / float(Config.SERVICE_CAPACITY[lv])
+		var load := served / service_capacity(i)
 		service_load[i] = load
 		var strength := 1.0 if load <= 1.0 else 1.0 / load
 		var field: PackedFloat32Array = coverage[cat]
-		var r: int = Config.SERVICE_RADIUS[lv]
+		var r: int = service_radius(i)
 		var half := (int(Config.SPECIALS[map.special[i]]["size"]) - 1) * 0.5
 		var cx := i % size
 		var cz := i / size
@@ -1952,7 +2048,9 @@ func _compute_services() -> void:
 	var part_land := 0.0
 	var part_park := 0.0
 	var part_fare := 0.0
-	var tax_happy := (float(tax[Config.Zone.RES]) - Config.TAX_NEUTRAL[Config.Zone.RES]) * Config.TAX_HAPPY
+	var part_blight := 0.0
+	var blight := _blight_field()
+	var tax_happy := tax_happiness()
 	var fare_happy: float = Config.FARE_HAPPY[fare]
 	var part_crime := 0.0
 	var part_svc := {}
@@ -1971,10 +2069,14 @@ func _compute_services() -> void:
 		if zn != Config.Zone.RES:
 			happiness[i] = 0.0
 			continue
-		var p: float = map.res_capacity(i)
+		var p: float = map.residents(i)
 		var land := (land_value[i] - 0.45) * 0.5
 		var h := Config.HAPPY_BASE + land
 		part_land += land * p
+		if blight[i] > 0.0:
+			var bl := minf(blight[i] * Config.VACANT_HAPPY, Config.VACANT_HAPPY_MAX)
+			h -= bl
+			part_blight -= bl * p
 		for cat: String in Config.SERVICES:
 			var spec: Array = Config.SERVICES[cat]
 			var cov: float = (coverage[cat] as PackedFloat32Array)[i]
@@ -2011,6 +2113,7 @@ func _compute_services() -> void:
 		happy_parts["Kriminalität"] = part_crime / sum_w
 		happy_parts["Steuern"] = -tax_happy
 		happy_parts["ÖPNV-Tarif"] = part_fare / sum_w
+		happy_parts["Leerstand"] = part_blight / sum_w
 
 	# Bürgerwünsche: einmalige Meldung, wenn die Stadt eine Größe erreicht und der Dienst fehlt
 	for cat: String in Config.SERVICES:
@@ -2112,7 +2215,7 @@ func _produce() -> void:
 				var budget := {}
 				for k: String in kinds:
 					var rate := Config.QUARRY_STONE if kind == "stone" else (Config.PIT_RATE if kind == "pit" else int(Config.MINE_RATE[k]))
-					budget[k] = rate * lv
+					budget[k] = rate * lv * (Config.TECH_MINING if tech("deep_mining") else 1.0)
 				for j in _area_tiles(a, rng_r):
 					var amt := map.ore_amt[j]
 					if amt == 0:
@@ -2193,8 +2296,18 @@ func _renew() -> void:
 			and special[i] == Config.Special.NONE and height[i] >= wl and map.power_line[i] == 0 \
 			and not (ore[i] == Config.Ore.SAND and ore_amt[i] > 0)
 	# 1) Natürliche Ausbreitung: Stichprobe von n·FOREST_SPREAD Tiles (gleicher Erwartungswert wie Wurf je Tile, viel
-	#    billiger); wächst nur bei 2+ Baum-Nachbarn inkl. Diagonalen -> Wälder wachsen, Einzelbäume nicht
-	for k in roundi(n * Config.FOREST_SPREAD):
+	#    billiger); nur Lücken mit FOREST_GAP+ Baum-Nachbarn inkl. Diagonalen wachsen zu (gerodete Stellen erholen
+	#    sich, Waldränder wandern nicht), und nur solange weniger als FOREST_MAX_SHARE des Landes Wald ist.
+	#    Früher reichten 2 Nachbarn -> nach Jahrhunderten war die ganze Karte zugewachsen.
+	var trees := 0
+	var land := 0
+	for i in n:
+		if feature[i] == Config.Feature.TREE:
+			trees += 1
+		if height[i] >= wl:
+			land += 1
+	var spread := roundi(n * Config.FOREST_SPREAD) if trees < land * Config.FOREST_MAX_SHARE else 0
+	for k in spread:
 		var i := _rng.randi() % n
 		if feature[i] != Config.Feature.NONE:
 			continue
@@ -2205,7 +2318,7 @@ func _renew() -> void:
 			for dx in range(maxi(x - 1, 0), mini(x + 2, size)):
 				if feature[dz * size + dx] == Config.Feature.TREE:
 					t += 1
-		if t >= 2 and free.call(i):
+		if t >= Config.FOREST_GAP and free.call(i):
 			feature[i] = Config.Feature.TREE
 			changed.append(i)
 	# Sonderbauten der Erneuerung einsammeln
@@ -2223,7 +2336,15 @@ func _renew() -> void:
 	planted_at.clear()
 	for a in nurseries:
 		var left := Config.NURSERY_TREES * map.special_level(a)
-		for j in _area_tiles(a, Config.NURSERY_RANGE):
+		var area := _area_tiles(a, Config.NURSERY_RANGE)
+		var wood := 0
+		for j in area:
+			if feature[j] == Config.Feature.TREE:
+				wood += 1
+		if wood >= area.size() * Config.NURSERY_MAX_SHARE:
+			planted_at[a] = -1         # Umkreis ist Wald genug (Holzfäller schafft wieder Platz)
+			continue
+		for j in area:
 			if left <= 0:
 				break
 			if free.call(j):
@@ -2292,17 +2413,283 @@ func _prospect(a: int, free: Callable) -> Array[int]:
 
 ## Abriss eines Gebäudes der Stufe lv: Anteil der verbauten Baustoffe zurück ins Lager. Rückgabe: zurückgewonnene Mengen.
 func recycle(zn: int, lv: int) -> Dictionary:
-	var back := {}
+	var mats := {}
 	if not Config.MATERIAL_COST.has(zn):
-		return back
-	var share := Config.RECYCLE_SHARE_YARD if has_recycler() else Config.RECYCLE_SHARE
+		return mats
 	for k in range(2, lv + 1):
 		var cost: Dictionary = Config.MATERIAL_COST[zn][k]
 		for r: String in cost:
-			back[r] = float(back.get(r, 0.0)) + float(cost[r]) * share
-	for r: String in back:
+			mats[r] = float(mats.get(r, 0.0)) + float(cost[r])
+	return recycle_materials(mats)
+
+
+## Abriss eines Sonderbaus: Anteil des Baumaterials (inkl. Ausbaustufen) zurück ins Lager.
+func recycle_special(sp: int, lv: int) -> Dictionary:
+	var base: Dictionary = Config.SPECIAL_MATERIALS.get(sp, {})
+	var f := 1.0
+	for k in range(1, lv):
+		f += Config.UPGRADE_MATERIALS * k
+	return recycle_materials(scale_materials(base, f))
+
+
+func recycle_materials(mats: Dictionary) -> Dictionary:
+	var back := {}
+	if mats.is_empty():
+		return back
+	var share := Config.RECYCLE_SHARE_YARD if has_recycler() else Config.RECYCLE_SHARE
+	for r: String in mats:
+		back[r] = float(mats[r]) * share
 		stock[r] = float(stock.get(r, 0.0)) + float(back[r])
 	return back
+
+
+static func scale_materials(mats: Dictionary, f: float) -> Dictionary:
+	var out := {}
+	for r: String in mats:
+		out[r] = float(mats[r]) * f
+	return out
+
+
+# ---------------------------------------------------------------- Forschung
+
+func tech(id: String) -> bool:
+	return research_done.has(id)
+
+
+## Akademikerquote = Anteil der Einwohner im Einzugsbereich einer Universität (Anzeige).
+func academics() -> float:
+	return float(city_coverage.get("university", 0.0))
+
+
+## Akademiker = von Universitäten versorgte Einwohner, je Uni höchstens ihre Kapazität.
+func academics_count() -> float:
+	var sum := 0.0
+	for a: int in service_load:
+		if map.anchor[a] == a and map.special[a] == Config.Special.UNIVERSITY and special_powered(a):
+			var cap := service_capacity(a)
+			sum += minf(float(service_load[a]) * cap, cap)
+	return sum
+
+
+## Anteil der Institutsleistung, den die Akademiker tragen (0.1 .. 1).
+func academic_factor() -> float:
+	if _inst_levels == 0:
+		return 0.0
+	return clampf(academics_count() / (Config.ACADEMICS_PER_LEVEL * _inst_levels), Config.RESEARCH_MIN_ACADEMICS, 1.0)
+
+
+## Summe der Ausbaustufen aller Institute mit Strom (gezählt in _recount).
+func institute_levels() -> int:
+	return _inst_levels
+
+
+static func budget_factor(budget: float) -> float:
+	return 0.25 + 0.75 * sqrt(maxf(budget, 0.0) / Config.RESEARCH_BUDGET_REF)
+
+
+## Forschungspunkte je Monat beim eingestellten Budget (0 ohne Institut).
+func research_points() -> float:
+	return Config.RESEARCH_POINTS * institute_levels() * academic_factor() * budget_factor(research_budget)
+
+
+## Geschätzte Dauer in Monaten bei Budget b (-1 = ohne Institut nicht möglich).
+func research_eta(id: String, b: float) -> int:
+	var rate := Config.RESEARCH_POINTS * institute_levels() * academic_factor() * budget_factor(b)
+	if rate <= 0.0:
+		return -1
+	var left := float(Config.RESEARCH[id]["points"]) - (research_progress if research_current == id else 0.0)
+	return ceili(left / rate)
+
+
+## Was ein abgeschlossenes Projekt in dieser Stadt bewirkt: {"lines": [...], "tile": Vector2i (-1 = keins)}.
+func tech_impact(id: String) -> Dictionary:
+	var lines := PackedStringArray()
+	var tile := Vector2i(-1, -1)
+	var anchors: Array[int] = []
+	var count := 0
+	var before := 0.0
+	for a in map.size * map.size:
+		if map.anchor[a] != a or map.special[a] == Config.Special.NONE:
+			continue
+		var def: Dictionary = Config.SPECIALS[map.special[a]]
+		var hit := false
+		match id:
+			"deep_mining":
+				hit = def.has("produce") and str(def["produce"]) != "wood"
+				if hit:
+					for r: String in ((producer_info.get(a, {}) as Dictionary).get("out", {}) as Dictionary):
+						before += float(producer_info[a]["out"][r])
+			"plant_filter":
+				hit = map.special[a] == Config.Special.COAL
+			"blast_furnace":
+				hit = def.has("process") and (def["process"]["in"] as Dictionary).has("coal")
+				if hit:
+					before += float(((producer_info.get(a, {}) as Dictionary).get("in", {}) as Dictionary).get("coal", 0.0))
+		if hit:
+			count += 1
+			anchors.append(a)
+			if tile.x < 0:
+				tile = Vector2i(a % map.size, a / map.size)
+	match id:
+		"deep_mining":
+			lines.append(("%d Abbau-Betriebe fördern ab sofort 50 %% mehr" % count) if count > 0
+				else "Jede Mine, jeder Steinbruch und jede Grube fördert 50 % mehr")
+			if before > 0.0:
+				lines.append("Förderung: ~%d statt %d Einheiten je Monat" % [roundi(before * Config.TECH_MINING), roundi(before)])
+			lines.append("Sichtbar: Fördertürme an Minen und Steinbrüchen")
+		"efficient_build":
+			lines.append("Polizeiwache: %d statt %d Ziegel" % [roundi(20 * Config.TECH_BUILD), 20])
+			lines.append("Wohnhaus Stufe 3: %d statt %d Ziegel" % [roundi(8 * Config.TECH_BUILD), 8])
+			lines.append("Gilt für Bauen, Ausbau und Wachsen - Kostenblase zeigt den Rabatt")
+		"plant_filter":
+			lines.append("%s: Verschmutzung %d -> %d" % [("%d Kohlekraftwerk(e)" % count) if count > 0 else "Jedes Kohlekraftwerk",
+				roundi(Config.POLLUTION_COAL), roundi(Config.POLLUTION_COAL * Config.TECH_FILTER)])
+			lines.append("Sichtbar: Filter auf den Schornsteinen, weißer dünner Rauch")
+		"solar":
+			lines.append("Solarfeld in der Strom-Gruppe: 50 MW tagsüber, sauber")
+			lines.append("Nachts liefert es nichts - Grundlast (Kohle, Biomasse, Wind) oder Speicher behalten")
+			lines.append("Nächstes Projekt: Batteriespeicher")
+		"hydro":
+			lines.append("Wasserkraftwerk in der Strom-Gruppe: 120 MW Tag und Nacht, ohne Abgas")
+			lines.append("Nur direkt am Wasser baubar (Fluss oder See)")
+		"pumped":
+			lines.append("Pumpspeicher in der Strom-Gruppe: speichert 150 MW Tagesüberschuss")
+			lines.append("Braucht einen Hang: mindestens 3 Blöcke über dem Wasser, Wasser in der Nähe")
+		"salt":
+			lines.append("Salzspeicher in der Strom-Gruppe: 300 MW für die Nacht, überall baubar")
+			lines.append("Klick auf ein Kohlekraftwerk rüstet es zum halben Preis zum Salzspeicher um")
+		"battery":
+			lines.append("Batteriespeicher in der Strom-Gruppe: lädt tagsüber, liefert nachts bis 40 MW")
+			lines.append("Mit Solar + Speicher kann Kohle Schritt für Schritt ersetzt werden")
+		"blast_furnace":
+			lines.append("%s halb so viel Kohle und verschmutzen 40 %% weniger" % [("%d Werk(e) brauchen" % count) if count > 0
+				else "Ziegelei, Glashütte und Stahlwerk brauchen"])
+			if before > 0.0:
+				lines.append("Kohle für Werke: ~%d statt %d je Monat" % [roundi(before * Config.TECH_FURNACE_COAL), roundi(before)])
+	return {"lines": lines, "tile": tile, "anchors": anchors}
+
+
+## Warum ein Projekt nicht gestartet werden kann ("" = möglich).
+func research_blocker(id: String) -> String:
+	if tech(id):
+		return "erforscht"
+	if research_current == id:
+		return "läuft"
+	if research_current != "":
+		return "erst laufendes Projekt beenden"
+	for req: String in Config.RESEARCH[id]["requires"]:
+		if not tech(req):
+			return "braucht: %s" % Config.RESEARCH[req]["name"]
+	if institute_levels() == 0:
+		return "kein Forschungsinstitut (mit Strom)"
+	return ""
+
+
+## Projekt starten: Gold aus dem Lager, Rest sofort zukaufen. Rückgabe: Fehlertext oder "".
+func start_research(id: String) -> String:
+	var why := research_blocker(id)
+	if why != "":
+		return why
+	var mats := {"gold": float(Config.RESEARCH[id]["gold"])}
+	var price: float = build_need(mats)[1]
+	if not can_afford(price):
+		return "Nicht genug Geld für den Gold-Zukauf ($%d)" % int(price)
+	use_build_materials(mats)
+	research_current = id
+	research_progress = 0.0
+	stats_changed.emit()
+	return ""
+
+
+## Monatlich: Budget ausgeben (nur wenn geforscht wird), Punkte sammeln, Abschluss melden.
+func _research() -> void:
+	research_rate = 0.0
+	research_spent = 0.0
+	if research_current == "" or institute_levels() == 0:
+		return
+	research_spent = research_budget
+	research_rate = research_points()
+	research_progress += research_rate
+	var def: Dictionary = Config.RESEARCH[research_current]
+	if research_progress >= float(def["points"]):
+		research_done.append(research_current)
+		var done_id := research_current
+		message.emit("Forschung abgeschlossen: %s - %s" % [def["name"], def["desc"]])
+		research_current = ""
+		StructureGenerator.techs = research_done      # Modelle (Förderturm, Filter ...) vor dem Neuaufbau kennen
+		for a: int in tech_impact(done_id)["anchors"]:
+			var sz: int = Config.SPECIALS[map.special[a]]["size"]
+			map.notify_changed(Rect2i(a % map.size, a / map.size, sz, sz), false)   # einzeln, nie Sammel-Rechteck
+		research_finished.emit(done_id)
+		research_progress = 0.0
+
+
+## Leerstand im Umkreis (VACANT_RANGE, Quadrat): Anzahl leerer Gebäude je Tile -> Verfall des Viertels.
+func _blight_field() -> PackedFloat32Array:
+	var n := map.size * map.size
+	var f := PackedFloat32Array()
+	f.resize(n)
+	var r := Config.VACANT_RANGE
+	for i in n:
+		if not map.is_vacant(i):
+			continue
+		var cx := i % map.size
+		var cz := i / map.size
+		for z in range(maxi(cz - r, 0), mini(cz + r + 1, map.size)):
+			for x in range(maxi(cx - r, 0), mini(cx + r + 1, map.size)):
+				if x != cx or z != cz:
+					f[z * map.size + x] += 1.0
+	return f
+
+
+func vacant_count() -> int:
+	var c := 0
+	for i in map.size * map.size:
+		if map.is_vacant(i):
+			c += 1
+	return c
+
+
+## Zufriedenheits-Abzug durch die Wohnsteuer (negativ = Bonus bei Steuer unter neutral).
+func tax_happiness() -> float:
+	var d := float(tax[Config.Zone.RES]) - Config.TAX_NEUTRAL[Config.Zone.RES]
+	if d <= 0.0:
+		return d * Config.TAX_HAPPY
+	return d * Config.TAX_HAPPY_UP + d * d * Config.TAX_HAPPY_SQ
+
+
+static func admin_for(pop: int) -> float:
+	var over := maxf(float(pop - Config.ADMIN_FROM), 0.0)
+	return Config.ADMIN_RATE * over * over / Config.ADMIN_SCALE
+
+
+## Baumaterial für eine Bauaktion: [fehlende Mengen, sofortiger Zukaufpreis] gemessen am Lager.
+func build_need(mats: Dictionary) -> Array:
+	var missing := {}
+	var price := 0.0
+	for r: String in mats:
+		var short := float(mats[r]) - float(stock.get(r, 0.0))
+		if short > 0.0:
+			missing[r] = short
+			price += short * float(Config.RESOURCES[r]["price"]) * Config.IMPORT_FACTOR
+	return [missing, ceilf(price)]
+
+
+## Baumaterial verbrauchen: aus dem Lager, Rest sofort zukaufen (Geld wird direkt abgebucht). Rückgabe: Zukaufpreis.
+func use_build_materials(mats: Dictionary) -> float:
+	var need := build_need(mats)
+	var missing: Dictionary = need[0]
+	for r: String in mats:
+		var take := minf(float(mats[r]), float(stock.get(r, 0.0)))
+		stock[r] = float(stock.get(r, 0.0)) - take
+		materials_used[r] = float(materials_used.get(r, 0.0)) + float(mats[r])
+	for r: String in missing:
+		imported[r] = float(imported.get(r, 0.0)) + float(missing[r])
+	var price: float = need[1]
+	if price > 0.0:
+		build_imports += price
+		spend(price)
+	return price
 
 
 func has_recycler() -> bool:
@@ -2359,7 +2746,7 @@ func _compute_delivery() -> void:
 		for i in n:
 			if map.zone[i] == Config.Zone.RES and map.level[i] > 0 and road_dist[i] <= Config.ROAD_ACCESS_RANGE:
 				var c := net[road_src[i]]
-				pop[c] = int(pop.get(c, 0)) + map.res_capacity(i)
+				pop[c] = int(pop.get(c, 0)) + roundi(map.residents(i))
 		var best := -1
 		for c: int in pop:
 			if best < 0 or int(pop[c]) > int(pop[best]):
@@ -2409,6 +2796,7 @@ func delivery_at(t: Vector2i, s: int) -> int:
 
 
 func _process_goods() -> void:
+	var furnace := Config.TECH_FURNACE_COAL if tech("blast_furnace") else 1.0
 	coal_burned = 0.0
 	imported = {}
 	for r: String in Config.RESOURCES:
@@ -2417,12 +2805,16 @@ func _process_goods() -> void:
 	var special := map.special
 	# Erst die Werke (sie können nichts zukaufen), dann die Kohlekraftwerke mit dem Rest (+ Zukauf)
 	var plants := PackedInt32Array()
+	var bio := PackedInt32Array()
 	for a in map.size * map.size:
 		if anchor[a] != a or special[a] == Config.Special.NONE:
 			continue
 		var def: Dictionary = Config.SPECIALS[special[a]]
 		if special[a] == Config.Special.COAL:
 			plants.append(a)
+			continue
+		if special[a] == Config.Special.BIOMASS:
+			bio.append(a)
 			continue
 		if not def.has("process"):
 			continue
@@ -2438,7 +2830,7 @@ func _process_goods() -> void:
 		var share := 1.0
 		var lacking := PackedStringArray()
 		for r: String in proc["in"]:
-			var need := float(proc["in"][r]) * lv
+			var need := float(proc["in"][r]) * lv * (furnace if r == "coal" else 1.0)
 			var f := float(stock.get(r, 0.0)) / need
 			if f < 1.0:
 				lacking.append(Config.RESOURCES[r]["name"])
@@ -2447,7 +2839,7 @@ func _process_goods() -> void:
 		var used := {}
 		var made := {}
 		for r: String in proc["in"]:
-			used[r] = float(proc["in"][r]) * lv * share
+			used[r] = float(proc["in"][r]) * lv * share * (furnace if r == "coal" else 1.0)
 			stock[r] = float(stock.get(r, 0.0)) - float(used[r])
 		for r: String in proc["out"]:
 			made[r] = float(proc["out"][r]) * lv * share
@@ -2464,6 +2856,15 @@ func _process_goods() -> void:
 			_buy("coal", need - have)
 		producer_info[a] = {"out": {}, "in": {"coal": need}, "issue": "" if have >= need else
 			"Kohle zugekauft: %d (eigene Mine spart Geld)" % int(need - have)}
+	# Biomasse verbrennt Holz (nach den Werken, also nach dem Sägewerk); fehlt es: Zukauf
+	for a in bio:
+		var need := float(Config.BIOMASS_WOOD_USE)
+		var have := minf(float(stock.get("wood", 0.0)), need)
+		stock["wood"] = float(stock.get("wood", 0.0)) - have
+		if need - have > 0.0:
+			_buy("wood", need - have)
+		producer_info[a] = {"out": {}, "in": {"wood": need}, "issue": "" if have >= need else
+			"Holz zugekauft: %d (Holzfäller + Baumschule sparen Geld)" % int(need - have)}
 
 
 ## Lager voll -> Überschuss exportieren.
@@ -2488,7 +2889,7 @@ func _buy(res: String, amount: float) -> void:
 func material_need(zn: int, lv: int) -> Array:
 	if population < Config.MATERIAL_FROM_POP or not Config.MATERIAL_COST.has(zn):
 		return [{}, 0.0]
-	var cost: Dictionary = Config.MATERIAL_COST[zn][lv]
+	var cost := growth_materials(zn, lv)
 	var missing := {}
 	var price := 0.0
 	for r: String in cost:
@@ -2499,6 +2900,16 @@ func material_need(zn: int, lv: int) -> Array:
 	return [missing, price]
 
 
+## Baustoffbedarf fürs Wachsen auf Stufe lv (mit Forschung "Effiziente Bauweise" weniger).
+func growth_materials(zn: int, lv: int) -> Dictionary:
+	var cost: Dictionary = Config.MATERIAL_COST[zn][lv]
+	return cost if build_factor() == 1.0 else scale_materials(cost, build_factor())
+
+
+func build_factor() -> float:
+	return Config.TECH_BUILD if tech("efficient_build") else 1.0
+
+
 ## Baustoffe beim Wachsen verbrauchen (fehlendes zukaufen). false = kein Geld für den Zukauf -> kein Wachstum.
 func _use_materials(zn: int, lv: int) -> bool:
 	if population < Config.MATERIAL_FROM_POP or not Config.MATERIAL_COST.has(zn):
@@ -2506,7 +2917,7 @@ func _use_materials(zn: int, lv: int) -> bool:
 	var need := material_need(zn, lv)
 	if float(need[1]) > 0.0 and money - _import_pending < float(need[1]):
 		return false
-	var cost: Dictionary = Config.MATERIAL_COST[zn][lv]
+	var cost := growth_materials(zn, lv)
 	for r: String in cost:
 		var take := minf(float(cost[r]), float(stock.get(r, 0.0)))
 		stock[r] = float(stock.get(r, 0.0)) - take
@@ -2570,6 +2981,8 @@ func happiness_report() -> Array:
 			tip = "Polizei" + (", mehr Jobs (Arbeitslos %d%%)" % roundi(unemployment * 100.0) if unemployment > 0.05 else "")
 		elif k == "Steuern" and v < 0.0:
 			tip = "Wohnsteuer senken (neutral %d%%)" % roundi(Config.TAX_NEUTRAL[Config.Zone.RES] * 100.0)
+		elif k == "Leerstand" and v < 0.0:
+			tip = "Verfall im Viertel: Leerstand abreißen oder Ursache beheben (Info-Karte nennt den Grund)"
 		elif k == "ÖPNV-Tarif" and v < 0.0:
 			tip = "ÖPNV günstiger/kostenlos machen"
 		else:
@@ -2587,9 +3000,23 @@ func happiness_report() -> Array:
 
 ## Fehlende Dienste an einem Wohn-Tile (nur solche, die die Stadtgröße schon verlangt).
 ## Tiles im Einzugskreis eines Dienstgebäudes (Radius je Ausbaustufe, ab Gebäudemitte).
+## Reichweite/Kapazität eines Dienstbaus (Universität: radius_mul/capacity_mul, stadtweiter Einzugsbereich).
+func service_radius(a: int) -> int:
+	return service_radius_for(map.special[a], map.special_level(a))
+
+
+static func service_radius_for(sp: int, lv: int) -> int:
+	return roundi(Config.SERVICE_RADIUS[lv] * float(Config.SPECIALS[sp].get("radius_mul", 1.0)))
+
+
+func service_capacity(a: int) -> float:
+	var def: Dictionary = Config.SPECIALS[map.special[a]]
+	return Config.SERVICE_CAPACITY[map.special_level(a)] * float(def.get("capacity_mul", 1.0))
+
+
 func _service_tiles(a: int) -> PackedInt32Array:
 	var size := map.size
-	var r: int = Config.SERVICE_RADIUS[map.special_level(a)]
+	var r: int = service_radius(a)
 	var half := (int(Config.SPECIALS[map.special[a]]["size"]) - 1) * 0.5
 	var cx := a % size
 	var cz := a / size
@@ -2677,7 +3104,8 @@ func _budget() -> void:
 	last_income = 0.0
 	for k: String in income_parts:
 		last_income += float(income_parts[k])
-	last_expense = road_count * Config.UPKEEP_ROAD + park_count * Config.UPKEEP_PARK \
+	admin_cost = admin_for(population)
+	last_expense = admin_cost + research_spent + road_count * Config.UPKEEP_ROAD + park_count * Config.UPKEEP_PARK \
 		+ line_count * Config.UPKEEP_POWERLINE + special_upkeep \
 		+ rail_count * Config.UPKEEP_RAIL + bus_stop_count * Config.UPKEEP_BUS_STOP \
 		+ station_count * Config.UPKEEP_STATION + _import_pending

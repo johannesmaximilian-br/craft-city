@@ -12,6 +12,7 @@ var fire_dept: FireDept
 var hud: Hud
 var environment: Environment
 var sun: DirectionalLight3D
+var day_night: DayNight
 
 
 func _ready() -> void:
@@ -19,6 +20,10 @@ func _ready() -> void:
 
 	lib = BlockLibrary.new()
 	lib.load_all()
+	day_night = DayNight.new()
+	day_night.name = "DayNight"
+	add_child(day_night)
+	day_night.setup(sun, environment, lib)     # vor ShaderWarmup: Fenster-Leuchten ist schon aktiv
 
 	map = CityMap.new()
 	if DevTools.has("--demo"):
@@ -70,6 +75,10 @@ func _ready() -> void:
 	fire_fx.name = "FireFx"
 	add_child(fire_fx)
 	fire_fx.setup(map, fire_dept, lib)
+	var smoke := ChimneySmoke.new()
+	smoke.name = "ChimneySmoke"
+	add_child(smoke)
+	smoke.setup(map, sim, renderer)
 
 	var traffic := Traffic.new()
 	traffic.name = "Traffic"
@@ -90,7 +99,10 @@ func _ready() -> void:
 	add_child(hud)
 	hud.setup(sim, tools, map, icons, fire_dept)
 	hud.focus_requested.connect(func(t: Vector2i): cam.focus_tile(t, map.h(t.x, t.y)))
-	sim.stats_changed.connect(func(): renderer.sim_speed = sim.speed)
+	sim.stats_changed.connect(func():
+		renderer.sim_speed = sim.speed
+		smoke.speed = sim.speed
+		StructureGenerator.techs = sim.research_done)
 
 	var overlay := MapOverlay.new()
 	overlay.name = "MapOverlay"

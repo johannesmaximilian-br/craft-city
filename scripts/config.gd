@@ -10,7 +10,8 @@ const SNOW_HEIGHT := 11
 enum Zone { NONE, RES, COM, IND }
 enum Feature { NONE, TREE, PARK }
 enum Special { NONE, COAL, WIND, POLICE, FIRE, SCHOOL, HOSPITAL, LIBRARY, CINEMA, TOWNHALL, THEATER, STADIUM,
-	LUMBER, QUARRY, PIT, MINE, WAREHOUSE, SAWMILL, BRICKWORKS, GLASSWORKS, STEELWORKS, NURSERY, PROSPECTOR, RECYCLER }
+	LUMBER, QUARRY, PIT, MINE, WAREHOUSE, SAWMILL, BRICKWORKS, GLASSWORKS, STEELWORKS, NURSERY, PROSPECTOR, RECYCLER,
+	UNIVERSITY, INSTITUTE, BIOMASS, SOLAR, BATTERY, HYDRO, PUMPED, SALT }
 # Bodenvorkommen (CityMap.ore): Art je Tile, Menge in CityMap.ore_amt
 enum Ore { NONE, COAL, IRON, GOLD, CLAY, SAND, STONE }
 enum Road { NONE, STREET }
@@ -91,15 +92,63 @@ const MINE_RATE := {"coal": 15, "iron": 10, "gold": 3}
 # Baustoffbedarf beim Wachsen auf Stufe 2/3 (ab MATERIAL_FROM_POP Einwohnern). Fehlt etwas, wird es zugekauft
 # (IMPORT_FACTOR x Exportpreis); ohne Geld dafür stoppt das Wachstum.
 const MATERIAL_FROM_POP := 400
-const IMPORT_FACTOR := 2.0
+const IMPORT_FACTOR := 3.0         # Zukauf = 3× Exportpreis (bei 2× lohnten eigene Minen/Werke kaum: 4 % der Ausgaben)
 const MATERIAL_COST := {
 	Zone.RES: [{}, {}, {"planks": 4, "bricks": 4}, {"bricks": 8, "glass": 4, "steel": 3}],
 	Zone.COM: [{}, {}, {"planks": 3, "bricks": 3, "glass": 2}, {"bricks": 4, "glass": 8, "steel": 6}],
 	Zone.IND: [{}, {}, {"planks": 4, "bricks": 4}, {"bricks": 6, "steel": 8}],
 }
+# Baumaterial beim Bauen (aus dem Lager, Fehlendes wird sofort zum Zukaufpreis bezahlt). Je Tile bzw. je Gebäude.
+const BUILD_MATERIALS := {
+	"road": {"stone": 2}, "rail": {"stone": 2, "steel": 1}, "powerline": {"wood": 1},
+	"bus_stop": {"steel": 2}, "station": {"bricks": 20, "steel": 5, "glass": 4}, "park": {"wood": 4},
+}
+const UPGRADE_MATERIALS := 0.5      # Ausbau eines Sonderbaus: Baumaterial × aktuelle Stufe × Faktor
+const SPECIAL_MATERIALS := {        # Zukaufwert ca. 15-25 % des Geldpreises
+	Special.COAL: {"bricks": 60, "steel": 30},
+	Special.WIND: {"steel": 6},
+	Special.BIOMASS: {"bricks": 30, "wood": 40},
+	Special.SOLAR: {"glass": 40, "steel": 15, "gold": 4},
+	Special.BATTERY: {"steel": 25, "gold": 8},
+	Special.HYDRO: {"stone": 200, "bricks": 80, "steel": 40},
+	Special.PUMPED: {"stone": 160, "steel": 50, "gold": 6},
+	Special.SALT: {"sand": 150, "steel": 40, "gold": 10},
+	Special.POLICE: {"bricks": 20, "planks": 6, "glass": 2},
+	Special.FIRE: {"bricks": 20, "planks": 6, "glass": 2},
+	Special.SCHOOL: {"bricks": 25, "planks": 10, "glass": 6},
+	Special.HOSPITAL: {"bricks": 50, "glass": 20, "steel": 6},
+	Special.LIBRARY: {"bricks": 20, "planks": 10, "glass": 4},
+	Special.CINEMA: {"bricks": 25, "glass": 10, "steel": 4},
+	Special.TOWNHALL: {"bricks": 80, "glass": 20, "steel": 10},
+	Special.THEATER: {"bricks": 150, "glass": 40, "steel": 30},
+	Special.STADIUM: {"stone": 300, "bricks": 150, "steel": 120},
+	Special.UNIVERSITY: {"stone": 100, "bricks": 200, "glass": 60, "steel": 40},
+	Special.INSTITUTE: {"bricks": 80, "glass": 40, "steel": 30},
+	Special.LUMBER: {"wood": 30, "planks": 10},
+	Special.QUARRY: {"wood": 40, "steel": 6},
+	Special.PIT: {"wood": 20},
+	Special.MINE: {"wood": 60, "stone": 40, "steel": 25},
+	Special.WAREHOUSE: {"planks": 30, "bricks": 20},
+	Special.NURSERY: {"wood": 15},
+	Special.PROSPECTOR: {"planks": 10, "steel": 8},
+	Special.RECYCLER: {"bricks": 30, "steel": 15},
+	Special.SAWMILL: {"wood": 50, "stone": 40},          # ohne Baustoffe baubar (Henne-Ei)
+	Special.BRICKWORKS: {"wood": 30, "stone": 80},
+	Special.GLASSWORKS: {"bricks": 40, "stone": 40},
+	Special.STEELWORKS: {"bricks": 80, "stone": 80},
+}
+const BIOMASS_WOOD_USE := 20       # Holz je Monat und Biomassekraftwerk (fehlt es: Zukauf, konkurriert mit dem Sägewerk)
+const SALT_CONVERT := 0.5          # Kohlekraftwerk zum Salzspeicher umrüsten: Anteil von Preis und Material
+const HYDRO_MIN_WATER := 3         # Wasserkraft: so viele Wasser-Tiles direkt am Gebäude (Rand)
+const PUMPED_MIN_HEIGHT := 3       # Pumpspeicher: Blöcke über dem Wasserspiegel ...
+const PUMPED_WATER_RANGE := 4      # ... und Wasser in diesem Umkreis
+const NIGHT_DEMAND := 0.75         # nachts brauchen Gebäude 75 % des Tagesbedarfs
 const COAL_PLANT_USE := 8         # Kohle je Monat und Kohlekraftwerk (fehlt sie: Zukauf)
 # ---- Erneuerung ----
-const FOREST_SPREAD := 0.01        # Chance je Monat: freies Gras mit 2+ Baum-Nachbarn wird Wald
+const FOREST_SPREAD := 0.01        # Chance je Monat: Lücke im Wald (5+ von 8 Nachbarn Baum) wächst zu
+const FOREST_GAP := 5               # Nachbarn (inkl. Diagonalen), ab denen eine Lücke zuwächst; Waldränder wachsen nicht
+const FOREST_MAX_SHARE := 0.25      # natürliche Ausbreitung stoppt, wenn so viel Land bewaldet ist
+const NURSERY_MAX_SHARE := 0.5      # Baumschule pflanzt nur, bis so viel ihres Umkreises Wald ist
 const NURSERY_RANGE := 4
 const NURSERY_TREES := 2           # Bäume je Monat und Stufe
 const ORE_REGROW := 1.0 / 24.0     # Chance je Monat und Vorkommen-Tile (unter Startmenge): +1 Punkt (= ORE_UNIT)
@@ -115,7 +164,13 @@ const ORE_UNIT := 10               # ... je Punkt 10 Einheiten Rohstoff (eine Ad
 # ---- Steuern je Zone: neutraler Satz und Empfindlichkeit der Nachfrage (Industrie nimmt mehr hin) ----
 const TAX_NEUTRAL := [0.0, 0.09, 0.09, 0.12]       # Index = Zone (RES, COM, IND)
 const TAX_DEMAND := [0.0, 5.0, 4.0, 2.5]           # Nachfrage-Abzug je Steuerpunkt über neutral (x 100)
-const TAX_HAPPY := 2.0                             # Zufriedenheit: nur die Wohnsteuer
+const TAX_HAPPY := 2.0                             # Zufriedenheit: nur die Wohnsteuer; Bonus je Punkt unter neutral
+const TAX_HAPPY_UP := 4.0                          # Abzug je Punkt über neutral ...
+const TAX_HAPPY_SQ := 40.0                         # ... plus quadratisch: +1 -> -4,4 %, +3 -> -16 %, +6 -> -38 %
+# Verwaltung: Ausgabe/Monat = ADMIN_RATE × (Einw. - ADMIN_FROM)² / ADMIN_SCALE -> große Städte werden nicht endlos reich
+const ADMIN_FROM := 5000
+const ADMIN_RATE := 0.06
+const ADMIN_SCALE := 50000.0
 const TAX_MAX := 0.2
 
 # ---- ÖPNV-Tarif: 0 kostenlos, 1 normal, 2 teuer ----
@@ -162,6 +217,20 @@ const COM_CUSTOMERS_FULL := 300.0       # ab so vielen Einwohnern volle Wachstum
 const SPECIALS := {
 	Special.COAL: {"name": "Kohlekraftwerk", "size": 2, "cost": 3000, "upkeep": 25.0, "power": 400},
 	Special.WIND: {"name": "Windrad", "size": 1, "cost": 450, "upkeep": 3.0, "power": 30},
+	# Energie (Forschung Schritt 2): Biomasse ohne Forschung, Solar/Batterie mit
+	Special.BIOMASS: {"name": "Biomassekraftwerk", "size": 2, "cost": 1200, "upkeep": 8.0, "power": 60,
+		"pollution": [2.0, 5]},
+	Special.SOLAR: {"name": "Solarfeld", "size": 2, "cost": 2500, "upkeep": 4.0, "power": 50, "solar": true,
+		"need_tech": "solar"},
+	Special.BATTERY: {"name": "Batteriespeicher", "size": 1, "cost": 3000, "upkeep": 10.0, "power": 0, "storage_mw": 40,
+		"need_tech": "battery"},
+	# Teil B: Standortregeln über "site" (ToolController.site_reason)
+	Special.HYDRO: {"name": "Wasserkraftwerk", "size": 2, "cost": 9000, "upkeep": 20.0, "power": 120, "need_tech": "hydro",
+		"site": "water"},
+	Special.PUMPED: {"name": "Pumpspeicher", "size": 2, "cost": 7000, "upkeep": 15.0, "power": 0, "storage_mw": 150,
+		"need_tech": "pumped", "site": "hill"},
+	Special.SALT: {"name": "Salzspeicher", "size": 2, "cost": 8000, "upkeep": 12.0, "power": 0, "storage_mw": 300,
+		"need_tech": "salt"},
 	# Dienste/Kultur: Unterhalt je Stufe 1x / 2.2x / 3.8x, Ausbau kostet "upgrade" je Stufe
 	Special.POLICE:   {"name": "Polizei", "size": 1, "cost": 900, "upgrade": 1200, "upkeep": 10.0, "power": 0, "use": 1, "service": "police"},
 	Special.FIRE:     {"name": "Feuerwehr", "size": 1, "cost": 900, "upgrade": 1200, "upkeep": 10.0, "power": 0, "use": 1, "service": "fire"},
@@ -201,7 +270,44 @@ const SPECIALS := {
 		"unlock": 3000, "visitors": 300, "event_every": 1},
 	Special.STADIUM:  {"name": "Stadion", "size": 3, "cost": 15000, "upgrade": 10000, "upkeep": 60.0, "power": 0, "use": 12, "service": "venue",
 		"unlock": 5000, "visitors": 900, "event_every": 3},
+	# Forschung: Uni = Dienst "university" (Akademikerquote), Institut erzeugt Forschungspunkte
+	Special.UNIVERSITY: {"name": "Universität", "size": 3, "cost": 15000, "upgrade": 10000, "upkeep": 60.0, "power": 0, "use": 8,
+		"service": "university", "unlock": 8000, "need_coverage": ["education", 0.7], "radius_mul": 2.5, "capacity_mul": 4.0},
+	Special.INSTITUTE: {"name": "Forschungsinstitut", "size": 2, "cost": 8000, "upgrade": 8000, "upkeep": 40.0, "power": 0, "use": 6,
+		"research": true, "need_special": Special.UNIVERSITY},
 }
+# ---- Forschung ----
+const RESEARCH_POINTS := 30          # Punkte je Monat und Institutsstufe bei genug Akademikern und Referenzbudget
+const ACADEMICS_PER_LEVEL := 1500    # Akademiker (von Unis versorgte Einwohner) je Institutsstufe für volle Leistung
+const RESEARCH_BUDGET_REF := 1000.0  # Budget ($/Monat) für Faktor 1
+const RESEARCH_BUDGET_STEPS := [0, 250, 500, 1000, 2000, 3000]
+const RESEARCH_MIN_ACADEMICS := 0.1  # Untergrenze des Akademiker-Faktors (ein Institut forscht immer ein wenig)
+# Projekte: points = Forschungspunkte (×3 seit 23.10.: 1 Institut Stufe 1 + 1.000 $ ≈ 4 Jahre), gold = einmalig beim Start (fehlt es: Zukauf), requires = Vorgänger
+const RESEARCH := {
+	"deep_mining": {"name": "Tiefbau", "desc": "Minen, Steinbrüche und Gruben fördern 50 % mehr",
+		"points": 1500, "gold": 30, "requires": []},
+	"efficient_build": {"name": "Effiziente Bauweise", "desc": "25 % weniger Baumaterial beim Bauen und Wachsen",
+		"points": 1800, "gold": 20, "requires": []},
+	"plant_filter": {"name": "Kraftwerksfilter", "desc": "Kohlekraftwerke verschmutzen halb so viel",
+		"points": 1500, "gold": 30, "requires": []},
+	"solar": {"name": "Solarenergie", "desc": "Solarfeld bauen: 50 MW, aber nur tagsüber (nachts fehlt der Strom)",
+		"points": 1800, "gold": 30, "requires": []},
+	"battery": {"name": "Batteriespeicher", "desc": "Batterie speichert Tagesüberschuss und liefert nachts bis 40 MW",
+		"points": 2100, "gold": 50, "requires": ["solar"]},
+	"hydro": {"name": "Wasserkraft", "desc": "Wasserkraftwerk an Fluss/See: 120 MW Tag und Nacht, sauber, aber teuer",
+		"points": 2400, "gold": 40, "requires": []},
+	"pumped": {"name": "Pumpspeicher", "desc": "Pumpspeicher am Hang über Wasser: speichert 150 MW für die Nacht",
+		"points": 2700, "gold": 50, "requires": ["battery"]},
+	"salt": {"name": "Salzspeicher", "desc": "Flüssigsalz-Wärmespeicher (Carnot-Batterie): 300 MW für die Nacht, Kohlekraftwerke umrüstbar",
+		"points": 3600, "gold": 80, "requires": ["pumped"]},
+	"blast_furnace": {"name": "Moderne Hochöfen", "desc": "Werke brauchen halb so viel Kohle und verschmutzen 40 % weniger",
+		"points": 2100, "gold": 40, "requires": ["deep_mining"]},
+}
+const TECH_MINING := 1.5             # Faktor Förderung mit Tiefbau
+const TECH_BUILD := 0.75             # Faktor Baumaterial mit effizienter Bauweise
+const TECH_FILTER := 0.5             # Faktor Kraftwerks-Verschmutzung mit Filter
+const TECH_FURNACE_COAL := 0.5       # Faktor Kohlebedarf der Werke mit modernen Hochöfen
+const TECH_FURNACE_POLLUTION := 0.6
 
 # ---- Dienste, Zufriedenheit, Kriminalität ----
 const SERVICE_RADIUS := [0, 6, 9, 12]           # Reichweite (Tiles) je Ausbaustufe
@@ -216,8 +322,19 @@ const SERVICES := {
 	"health": ["Krankenhaus", 600, 0.12],
 	"culture": ["Kultur", 1500, 0.08],
 	"venue": ["Großkultur", 4000, 0.08],
+	"university": ["Hochschule", 8000, 0.04],
 }
 const HAPPY_BASE := 0.55
+# Belegung / Leerstand
+const OCC_DROP := 12                    # Belegung sinkt je Monat bei Verfall (%-Punkte): kein Strom/Straße/Erreichbarkeit
+const OCC_DROP_UNHAPPY := 6             # ... bei Unzufriedenheit (langsamer: Zeit zum Gegensteuern)
+const OCC_SOFT_FLOOR := 30              # sanfte Gründe (keine Nachfrage, zu groß für die Lage) leeren nie ganz
+const OCC_DROP_DEMAND := 3              # ... nur wegen fehlender Nachfrage (betrifft alle Gebäude einer Zone -> sanft)
+const OCC_RISE := 10                    # ... steigt sonst
+const VACANT_MONTHS := 24               # so lange bleibt ein aufgegebenes Gebäude stehen, dann Abriss
+const VACANT_RANGE := 3                 # Leerstand drückt die Zufriedenheit im Umkreis (Tiles) ...
+const VACANT_HAPPY := 0.03              # ... je leerem Gebäude
+const VACANT_HAPPY_MAX := 0.12          # ... höchstens (stärker -> Abwärtsspirale, gemessen mit --freshrun)
 # Veranstaltungen (Theater/Stadion)
 const VENUE_SHOP_RANGE := 5             # Gewerbe in diesem Umkreis bekommt Besucher als Kundschaft
 const VENUE_SHOP_SHARE := 0.5           # Anteil der Besucher, der dort einkauft

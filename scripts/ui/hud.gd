@@ -20,7 +20,9 @@ const TOOLBAR := [
 	[],
 	[ToolController.Tool.ROAD, ToolController.Tool.BUS_STOP],
 	[ToolController.Tool.RAIL, ToolController.Tool.STATION],
-	[ToolController.Tool.POWERLINE, ToolController.Tool.COAL, ToolController.Tool.WIND],
+	[ToolController.Tool.POWERLINE, ToolController.Tool.COAL, ToolController.Tool.WIND, ToolController.Tool.BIOMASS,
+		ToolController.Tool.SOLAR, ToolController.Tool.BATTERY, ToolController.Tool.HYDRO, ToolController.Tool.PUMPED,
+		ToolController.Tool.SALT],
 	[],
 	[ToolController.Tool.RES],
 	[ToolController.Tool.COM],
@@ -32,6 +34,7 @@ const TOOLBAR := [
 	[ToolController.Tool.POLICE, ToolController.Tool.FIRE, ToolController.Tool.SCHOOL, ToolController.Tool.HOSPITAL],
 	[ToolController.Tool.LIBRARY, ToolController.Tool.CINEMA, ToolController.Tool.TOWNHALL,
 		ToolController.Tool.THEATER, ToolController.Tool.STADIUM],
+	[ToolController.Tool.UNIVERSITY, ToolController.Tool.INSTITUTE],
 	[ToolController.Tool.MINE, ToolController.Tool.QUARRY, ToolController.Tool.PIT, ToolController.Tool.LUMBER,
 		ToolController.Tool.WAREHOUSE, ToolController.Tool.NURSERY, ToolController.Tool.PROSPECTOR,
 		ToolController.Tool.RECYCLER],
@@ -58,7 +61,14 @@ var _view_btn: Button
 var _overlay_mode := 0
 var _popup: PanelContainer         # Ausklapp-Liste unter Ansicht-/Zufriedenheits-Button
 var _popup_col: VBoxContainer
-var _popup_kind := ""              # "view" / "happy" / "" = zu
+var _popup_kind := ""
+var _research_btn: Button
+var _num_re := RegEx.create_from_string("[-+$]?\\d")    # erste Zahl in einer Info-Zeile
+var _fit_token := 0                  # zählt Neuaufbauten; nur der letzte passt die Höhe an
+var _fitted_kind := ""               # Popover-Art, für die die Höhe schon einmal angepasst wurde
+var _popup_btn: Button               # Knopf, unter dem das offene Popover hängt
+var _popup_scroll: ScrollContainer   # Popover scrollt, wenn es höher als der Bildschirm wäre
+var _breakthrough: PanelContainer     # Durchbruch-Karte (Forschung fertig)              # "view" / "happy" / "" = zu
 var _menu: PanelContainer
 var _slot_labels := {}
 var _root: Control
@@ -76,8 +86,9 @@ var _fare_btn: Button
 var _tool_title: Label
 var _tool_hint: Label
 var _info_card: PanelContainer
-var _info_title: Label
-var _info_body: Label
+var _info_col: VBoxContainer
+var _info_sig := ""                 # Inhalt der aktuellen Info-Karte (Neuaufbau nur bei Änderung)
+var info_text := ""                 # Klartext der Karte (Tests)
 var _cost_pill: PanelContainer
 var _cost: Label
 var _toast_pill: PanelContainer
@@ -102,7 +113,6 @@ var _unread := 0
 var _hud_parts: Array[Control] = []  # was H ausblendet
 var _info_detail := false          # Info-Karte ausführlich (Taste I)
 var _info_sections: Array = []     # [Abschnitt, Zeilen] der aktuellen Karte
-var _info_more: Label
 const FEED_MAX := 2
 const FEED_TIME := 7.0
 const LOG_MAX := 20
@@ -148,6 +158,7 @@ func setup(simulation: Simulation, tool_ctrl: ToolController, city_map: CityMap,
 	sim.stats_changed.connect(_refresh)
 	# Warnungen (mit Verlauf + Ton) vs. Infos (kurz, klein, ohne Verlauf)
 	sim.message.connect(notify)
+	sim.research_finished.connect(_on_research_finished)
 	sim.alert.connect(notify)
 	fire_dept.alert.connect(notify)
 	tools.message.connect(show_message)
@@ -214,6 +225,9 @@ func _build() -> void:
 	_view_btn = _text_button(tc_row, "", _toggle_popup.bind("view"),
 		"Ansicht wählen [V]\nmit Stau, ÖPNV, Bodenwert, Kriminalität ...")
 	_set_btn_icon(_view_btn, "stats")
+	_research_btn = _text_button(tc_row, "", _toggle_popup.bind("research"),
+		"Forschung: Projekte, Budget, Fortschritt")
+	_set_btn_icon(_research_btn, "institute")
 
 	# Lager: je Rohstoff Icon + Menge (erst sichtbar, sobald es Abbau oder Vorrat gibt)
 	_stock_card = _card(left)
@@ -313,9 +327,13 @@ func _build() -> void:
 			mark.position = Vector2(48, -2)
 	_popup = _card(root, 10, 8)
 	_popup.visible = false
+	_popup_scroll = ScrollContainer.new()
+	_popup_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	_popup.add_child(_popup_scroll)
 	_popup_col = VBoxContainer.new()
-	_popup_col.add_theme_constant_override("separation", 4)
-	_popup.add_child(_popup_col)
+	_popup_col.add_theme_constant_override("separation", 6)
+	_popup_col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_popup_scroll.add_child(_popup_col)
 
 	_flyout = _card(root, 10, 6)
 	_flyout.visible = false
@@ -326,13 +344,10 @@ func _build() -> void:
 	# Unten links: Tile-Info
 	_info_card = _card(left)
 	_info_card.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
-	var info_col := VBoxContainer.new()
-	info_col.add_theme_constant_override("separation", 2)
-	_info_card.add_child(info_col)
-	_info_title = _label(info_col, 16)
-	_info_title.add_theme_font_override("font", UiTheme.font(true))
-	_info_body = _label(info_col, 16, UiTheme.TEXT_DIM)
-	_info_more = _label(info_col, 14, UiTheme.TEXT_DIM)
+	_info_col = VBoxContainer.new()
+	_info_col.add_theme_constant_override("separation", 5)
+	_info_col.custom_minimum_size.x = 380
+	_info_card.add_child(_info_col)
 
 	# Kosten am Cursor
 	_cost_pill = _card(root, 8, 3)
@@ -425,6 +440,12 @@ func _build_menu(root: Control) -> void:
 	vs.toggle_mode = true
 	vs.custom_minimum_size.x = 100
 	vs.set_pressed_no_signal(GraphicsSettings.vsync)
+	var dn := _text_button(gfx_row, "Tag/Nacht", func():
+		GraphicsSettings.day_night = not GraphicsSettings.day_night
+		GraphicsSettings.save(), "Sichtbarer Tag/Nacht-Zyklus (aus = immer Mittag). Strom rechnet Tag/Nacht trotzdem.")
+	dn.toggle_mode = true
+	dn.custom_minimum_size.x = 130
+	dn.set_pressed_no_signal(GraphicsSettings.day_night)
 	var fps_row := _row(col, 8)
 	fps_row.alignment = BoxContainer.ALIGNMENT_BEGIN
 	var fps_label := _label(fps_row, 16)
@@ -612,7 +633,7 @@ func set_overlay_mode(mode: int, mode_name: String, quiet := false) -> void:
 
 
 func _toggle_popup(kind: String) -> void:
-	var btn: Button = {"view": _view_btn, "happy": _happy_btn, "log": _bell_btn}[kind]
+	var btn: Button = {"view": _view_btn, "happy": _happy_btn, "log": _bell_btn, "research": _research_btn}[kind]
 	if kind == "log":
 		_unread = 0
 		_update_bell()
@@ -622,18 +643,194 @@ func _toggle_popup(kind: String) -> void:
 	_popup_kind = kind
 	_fill_popup()
 	_popup.visible = true
-	_popup.reset_size()
-	var r := btn.get_global_rect()
-	var vw := _ui_size().x
-	_popup.position = Vector2(clampf(r.position.x, MARGIN, vw - _popup.size.x - MARGIN), r.end.y + 8)
+	_popup_btn = btn
+	_place_popup()
+	_fit_popup()
+	_place_popup()
 	btn.set_pressed_no_signal(true)
+
+
+## Forschungsfenster: Kopf, Labor (Institute, Akademiker, Budget), Projektkarten mit Status/Dauer/Fortschritt.
+func _fill_research() -> void:
+	var inst := sim.institute_levels()
+	PopUI.header(_popup_col, icons.get_icon("institute"), "Forschung",
+		("%d P/Monat" % roundi(sim.research_points())) if inst > 0 else "", UiTheme.GOOD,
+		"Ein Projekt gleichzeitig - kostet Zeit, Budget und Gold")
+	if inst == 0:
+		var req := PopUI.section(_popup_col, "Voraussetzungen")
+		var uni_def: Dictionary = Config.SPECIALS[Config.Special.UNIVERSITY]
+		var need_pop: int = uni_def["unlock"]
+		var need_cov: float = uni_def["need_coverage"][1]
+		var cov := float(sim.city_coverage.get("education", 0.0))
+		var check := func(ok: bool) -> Color: return UiTheme.GOOD if ok else UiTheme.BAD
+		PopUI.row(req, "Einwohner (mind. %s)" % _fmt(need_pop), _fmt(sim.population), check.call(sim.population >= need_pop))
+		PopUI.row(req, "Schulversorgung (mind. %d %%)" % roundi(need_cov * 100.0), "%d %%" % roundi(cov * 100.0),
+			check.call(cov >= need_cov))
+		var has_uni := not tools.locked_reason(ToolController.Tool.INSTITUTE).begins_with("Erst eine")
+		PopUI.row(req, "Universität gebaut", "ja" if has_uni else "nein", check.call(has_uni))
+		PopUI.row(req, "Forschungsinstitut mit Strom", "nein", UiTheme.BAD)
+	else:
+		var lab := PopUI.section(_popup_col, "Labor")
+		var need := float(Config.ACADEMICS_PER_LEVEL * inst)
+		var acad := sim.academics_count()
+		PopUI.row(lab, "Institute (Summe der Stufen)", str(inst))
+		PopUI.row(lab, "Akademiker / benötigt", "%s / %s" % [_fmt(int(acad)), _fmt(int(need))],
+			UiTheme.GOOD if acad >= need else UiTheme.WARN,
+			"" if acad >= need else "Universität ausbauen oder weitere bauen (%d %% Leistung)" % roundi(sim.academic_factor() * 100.0))
+		PopUI.bar(lab, acad / need, UiTheme.GOOD if acad >= need else UiTheme.IND)
+	var bud := PopUI.section(_popup_col, "Budget")
+	var brow := HBoxContainer.new()
+	brow.add_theme_constant_override("separation", 8)
+	bud.add_child(brow)
+	_text_button(brow, "-", _research_budget.bind(-1), "Budget senken")
+	var bl := PopUI.label(brow, "$%s / Monat" % _fmt(int(sim.research_budget)), 18, UiTheme.TEXT, true)
+	bl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	bl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_text_button(brow, "+", _research_budget.bind(1), "Budget erhöhen (mehr Geld = schneller, abnehmender Ertrag)")
+	PopUI.row(bud, "Tempo", "x%.2f" % Simulation.budget_factor(sim.research_budget))
+	PopUI.note(bud, "Wird nur ausgegeben, solange ein Projekt läuft. Gold wird beim Start verbraucht (fehlt es: Zukauf).")
+	var prj := PopUI.section(_popup_col, "Projekte")
+	for id: String in Config.RESEARCH:
+		var def: Dictionary = Config.RESEARCH[id]
+		var why := sim.research_blocker(id)
+		var running := why == "läuft"
+		var done := why == "erforscht"
+		var card := PopUI.box(prj, UiTheme.GOOD if done else (UiTheme.BTN_ON_EDGE if running else UiTheme.BTN_EDGE))
+		var top := HBoxContainer.new()
+		top.add_theme_constant_override("separation", 8)
+		card.add_child(top)
+		var nm := PopUI.label(top, def["name"], 17, UiTheme.TEXT, true)
+		nm.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		if done:
+			PopUI.chip(top, "ERFORSCHT", UiTheme.GOOD)
+		elif running:
+			PopUI.chip(top, "LÄUFT", UiTheme.COM)
+		elif why == "":
+			PopUI.chip(top, "BEREIT", UiTheme.WARN)
+		else:
+			PopUI.chip(top, "GESPERRT", UiTheme.TEXT_DIM)
+		PopUI.note(card, def["desc"], UiTheme.TEXT)
+		if done:
+			continue
+		var eta := sim.research_eta(id, sim.research_budget)
+		var eta_max := sim.research_eta(id, float(Config.RESEARCH_BUDGET_STEPS[-1]))
+		var dur := "Dauer: ?" if eta < 0 else "Dauer: ~%d Monate (bei $%s: ~%d)" % [eta,
+			_fmt(int(Config.RESEARCH_BUDGET_STEPS[-1])), eta_max]
+		PopUI.note(card, "%s Punkte  ·  %d Gold  ·  %s" % [_fmt(int(def["points"])), int(def["gold"]), dur])
+		if running:
+			var frac := sim.research_progress / float(def["points"])
+			PopUI.bar(card, frac, UiTheme.COM)
+			PopUI.note(card, "%d %% erforscht" % roundi(frac * 100.0))
+		elif why == "":
+			var b := _text_button(card, "Projekt starten", _start_research.bind(id), "")
+			b.size_flags_horizontal = Control.SIZE_SHRINK_END
+		else:
+			PopUI.note(card, why.capitalize() if why.begins_with("kein") else why, UiTheme.BAD)
+
+
+## Große Karte in der Bildmitte, wenn ein Forschungsprojekt fertig ist: Wirkung in Zahlen + Hinspringen.
+func _on_research_finished(id: String) -> void:
+	if _breakthrough != null:
+		_breakthrough.queue_free()
+	var def: Dictionary = Config.RESEARCH[id]
+	var impact := sim.tech_impact(id)
+	_breakthrough = _card(_root, 16, 16)
+	_breakthrough.custom_minimum_size.x = PopUI.WIDTH + 40
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 8)
+	_breakthrough.add_child(col)
+	PopUI.label(col, "DURCHBRUCH!", 14, PopUI.ACCENT, true)
+	PopUI.header(col, icons.get_icon("institute"), def["name"], "", UiTheme.TEXT, def["desc"])
+	var sec := PopUI.section(col, "In deiner Stadt")
+	for line: String in impact["lines"]:
+		PopUI.label(sec, "+ " + line, 16, UiTheme.GOOD, false, true)
+	var btns := HBoxContainer.new()
+	btns.alignment = BoxContainer.ALIGNMENT_END
+	btns.add_theme_constant_override("separation", 8)
+	col.add_child(btns)
+	var tile: Vector2i = impact["tile"]
+	if tile.x >= 0:
+		_text_button(btns, "Hinspringen", func() -> void:
+			focus_requested.emit(tile)
+			_close_breakthrough(), "")
+	_text_button(btns, "Weiter", _close_breakthrough, "")
+	_breakthrough.reset_size()
+	await get_tree().process_frame
+	if is_instance_valid(_breakthrough):
+		_breakthrough.reset_size()
+		_breakthrough.position = (_ui_size() - _breakthrough.size) * 0.5
+
+
+func _close_breakthrough() -> void:
+	if _breakthrough != null:
+		_breakthrough.queue_free()
+		_breakthrough = null
+
+
+func _research_budget(dir: int) -> void:
+	var steps: Array = Config.RESEARCH_BUDGET_STEPS
+	var k := 0
+	for j in steps.size():
+		if float(steps[j]) <= sim.research_budget + 0.5:
+			k = j
+	k = clampi(k + dir, 0, steps.size() - 1)
+	sim.research_budget = float(steps[k])
+	_fill_popup()
+
+
+func _start_research(id: String) -> void:
+	var err := sim.start_research(id)
+	if err != "":
+		show_message(err)
+	else:
+		show_message("Forschung gestartet: %s" % Config.RESEARCH[id]["name"])
+	_fill_popup()
+
+
+## Popover unter seinen Knopf setzen (innerhalb des Bildschirms).
+func _place_popup() -> void:
+	if _popup_btn == null:
+		return
+	var r := _popup_btn.get_global_rect()
+	var vw := _ui_size().x
+	_popup.position = Vector2(clampf(r.position.x, MARGIN, maxf(vw - _popup.size.x - MARGIN, MARGIN)), r.end.y + 8)
+
+
+## Größe des Popovers: Breite fest für neue Karten (Umbruch), Höhe bis zum Bildschirmrand, darüber scrollen.
+func _fit_popup(second := false) -> void:
+	var w := float(PopUI.WIDTH)
+	_popup_col.custom_minimum_size.x = w
+	_fit_token += 1
+	var token := _fit_token
+	if not second and _popup.visible and _popup_scroll.custom_minimum_size.y > 0.0 and _popup_kind == _fitted_kind:
+		# Neuaufbau eines offenen Popovers (Monatswechsel): alte Höhe halten, erst nach dem Layout einmal anpassen –
+		# sonst misst der erste Durchgang umbrochene Texte zu hoch und das Popover blitzt auf Maximalhöhe auf.
+		# Nur der letzte Neuaufbau misst (ein Monat baut oft mehrfach neu auf).
+		await get_tree().process_frame
+		await get_tree().process_frame
+		if _popup.visible and token == _fit_token:
+			_fit_popup(true)
+		return
+	_fitted_kind = _popup_kind
+	var want := _popup_col.get_combined_minimum_size()
+	var room := _ui_size().y - maxf(_popup.position.y, 100.0) - 130.0     # Platz bis über die Werkzeugleiste
+	_popup_scroll.custom_minimum_size = Vector2(want.x, minf(want.y, maxf(room, 200.0)))
+	_popup.reset_size()
+	if not second:
+		# Umbrochene Texte kennen ihre Höhe erst nach dem Layout -> nach einem Frame nachmessen
+		await get_tree().process_frame
+		if _popup.visible and token == _fit_token:
+			_fit_popup(true)
+			_place_popup()      # Kopfzeile kann sich im Öffnungs-Frame noch umsortiert haben
 
 
 func _close_popup() -> void:
 	_popup.visible = false
 	_popup_kind = ""
+	_fitted_kind = ""
 	_happy_btn.set_pressed_no_signal(false)
 	_bell_btn.set_pressed_no_signal(false)
+	_research_btn.set_pressed_no_signal(false)
 	_view_btn.set_pressed_no_signal(_overlay_mode != 0)
 
 
@@ -641,52 +838,105 @@ func _fill_popup() -> void:
 	for c in _popup_col.get_children():
 		_popup_col.remove_child(c)      # sofort entfernen, sonst zählt reset_size() die alten Einträge mit
 		c.queue_free()
-	if _popup_kind == "log":
-		var head := _label(_popup_col, 16)
-		head.add_theme_font_override("font", UiTheme.font(true))
-		head.text = "Meldungen (neueste zuerst)" if not _log.is_empty() else "Keine Meldungen"
-		for entry: Dictionary in _log:
-			var tile: Vector2i = entry["tile"]
-			if tile.x >= 0:
-				var b := _text_button(_popup_col, "%s  %s" % [entry["date"], _feed_text(entry)], _jump_log.bind(tile), "Hinspringen")
-				b.alignment = HORIZONTAL_ALIGNMENT_LEFT
-			else:
-				var l := _label(_popup_col, 16)
-				l.text = "%s  %s" % [entry["date"], _feed_text(entry)]
-		_popup.reset_size()
-		return
-	if _popup_kind == "view":
-		var avg := _city_averages()
-		var stats := ["Karte ohne Einfärbung",
-			"Stau Ø %d%%  ·  ÖPNV %d%%" % [roundi(sim.avg_congestion * 100.0), roundi(sim.transit_share * 100.0)],
-			"Ø %.1f bei Wohnhäusern" % avg[0],
-			"Ø %d%% bei Wohnhäusern" % roundi(avg[1] * 100.0),
-			"Ø %d%%  ·  Arbeitslos %d%%" % [roundi(avg[2] * 100.0), roundi(sim.unemployment * 100.0)],
-			"Stadt %d%%" % roundi(sim.city_happiness * 100.0),
-			"Anteil %d%%  ·  Bus %d  ·  Bahn %d  ·  Wohnungen mit Anschluss %d%%" % [roundi(sim.transit_share * 100.0),
-				int(sim.bus_riders), int(sim.rail_riders), roundi(avg[3] * 100.0)],
-			"%d Netze  ·  %d / %d MW  ·  %d Gebäude ohne Strom" % [_power_net_count(), sim.power_demand,
-				sim.power_supply, _dark_buildings()],
-			_deposit_summary()]
-		for m in MapOverlay.MODE_NAMES.size():
-			var label: String = MapOverlay.MODE_NAMES[m] if m > 0 else "Aus"
-			var b := _text_button(_popup_col, "%s:  %s" % [label, stats[m]], _pick_view.bind(m), "")
-			b.alignment = HORIZONTAL_ALIGNMENT_LEFT
-			b.toggle_mode = true
-			b.set_pressed_no_signal(m == _overlay_mode)
-	else:
-		var title := _label(_popup_col, 16)
-		title.add_theme_font_override("font", UiTheme.font(true))
-		title.text = "Zufriedenheit %d%%  (Grundwert %d)" % [roundi(sim.city_happiness * 100.0), roundi(Config.HAPPY_BASE * 100.0)]
-		for part: Array in sim.happiness_report():
-			var v: float = part[1]
-			var pts := roundi(v * 100.0)
-			var l := _label(_popup_col, 16, UiTheme.BAD if pts < 0 else (UiTheme.GOOD if pts > 0 else UiTheme.TEXT_DIM))
-			l.text = "%s%d  %s%s" % ["+" if pts >= 0 else "", pts, part[0], ("  -> " + part[2]) if part[2] != "" else ""]
-		var foot := _label(_popup_col, 16, UiTheme.TEXT_DIM)
-		foot.text = "Unter %d%% ziehen Leute weg. Ansicht: V / Zufriedenheit" % roundi(Config.HAPPY_LEAVE * 100.0)
-	_popup.reset_size()
+	match _popup_kind:
+		"research":
+			_fill_research()
+		"log":
+			_fill_log()
+		"view":
+			_fill_view()
+		_:
+			_fill_happy()
+	_fit_popup()
 
+
+## Meldungsverlauf: Datum | Text (umbrochen) | Hinspringen.
+func _fill_log() -> void:
+	PopUI.header(_popup_col, icons.get_icon("bell"), "Meldungen", str(_log.size()) if not _log.is_empty() else "",
+		UiTheme.TEXT, "Neueste zuerst  ·  Pfeil springt zum Ort")
+	if _log.is_empty():
+		PopUI.note(_popup_col, "Keine Meldungen.")
+		return
+	var list := PopUI.section(_popup_col, "Verlauf")
+	for entry: Dictionary in _log:
+		var h := HBoxContainer.new()
+		h.add_theme_constant_override("separation", 10)
+		list.add_child(h)
+		var d := PopUI.label(h, str(entry["date"]), 14, UiTheme.TEXT_DIM)
+		d.custom_minimum_size.x = 90
+		var c: int = entry["count"]
+		var txt: String = entry["text"]
+		var problem := txt.begins_with("Feuer") or txt.contains("Kein Strom") or txt.contains("sinkt") or txt.contains("Engpass")
+		PopUI.label(h, txt + ((" (x%d)" % c) if c > 1 else ""), 15, UiTheme.BAD if problem else UiTheme.TEXT, false, true)
+		var tile: Vector2i = entry["tile"]
+		if tile.x >= 0:
+			_text_button(h, ">", _jump_log.bind(tile), "Hinspringen")
+
+
+## Ansichten: Listeneinträge (ganze Zeile klickbar): Name + Hauptkennzahl, Details klein darunter.
+func _fill_view() -> void:
+	PopUI.header(_popup_col, icons.get_icon("stats"), "Ansicht", "", UiTheme.TEXT, "Taste V schaltet durch")
+	var avg := _city_averages()
+	var rows := [
+		["", "Karte ohne Einfärbung"],
+		["Stau Ø %d %%" % roundi(sim.avg_congestion * 100.0), "ÖPNV-Anteil %d %%" % roundi(sim.transit_share * 100.0)],
+		["Ø %.1f" % avg[0], "bei Wohnhäusern"],
+		["Ø %d %%" % roundi(avg[1] * 100.0), "bei Wohnhäusern"],
+		["Ø %d %%" % roundi(avg[2] * 100.0), "Arbeitslos %d %%" % roundi(sim.unemployment * 100.0)],
+		["%d %%" % roundi(sim.city_happiness * 100.0), "ganze Stadt"],
+		["%d %%" % roundi(sim.transit_share * 100.0), "Bus %d  ·  Bahn %d  ·  Wohnungen mit Anschluss %d %%" % [
+			int(sim.bus_riders), int(sim.rail_riders), roundi(avg[3] * 100.0)]],
+		["%d / %d MW" % [sim.power_demand, sim.power_supply], "%d Netze  ·  %d Gebäude ohne Strom" % [_power_net_count(),
+			_dark_buildings()]],
+		["", _deposit_summary()],
+	]
+	for m in MapOverlay.MODE_NAMES.size():
+		var r: Array = rows[m]
+		PopUI.list_item(_popup_col, MapOverlay.MODE_NAMES[m] if m > 0 else "Aus", r[0], r[1], m == _overlay_mode,
+			_pick_view.bind(m))
+
+
+## Zufriedenheit: Kopf mit Wert, Abschnitte "Senkt"/"Hebt" mit Balken, Tipps klein darunter, Nullposten gesammelt.
+func _fill_happy() -> void:
+	var hv := roundi(sim.city_happiness * 100.0)
+	PopUI.header(_popup_col, icons.get_icon("happy"), "Zufriedenheit", "%d %%" % hv,
+		UiTheme.BAD if hv < 40 else (UiTheme.GOOD if hv > 65 else UiTheme.TEXT),
+		"Grundwert %d  ·  unter %d %% ziehen Leute weg" % [roundi(Config.HAPPY_BASE * 100.0), roundi(Config.HAPPY_LEAVE * 100.0)])
+	var rep := sim.happiness_report()
+	var vmax := 0.01
+	for part: Array in rep:
+		vmax = maxf(vmax, absf(float(part[1])))
+	var neutral := PackedStringArray()
+	var neg: VBoxContainer = null
+	var pos: VBoxContainer = null
+	for part: Array in rep:
+		var pts := roundi(float(part[1]) * 100.0)
+		if pts == 0:
+			neutral.append(part[0])
+			continue
+		var box: VBoxContainer
+		if pts < 0:
+			if neg == null:
+				neg = PopUI.section(_popup_col, "Senkt")
+			box = neg
+		else:
+			if pos == null:
+				pos = PopUI.section(_popup_col, "Hebt")
+			box = pos
+		var h := HBoxContainer.new()
+		h.add_theme_constant_override("separation", 10)
+		box.add_child(h)
+		var n := PopUI.label(h, part[0], 16, UiTheme.TEXT, false, true)
+		n.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		PopUI.diverging(h, float(part[1]), vmax)
+		var v := PopUI.label(h, "%s%d" % ["+" if pts > 0 else "", pts], 16, UiTheme.GOOD if pts > 0 else UiTheme.BAD, true)
+		v.custom_minimum_size.x = 40
+		v.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		if str(part[2]) != "":
+			PopUI.note(box, "-> " + str(part[2]))
+	if not neutral.is_empty():
+		PopUI.note(_popup_col, "Ohne Einfluss: " + ", ".join(neutral))
+	PopUI.note(_popup_col, "Ansicht Zufriedenheit (V) zeigt, wo es hakt.")
 
 func _jump_log(tile: Vector2i) -> void:
 	focus_requested.emit(tile)
@@ -765,9 +1015,9 @@ func _city_averages() -> Array:
 				sum[1] += sim.land_value[i]
 				sum[2] += sim.crime[i]
 				cnt += 1
-				pop += map.res_capacity(i)
+				pop += map.residents(i)
 				if sim.has_transit(i):
-					pop_transit += map.res_capacity(i)
+					pop_transit += map.residents(i)
 	return [sum[0] / maxi(cnt, 1), sum[1] / maxi(cnt, 1), sum[2] / maxi(cnt, 1), pop_transit / maxf(pop, 1.0)]
 
 
@@ -861,8 +1111,11 @@ func _text_button(parent: Node, text: String, cb: Callable, tip: String) -> Butt
 # ---------------------------------------------------------------- Laufzeit
 
 func _process(delta: float) -> void:
-	var mp := _cost_pill.get_viewport().get_mouse_position() / scale
-	_cost_pill.position = mp + Vector2(20, 14)
+	if not _cost_pill.has_meta("pin"):       # Testlauf (--hover): Blase bleibt in der Bildmitte
+		var mp := _cost_pill.get_viewport().get_mouse_position() / scale
+		_cost_pill.position = mp + Vector2(20, 14)
+	else:
+		_cost_pill.position = _ui_size() * 0.5 + Vector2(20, 14)
 	_cost_pill.visible = _cost.text != ""
 	if _toast_time > 0.0:
 		_toast_time -= delta
@@ -939,7 +1192,25 @@ func _tool_tip(t: ToolController.Tool) -> String:
 	var tip: String = def["name"] if def["key"] == KEY_NONE else "%s   [%s]" % [def["name"], OS.get_keycode_string(def["key"])]
 	if def.has("cost"):
 		tip += "\n$%d" % def["cost"]
+		var mats := _tool_materials(t)
+		if not mats.is_empty():
+			var parts := PackedStringArray()
+			for r: String in mats:
+				parts.append("%d %s" % [int(mats[r]), Config.RESOURCES[r]["name"]])
+			tip += " + " + ", ".join(parts)
 	return tip
+
+
+func _tool_materials(t: ToolController.Tool) -> Dictionary:
+	match t:
+		ToolController.Tool.ROAD: return Config.BUILD_MATERIALS["road"]
+		ToolController.Tool.RAIL: return Config.BUILD_MATERIALS["rail"]
+		ToolController.Tool.POWERLINE: return Config.BUILD_MATERIALS["powerline"]
+		ToolController.Tool.BUS_STOP: return Config.BUILD_MATERIALS["bus_stop"]
+		ToolController.Tool.STATION: return Config.BUILD_MATERIALS["station"]
+		ToolController.Tool.PARK: return Config.BUILD_MATERIALS["park"]
+	var m: Dictionary = Config.SPECIAL_MATERIALS.get(tools.special_for(t), {})
+	return m if sim.build_factor() == 1.0 else Simulation.scale_materials(m, sim.build_factor())
 
 
 ## Gruppen-Button: wählt das zuletzt genutzte Werkzeug der Gruppe; bei mehreren
@@ -1133,6 +1404,9 @@ func _refresh_inner() -> void:
 				state = "Engpass, %d ohne Strom" % int(net["unserved"])
 			tip.append("Netz bei %d,%d: %d / %d MW, %d Kraftwerk(e) - %s" % [k % map.size, k / map.size,
 				int(net["demand"]), int(net["capacity"]), int(net["plants"]), state])
+			if int(net.get("day", 0)) != int(net.get("night", 0)):
+				tip.append("   Tag %d MW / Nacht %d MW (Speicher %d)%s" % [int(net["day"]), int(net["night"]),
+					int(net["store_used"]), "  -> nachts zu knapp!" if bool(net["night_limited"]) and int(net["unserved"]) > 0 else ""])
 	if dark > 0:
 		tip.append("%d Gebäude ohne Strom - Ansicht Strom (V) zeigt wo" % dark)
 	_power.text = "%d / %d MW" % [sim.power_demand, sim.power_supply]
@@ -1161,6 +1435,10 @@ func _refresh_inner() -> void:
 	for k: String in sim.income_parts:
 		inc.append("  %s  $%d" % [k, roundi(float(sim.income_parts[k]))])
 	inc.append("Ausgaben  $%d" % roundi(sim.last_expense))
+	if sim.research_spent > 0.0:
+		inc.append("  davon Forschung  $%d" % roundi(sim.research_spent))
+	if sim.admin_cost > 0.0:
+		inc.append("  davon Verwaltung  $%d  (ab %s Einw., steigt mit der Größe)" % [roundi(sim.admin_cost), _fmt(Config.ADMIN_FROM)])
 	if sim.import_cost > 0.0:
 		inc.append("  davon Zukauf (Kohle, Baustoffe)  $%d" % roundi(sim.import_cost))
 	_money_delta.tooltip_text = "\n".join(inc)
@@ -1195,13 +1473,16 @@ func _on_hover(t: Vector2i) -> void:
 			var lv := map.special_level(i)
 			title = "%s  ·  Stufe %d" % [def["name"], lv]
 			var load: float = sim.service_load.get(a, 0.0)
-			summary = "Auslastung %d%%  ·  Reichweite %d" % [roundi(load * 100.0), Config.SERVICE_RADIUS[lv]]
+			summary = "Auslastung %d%%  ·  Reichweite %d" % [roundi(load * 100.0), sim.service_radius(a)]
 			if not sim.special_powered(i):
 				problems.append("x Kein Strom - arbeitet nicht")
 			elif load > 1.0:
 				problems.append("x Überlastet - ausbauen oder weiteres Gebäude")
-			add.call("Dienst", "Reichweite %d Tiles  ·  Kapazität %s %s" % [Config.SERVICE_RADIUS[lv],
-				_fmt(Config.SERVICE_CAPACITY[lv]), "Einw. + Jobs" if def["service"] == "fire" else "Einw."])
+			add.call("Dienst", "Reichweite %d Tiles  ·  Kapazität %s %s" % [sim.service_radius(a),
+				_fmt(int(sim.service_capacity(a))), "Einw. + Jobs" if def["service"] == "fire" else "Einw."])
+			if def["service"] == "university":
+				add.call("Dienst", "Akademiker: %s (je Institutsstufe %s für volle Leistung)" % [_fmt(int(sim.academics_count())),
+					_fmt(Config.ACADEMICS_PER_LEVEL)])
 			add.call("Dienst", "Unterhalt $%d/Monat  ·  Strom %d MW" % [int(def["upkeep"] * Config.UPKEEP_LEVEL[lv]),
 				sim.tile_power_use(a)])
 			if def["service"] == "venue":
@@ -1232,6 +1513,27 @@ func _on_hover(t: Vector2i) -> void:
 				sim.tile_power_use(a)])
 			if lv < 3:
 				add.call("Dienst", "Ausbau (mehr Leistung): gleiches Werkzeug, $%d" % (int(def["upgrade"]) * lv))
+		elif def.has("research"):
+			var a := map.anchor[i]
+			var lv := map.special_level(a)
+			title = "%s  ·  Stufe %d" % [def["name"], lv]
+			summary = "%d Punkte/Monat (Stadt gesamt %d)" % [roundi(Config.RESEARCH_POINTS * lv * sim.academic_factor()
+				* Simulation.budget_factor(sim.research_budget)), roundi(sim.research_points())]
+			if sim.academic_factor() < 1.0 and sim.special_powered(i):
+				problems.append("x Zu wenig Akademiker (%d %% Leistung) - Universität ausbauen/weitere bauen" %
+					roundi(sim.academic_factor() * 100.0))
+			if not sim.special_powered(i):
+				problems.append("x Kein Strom - forscht nicht")
+			if sim.research_current == "":
+				problems.append("x Kein Projekt gewählt - Forschungsfenster oben")
+			else:
+				add.call("Dienst", "Projekt: %s (%d %%)" % [Config.RESEARCH[sim.research_current]["name"],
+					roundi(100.0 * sim.research_progress / float(Config.RESEARCH[sim.research_current]["points"]))])
+			add.call("Dienst", "Akademiker %s  ·  Budget $%d/Monat" % [_fmt(int(sim.academics_count())), int(sim.research_budget)])
+			add.call("Dienst", "Unterhalt $%d/Monat  ·  Strom %d MW" % [int(def["upkeep"] * Config.UPKEEP_LEVEL[lv]),
+				sim.tile_power_use(a)])
+			if lv < 3:
+				add.call("Dienst", "Ausbau (mehr Punkte): gleiches Werkzeug, $%d" % (int(def["upgrade"]) * lv))
 		elif def.has("renew"):
 			var a := map.anchor[i]
 			var lv := map.special_level(a)
@@ -1240,10 +1542,14 @@ func _on_hover(t: Vector2i) -> void:
 				title = def["name"]
 			match str(def["renew"]):
 				"trees":
-					summary = "Pflanzt %d Bäume/Monat im Umkreis von %d Tiles" % [Config.NURSERY_TREES * lv, Config.NURSERY_RANGE]
-					var got := int(sim.planted_at.get(a, -1))
+					summary = "Pflanzt %d Bäume/Monat im Umkreis von %d Tiles (bis %d%% Wald)" % [Config.NURSERY_TREES * lv,
+						Config.NURSERY_RANGE, roundi(Config.NURSERY_MAX_SHARE * 100.0)]
+					var got := int(sim.planted_at.get(a, -2))
 					if got >= 0:
 						add.call("Dienst", "Letzter Monat gepflanzt: %d Bäume" % got)
+					elif got == -1:
+						add.call("Dienst", "Pause: Umkreis zu %d%% bewaldet (pflanzt wieder, wenn gefällt wird)" %
+							roundi(Config.NURSERY_MAX_SHARE * 100.0))
 					if got == 0:
 						problems.append("x Kein freies Gras im Umkreis - pflanzt nichts")
 				"prospect":
@@ -1288,6 +1594,28 @@ func _on_hover(t: Vector2i) -> void:
 				add.call("Dienst", "Verbraucht %d Kohle/Monat aus dem Lager" % Config.COAL_PLANT_USE)
 				if str(info.get("issue", "")) != "":
 					problems.append("x " + str(info["issue"]))
+			var pnet := sim.power_net[i] if sim.power_net.size() > i else -1
+			var nd: Dictionary = sim.power_nets[pnet] if pnet >= 0 and pnet < sim.power_nets.size() else {}
+			match map.special[i]:
+				Config.Special.BIOMASS:
+					var info: Dictionary = sim.producer_info.get(map.anchor[i], {})
+					add.call("Dienst", "Verbraucht %d Holz/Monat aus dem Lager (Tag und Nacht)" % Config.BIOMASS_WOOD_USE)
+					add.call("Dienst", "Abgas: Verschmutzung im Umkreis")
+					if str(info.get("issue", "")) != "":
+						problems.append("x " + str(info["issue"]))
+				Config.Special.SOLAR:
+					summary = "Leistung tagsüber %d MW, nachts 0  ·  Unterhalt $%d/Monat" % [def["power"], int(def["upkeep"])]
+				Config.Special.BATTERY, Config.Special.PUMPED, Config.Special.SALT:
+					summary = "Speicher: liefert nachts bis %d MW  ·  Unterhalt $%d/Monat" % [int(def["storage_mw"]),
+						int(def["upkeep"])]
+					if not nd.is_empty():
+						add.call("Dienst", "Im Netz: Speicher %d MW, nachts genutzt %d MW" % [int(nd["storage"]),
+							int(nd["store_used"])])
+						if int(nd["store_used"]) < int(nd["storage"]):
+							add.call("Dienst", "Tagesüberschuss reicht nicht zum vollen Laden (mehr Solar/Wind)")
+			if not nd.is_empty() and int(nd["day"]) != int(nd["night"]):
+				add.call("Versorgung", "Netz: Tag %d MW  ·  Nacht %d MW  ·  Bedarf nachts %d MW" % [int(nd["day"]),
+					int(nd["night"]), roundi(int(nd["demand"]) * Config.NIGHT_DEMAND)])
 	elif map.zone[i] != Config.Zone.NONE:
 		var zn := map.zone[i]
 		var lv := map.level[i]
@@ -1296,13 +1624,28 @@ func _on_hover(t: Vector2i) -> void:
 			title = "Villa  ·  Bodenabgabe $%d" % int(Config.VILLA_LEVY)
 		match zn:
 			Config.Zone.RES:
-				summary = "%d Einwohner" % map.res_capacity(i)
+				summary = "%d Einwohner" % roundi(map.residents(i))
 				if sim.happiness.size() > i and lv > 0:
 					summary += "  ·  Zufriedenheit %d%%" % roundi(sim.happiness[i] * 100.0)
 			Config.Zone.COM:
-				summary = "%d Jobs  ·  Kundschaft %d" % [Config.COM_CAPACITY[lv], int(sim.customers[i]) if sim.customers.size() > i else 0]
+				summary = "%d Jobs  ·  Kundschaft %d" % [roundi(map.jobs_at(i)), int(sim.customers[i]) if sim.customers.size() > i else 0]
 			Config.Zone.IND:
-				summary = "%d Jobs" % Config.IND_CAPACITY[lv]
+				summary = "%d Jobs" % roundi(map.jobs_at(i))
+		if lv > 0:
+			var occ := map.occupancy(i)
+			if map.is_vacant(i):
+				title = "%s  ·  LEERSTAND" % Config.ZONE_NAMES[zn]
+				var why := sim.decay_reason(i)
+				problems.append("x Aufgegeben seit %d Monaten - Abriss in %d Monaten%s" % [map.vacant[i],
+					maxi(Config.VACANT_MONTHS - map.vacant[i], 0), (": " + why) if why != "" else ""])
+				problems.append("x Drückt die Zufriedenheit im Umkreis von %d Tiles" % Config.VACANT_RANGE)
+			elif occ < 100:
+				var trend := "sinkt" if map.worn[i] == 1 else "steigt"
+				add.call("Gebäude", "Belegung: %d %% (%s)" % [occ, trend])
+				if map.worn[i] == 1:
+					problems.append("x Leute ziehen aus: Belegung %d %%" % occ)
+			else:
+				add.call("Gebäude", "Belegung: 100 %")
 		# Gebäude
 		var src := sim._src(i)
 		if zn == Config.Zone.RES and src >= 0 and sim.tile_commute(i) > 0.0:
@@ -1416,30 +1759,69 @@ func _on_hover(t: Vector2i) -> void:
 		add.call("Lage", "Bodenwert %d%%  ·  Verschmutzung %.1f%s" % [roundi(sim.land_value[i] * 100.0), sim.pollution[i],
 			("  (Grün filtert %d%%)" % roundi(gf * 100.0)) if gf > 0.0 else ""])
 	add.call("Lage", "Tile %d, %d  ·  Höhe %d" % [t.x, t.y, map.height[i]])
+	if map.anchor[i] >= 0 and map.special[i] != Config.Special.NONE:
+		var sdef: Dictionary = Config.SPECIALS[map.special[i]]
+		if sim.tech("deep_mining") and sdef.has("produce") and str(sdef["produce"]) != "wood":
+			add.call("Forschung", "Tiefbau: +50 % Förderung")
+		if sim.tech("plant_filter") and map.special[i] == Config.Special.COAL:
+			add.call("Forschung", "Kraftwerksfilter: -50 % Verschmutzung")
+		if sim.tech("blast_furnace") and sdef.has("process") and (sdef["process"]["in"] as Dictionary).has("coal"):
+			add.call("Forschung", "Moderne Hochöfen: -50 % Kohle, -40 % Verschmutzung")
 	_info_sections = []
-	for name: String in ["Gebäude", "Dienst", "Verkehr", "Versorgung", "Lage", "Wachstum"]:
+	for name: String in ["Gebäude", "Dienst", "Forschung", "Verkehr", "Versorgung", "Lage", "Wachstum"]:
 		if sec.has(name):
 			_info_sections.append([name, sec[name]])
-	_info_title.text = title
-	var lines := PackedStringArray()
+	_show_info(title, summary, problems)
+
+
+## Info-Karte aufbauen: Titel, Kernzeile, roter Problemkasten; mit Details (Taste I) Abschnitte als Zeilen
+## Bezeichnung | Wert (aus den Texten zerlegt, siehe _info_rows).
+func _show_info(title: String, summary: String, problems: PackedStringArray) -> void:
+	var sig := "%s|%s|%s|%s|%s" % [title, summary, problems, _info_sections, _info_detail]
+	if sig == _info_sig:
+		return
+	_info_sig = sig
+	info_text = " | ".join(PackedStringArray([title, summary]) + problems)
+	for c in _info_col.get_children():
+		_info_col.remove_child(c)
+		c.queue_free()
+	PopUI.label(_info_col, title, 18, UiTheme.TEXT, true, true)
+	if summary != "":
+		PopUI.label(_info_col, summary, 16, UiTheme.TEXT, false, true)
+	PopUI.problems(_info_col, problems)
 	if _info_detail:
-		if summary != "":
-			lines.append(summary)
-		for p in problems:
-			lines.append(p)
-		for s: Array in _info_sections:
-			lines.append("- %s -" % s[0])
-			lines.append_array(s[1])
-		_info_more.text = "[I] weniger"
-	else:
-		if summary != "":
-			lines.append(summary)
-		lines.append_array(problems)
-		_info_more.text = "[I] Details"
-	_info_body.text = "\n".join(lines)
-	_info_body.visible = not lines.is_empty()
-	_info_more.visible = not _info_sections.is_empty()
+		for sct: Array in _info_sections:
+			var box := PopUI.section(_info_col, sct[0])
+			for line: String in sct[1]:
+				info_text += " | " + line
+				_info_rows(box, line)
+	if not _info_sections.is_empty():
+		PopUI.note(_info_col, "[I] weniger" if _info_detail else "[I] Details")
 	_info_card.reset_size()
+
+
+## Eine Info-Zeile zerlegen: "A 5  ·  B: x" -> Zeilen (A | 5), (B | x); ohne Wert als Text.
+func _info_rows(box: VBoxContainer, line: String) -> void:
+	for part: String in line.split("  ·  "):
+		part = part.strip_edges()
+		var name := ""
+		var value := ""
+		var colon := part.find(": ")
+		if colon > 0:
+			name = part.substr(0, colon)
+			value = part.substr(colon + 2)
+		else:
+			var m := _num_re.search(part)
+			if m != null and m.get_start() > 0:
+				name = part.substr(0, m.get_start()).strip_edges()
+				value = part.substr(m.get_start()).strip_edges()
+		if name == "" or value == "":
+			PopUI.label(box, part, 15, UiTheme.TEXT, false, true)
+		else:
+			var col := UiTheme.TEXT
+			if value.begins_with("-") or value.contains("überlastet") or value.begins_with("x "):
+				col = UiTheme.BAD
+			PopUI.row(box, name, value, col)
 
 
 func toggle_info_detail() -> void:
@@ -1463,6 +1845,25 @@ func toggle_hud() -> void:
 
 func _on_cost(cost: int, valid: bool) -> void:
 	_cost.text = ("$ %s" % _fmt(cost)) if cost > 0 else ""
+	if tools.preview_site != "":
+		_cost.text = tools.preview_site          # Standortregel nicht erfüllt -> Grund statt Preis
+		_cost.add_theme_color_override("font_color", UiTheme.BAD)
+		return
+	if tools.preview_convert:
+		_cost.text += "\nUmrüsten: Kohlekraftwerk -> Salzspeicher\nAchtung: %d MW Kohlestrom fallen weg (Speicher erzeugt nichts)" % int(
+			Config.SPECIALS[Config.Special.COAL]["power"])
+	var mats: Dictionary = tools.preview_materials
+	if cost > 0 and not mats.is_empty():
+		var parts := PackedStringArray()
+		for r: String in mats:
+			var short := float(tools.preview_missing.get(r, 0.0))
+			parts.append("%d %s%s" % [ceili(float(mats[r])), Config.RESOURCES[r]["name"],
+				" (%d fehlt)" % ceili(short) if short > 0.0 else ""])
+		_cost.text += "\n" + ", ".join(parts)
+		if tools.preview_import > 0.0:
+			_cost.text += "\ndavon Zukauf $%s" % _fmt(int(tools.preview_import))
+		if sim.build_factor() < 1.0:
+			_cost.text += "\n-%d %% Material (Effiziente Bauweise)" % roundi((1.0 - sim.build_factor()) * 100.0)
 	_cost.add_theme_color_override("font_color", UiTheme.TEXT if valid else UiTheme.BAD)
 
 

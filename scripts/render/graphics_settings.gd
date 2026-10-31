@@ -18,6 +18,7 @@ static var fps_limit := 60
 const UI_SCALES := [0.7, 0.85, 1.0, 1.15]
 static var ui_scale := 1.0
 static var fullscreen := true
+static var day_night := true              # sichtbarer Tag/Nacht-Zyklus (aus = immer Mittag)
 
 
 static func load_saved() -> void:
@@ -28,6 +29,7 @@ static func load_saved() -> void:
 		fps_limit = cfg.get_value("graphics", "fps_limit", 60)
 		ui_scale = cfg.get_value("graphics", "ui_scale", 1.0)
 		fullscreen = cfg.get_value("graphics", "fullscreen", true)
+		day_night = cfg.get_value("graphics", "day_night", true)
 
 
 static func save() -> void:
@@ -38,6 +40,7 @@ static func save() -> void:
 	cfg.set_value("graphics", "fps_limit", fps_limit)
 	cfg.set_value("graphics", "ui_scale", ui_scale)
 	cfg.set_value("graphics", "fullscreen", fullscreen)
+	cfg.set_value("graphics", "day_night", day_night)
 	cfg.save(SETTINGS_PATH)
 
 

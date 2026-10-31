@@ -3,14 +3,15 @@ extends Node3D
 ## Maus-Picking, Werkzeug-Vorschau und Anwenden der Bauaktionen.
 
 signal hover_changed(tile: Vector2i)
-signal preview_cost_changed(cost: int, valid: bool)
+signal preview_cost_changed(cost: int, valid: bool)   # cost inkl. Zukauf fehlender Baumaterialien
 signal tool_changed(tool: Tool)
 signal message(text: String)
 signal applied(tool: Tool)
 
 enum Tool { INSPECT, ROAD, POWERLINE, BUS_STOP, RAIL, STATION, RES, COM, IND, COAL, WIND, TREE, PARK, RAISE, LOWER, BULLDOZE,
 	POLICE, FIRE, SCHOOL, HOSPITAL, LIBRARY, CINEMA, TOWNHALL, THEATER, STADIUM,
-	LUMBER, QUARRY, PIT, MINE, WAREHOUSE, SAWMILL, BRICKWORKS, GLASSWORKS, STEELWORKS, NURSERY, PROSPECTOR, RECYCLER }
+	LUMBER, QUARRY, PIT, MINE, WAREHOUSE, SAWMILL, BRICKWORKS, GLASSWORKS, STEELWORKS, NURSERY, PROSPECTOR, RECYCLER,
+	UNIVERSITY, INSTITUTE, BIOMASS, SOLAR, BATTERY, HYDRO, PUMPED, SALT }
 
 ## Anzeige-Metadaten: Name, Icon, Taste, Gruppe (für Toolbar-Trenner)
 const TOOLS := {
@@ -68,6 +69,22 @@ const TOOLS := {
 		"hint": "Sucht neue Kohle-/Eisen-/Goldadern im Umkreis von 8 Tiles (Hügelland)  ·  ~8 %/Monat je Stufe"},
 	Tool.RECYCLER:  {"name": "Recyclinghof", "icon": "recycler", "key": KEY_NONE, "group": 9, "cost": 2000,
 		"hint": "Abriss gibt 80 % statt 40 % der verbauten Baustoffe zurück  ·  2x2"},
+	Tool.BIOMASS: {"name": "Biomassekraftwerk", "icon": "biomass", "key": KEY_NONE, "group": 3, "cost": 1200,
+		"hint": "60 MW, Tag und Nacht  ·  verbrennt 20 Holz/Monat (sonst Zukauf)  ·  Abgas  ·  2x2"},
+	Tool.SOLAR: {"name": "Solarfeld", "icon": "solar", "key": KEY_NONE, "group": 3, "cost": 2500,
+		"hint": "50 MW, nur tagsüber - nachts Speicher oder Grundlast nötig  ·  sauber  ·  2x2  ·  Forschung Solarenergie"},
+	Tool.BATTERY: {"name": "Batteriespeicher", "icon": "battery", "key": KEY_NONE, "group": 3, "cost": 3000,
+		"hint": "Lädt mit dem Tagesüberschuss, liefert nachts bis 40 MW  ·  Forschung Batteriespeicher"},
+	Tool.HYDRO: {"name": "Wasserkraftwerk", "icon": "hydro", "key": KEY_NONE, "group": 3, "cost": 9000,
+		"hint": "120 MW Tag und Nacht, sauber  ·  nur direkt am Wasser  ·  2x2  ·  Forschung Wasserkraft"},
+	Tool.PUMPED: {"name": "Pumpspeicher", "icon": "pumped", "key": KEY_NONE, "group": 3, "cost": 7000,
+		"hint": "Speichert 150 MW für die Nacht  ·  am Hang: 3+ Blöcke über Wasser, Wasser in 4 Tiles  ·  Forschung Pumpspeicher"},
+	Tool.SALT: {"name": "Salzspeicher", "icon": "salt", "key": KEY_NONE, "group": 3, "cost": 8000,
+		"hint": "Speichert 300 MW für die Nacht  ·  Klick auf Kohlekraftwerk = Umrüsten zum halben Preis  ·  Forschung Salzspeicher"},
+	Tool.UNIVERSITY: {"name": "Universität", "icon": "university", "key": KEY_NONE, "group": 7, "cost": 15000,
+		"hint": "Hochschule: Akademiker für Forschung  ·  3x3  ·  ab 8.000 Einw. und 70 % Schulversorgung  ·  großer Einzugskreis"},
+	Tool.INSTITUTE: {"name": "Forschungsinstitut", "icon": "institute", "key": KEY_NONE, "group": 7, "cost": 8000,
+		"hint": "Forschungspunkte (mehr Akademiker = schneller)  ·  2x2  ·  braucht Universität  ·  Projekte im Forschungsfenster"},
 	Tool.SAWMILL:   {"name": "Sägewerk", "icon": "sawmill", "key": KEY_NONE, "group": 10, "cost": 1500,
 		"hint": "10 Holz -> 10 Bretter je Monat  ·  Bretter braucht Stufe 2"},
 	Tool.BRICKWORKS: {"name": "Ziegelei", "icon": "brickworks", "key": KEY_NONE, "group": 10, "cost": 1800,
@@ -108,7 +125,13 @@ var hover := Vector2i(-1, -1)
 var _drag_start := Vector2i(-1, -1)
 var _dragging := false
 var _preview: MultiMeshInstance3D
-var _recycled := {}                 # Rückgewinnung beim aktuellen Abriss (für die Meldung)
+var preview_site := ""              # Standortregel verletzt: Grund (HUD-Kostenblase)
+var preview_convert := false        # Salzspeicher über Kohlekraftwerk: Umrüsten
+var preview_materials := {}         # Baumaterial der aktuellen Vorschau (HUD-Kostenblase)
+var preview_missing := {}           # davon nicht im Lager
+var preview_import := 0.0           # Zukaufpreis dafür (in preview_cost enthalten)
+var _recycled := {}
+var _present := {}                  # Sonderbau-Art -> vorhanden (Cache für locked_reason, geleert bei Kartenänderung)                 # Rückgewinnung beim aktuellen Abriss (für die Meldung)
 var _range: MultiMeshInstance3D     # Reichweite unter dem Cursor (Haltestelle, Bahnhof, Dienste)
 const RANGE_ROAD := Color(0.25, 0.55, 1.0, 0.5)      # Straße kommt ins Busnetz / Fußweg zum Bahnhof
 const RANGE_NEW := Color(0.3, 0.95, 0.4, 0.5)        # Gebäude bekommt neu Anschluss
@@ -117,6 +140,7 @@ const RANGE_AREA := Color(1.0, 1.0, 1.0, 0.75)       # Rand des Einzugsgebiets e
 
 func setup(city_map: CityMap, simulation: Simulation, cam: Camera3D) -> void:
 	map = city_map
+	map.tiles_changed.connect(func(_r: Rect2i) -> void: _present.clear())
 	sim = simulation
 	camera = cam
 	var box := BoxMesh.new()
@@ -162,7 +186,11 @@ func set_tool(t: Tool) -> void:
 
 
 func _special_for_tool() -> int:
-	match tool:
+	return special_for(tool)
+
+
+func special_for(t: Tool) -> int:
+	match t:
 		Tool.COAL: return Config.Special.COAL
 		Tool.WIND: return Config.Special.WIND
 		Tool.POLICE: return Config.Special.POLICE
@@ -186,6 +214,14 @@ func _special_for_tool() -> int:
 		Tool.NURSERY: return Config.Special.NURSERY
 		Tool.PROSPECTOR: return Config.Special.PROSPECTOR
 		Tool.RECYCLER: return Config.Special.RECYCLER
+		Tool.UNIVERSITY: return Config.Special.UNIVERSITY
+		Tool.BIOMASS: return Config.Special.BIOMASS
+		Tool.SOLAR: return Config.Special.SOLAR
+		Tool.BATTERY: return Config.Special.BATTERY
+		Tool.HYDRO: return Config.Special.HYDRO
+		Tool.PUMPED: return Config.Special.PUMPED
+		Tool.SALT: return Config.Special.SALT
+		Tool.INSTITUTE: return Config.Special.INSTITUTE
 	return Config.Special.NONE
 
 
@@ -197,9 +233,23 @@ func locked_reason(t: Tool) -> String:
 	tool = prev
 	if sp == Config.Special.NONE:
 		return ""
-	var unlock: int = Config.SPECIALS[sp].get("unlock", 0)
+	var def: Dictionary = Config.SPECIALS[sp]
+	var unlock: int = def.get("unlock", 0)
 	if sim.population < unlock:
 		return "Verfügbar ab %d Einwohnern" % unlock
+	if def.has("need_tech") and not sim.tech(str(def["need_tech"])):
+		return "Erst erforschen: %s (Forschungsfenster)" % Config.RESEARCH[str(def["need_tech"])]["name"]
+	if def.has("need_coverage"):
+		var cat: String = def["need_coverage"][0]
+		var share: float = def["need_coverage"][1]
+		var have := float(sim.city_coverage.get(cat, 0.0))
+		if have < share:
+			return "Erst %d %% %s-Versorgung nötig (jetzt %d %%)" % [roundi(share * 100.0), Config.SERVICES[cat][0],
+				roundi(have * 100.0)]
+	if def.has("need_special"):
+		var need: int = def["need_special"]
+		if not _special_present(need):
+			return "Erst eine %s bauen" % Config.SPECIALS[need]["name"]
 	return ""
 
 
@@ -269,6 +319,12 @@ func pick(screen_pos: Vector2) -> Vector2i:
 func _affected_tiles() -> Array[Vector2i]:
 	var out: Array[Vector2i] = []
 	if hover.x < 0:
+		return out
+	var conv := _convert_target()
+	if conv >= 0:
+		for z in 2:
+			for x in 2:
+				out.append(Vector2i(conv % map.size + x, conv / map.size + z))
 		return out
 	var sp := _special_for_tool()
 	if sp != Config.Special.NONE:
@@ -361,7 +417,8 @@ func tile_cost(t: Vector2i) -> int:
 				Tool.LIBRARY, Tool.CINEMA, Tool.TOWNHALL, Tool.THEATER, Tool.STADIUM, \
 				Tool.LUMBER, Tool.QUARRY, Tool.PIT, Tool.MINE, Tool.WAREHOUSE, \
 				Tool.SAWMILL, Tool.BRICKWORKS, Tool.GLASSWORKS, Tool.STEELWORKS, \
-				Tool.NURSERY, Tool.PROSPECTOR, Tool.RECYCLER:
+				Tool.NURSERY, Tool.PROSPECTOR, Tool.RECYCLER, Tool.UNIVERSITY, Tool.INSTITUTE, \
+				Tool.BIOMASS, Tool.SOLAR, Tool.BATTERY, Tool.HYDRO, Tool.PUMPED, Tool.SALT:
 			var sp := _special_for_tool()
 			if locked_reason(tool) != "": return -1
 			var up := _upgrade_target()
@@ -369,8 +426,13 @@ func tile_cost(t: Vector2i) -> int:
 				# Ausbau: nur das angeklickte Tile kostet
 				if map.special_level(up) >= 3: return -1
 				return int(Config.SPECIALS[sp]["upgrade"]) * map.special_level(up) if t == hover else 0
+			var conv := _convert_target()
+			if conv >= 0:
+				# Salzspeicher: Kohlekraftwerk umrüsten (Kosten nur am Ursprungs-Tile)
+				return int(Config.SPECIALS[sp]["cost"] * Config.SALT_CONVERT) if i == conv else 0
 			# Kosten nur auf dem Ursprungs-Tile, Rest muss frei sein
 			if water or special or building or rail or map.road[i] != 0: return -1
+			if t == hover and site_reason(sp, hover) != "": return -1
 			return Config.SPECIALS[sp]["cost"] if t == hover else 0
 		Tool.BULLDOZE:
 			if special:
@@ -395,6 +457,121 @@ func tile_cost(t: Vector2i) -> int:
 			if water or special or rail or map.road[i] != 0 or building: return -1
 			return Config.COST_PARK if map.feature[i] != Config.Feature.PARK else 0
 	return 0
+
+
+## Baumaterial einer Aktion für ein Tile (nur wo tile_cost > 0; Sonderbau nur am Ursprungs-Tile).
+func tile_materials(t: Vector2i) -> Dictionary:
+	if tile_cost(t) <= 0:
+		return {}
+	var infra := _infra_materials()
+	if not infra.is_empty():
+		return infra if sim.build_factor() == 1.0 else Simulation.scale_materials(infra, sim.build_factor())
+	var sp := _special_for_tool()
+	if sp == Config.Special.NONE:
+		return {}
+	var base: Dictionary = Config.SPECIAL_MATERIALS.get(sp, {})
+	if _convert_target() >= 0:
+		return Simulation.scale_materials(base, Config.SALT_CONVERT * sim.build_factor())
+	var up := _upgrade_target()
+	if up >= 0:
+		return Simulation.scale_materials(base, Config.UPGRADE_MATERIALS * map.special_level(up) * sim.build_factor())
+	return base if sim.build_factor() == 1.0 else Simulation.scale_materials(base, sim.build_factor())
+
+
+## Standortregel eines Sonderbaus ("site" in SPECIALS) für Ursprung o: "" = passt, sonst Grund.
+func site_reason(sp: int, o: Vector2i) -> String:
+	var def: Dictionary = Config.SPECIALS[sp]
+	if not def.has("site"):
+		return ""
+	var s: int = def["size"]
+	match str(def["site"]):
+		"water":
+			var water := 0
+			for z in range(o.y - 1, o.y + s + 1):
+				for x in range(o.x - 1, o.x + s + 1):
+					var inside := x >= o.x and x < o.x + s and z >= o.y and z < o.y + s
+					if not inside and map.in_bounds(x, z) and map.is_water(x, z):
+						water += 1
+			if water < Config.HYDRO_MIN_WATER:
+				return "Wasserkraft braucht Wasser direkt am Gebäude (Fluss/See, mind. %d Wasserfelder am Rand)" % Config.HYDRO_MIN_WATER
+		"hill":
+			var top := 0
+			for z in range(o.y, o.y + s):
+				for x in range(o.x, o.x + s):
+					if map.in_bounds(x, z):
+						top = maxi(top, map.h(x, z))
+			if top - Config.WATER_LEVEL < Config.PUMPED_MIN_HEIGHT:
+				return "Pumpspeicher braucht einen Hang: mind. %d Blöcke über dem Wasser (hier %d)" % [
+					Config.PUMPED_MIN_HEIGHT, maxi(top - Config.WATER_LEVEL, 0)]
+			var r := Config.PUMPED_WATER_RANGE
+			for z in range(o.y - r, o.y + s + r):
+				for x in range(o.x - r, o.x + s + r):
+					if map.in_bounds(x, z) and map.is_water(x, z):
+						return ""
+			return "Pumpspeicher braucht Wasser in der Nähe (%d Tiles) als Unterbecken" % r
+	return ""
+
+
+## Salzspeicher-Werkzeug über einem Kohlekraftwerk -> dessen Ursprungs-Tile (Umrüsten), sonst -1.
+func _convert_target() -> int:
+	if tool != Tool.SALT or hover.x < 0 or not map.in_bounds(hover.x, hover.y) or locked_reason(tool) != "":
+		return -1
+	var i := map.idx(hover.x, hover.y)
+	return map.anchor[i] if map.special[i] == Config.Special.COAL else -1
+
+
+func _convert_to_salt(a: int) -> void:
+	var cost := int(Config.SPECIALS[Config.Special.SALT]["cost"] * Config.SALT_CONVERT)
+	var mats := Simulation.scale_materials(Config.SPECIAL_MATERIALS[Config.Special.SALT], Config.SALT_CONVERT * sim.build_factor())
+	var import_price: float = sim.build_need(mats)[1]
+	if not sim.can_afford(cost + import_price):
+		message.emit("Nicht genug Geld für den Umbau (benötigt $%d)" % (cost + int(import_price)))
+		return
+	for z in 2:
+		for x in 2:
+			var j := a + z * map.size + x
+			map.special[j] = Config.Special.SALT
+			map.anchor[j] = a
+	map.slevel[a] = 1
+	sim.spend(cost)
+	sim.use_build_materials(mats)
+	map.notify_changed(Rect2i(a % map.size, a / map.size, 2, 2))
+	sim.refresh(sim.async_commute)
+	message.emit("Umgerüstet: Salzspeicher speichert 300 MW für die Nacht - %d MW Kohlestrom fehlen jetzt, ggf. Ersatz bauen" %
+		int(Config.SPECIALS[Config.Special.COAL]["power"]))
+	applied.emit(tool)
+
+
+## Gibt es mindestens einen Sonderbau dieser Art? (gecacht: locked_reason läuft je Tile und Mausbewegung)
+func _special_present(sp: int) -> bool:
+	if not _present.has(sp):
+		var found := false
+		for a in map.size * map.size:
+			if map.special[a] == sp:
+				found = true
+				break
+		_present[sp] = found
+	return _present[sp]
+
+
+func _infra_materials() -> Dictionary:
+	match tool:
+		Tool.ROAD: return Config.BUILD_MATERIALS["road"]
+		Tool.RAIL: return Config.BUILD_MATERIALS["rail"]
+		Tool.POWERLINE: return Config.BUILD_MATERIALS["powerline"]
+		Tool.BUS_STOP: return Config.BUILD_MATERIALS["bus_stop"]
+		Tool.STATION: return Config.BUILD_MATERIALS["station"]
+		Tool.PARK: return Config.BUILD_MATERIALS["park"]
+	return {}
+
+
+func materials_for(tiles: Array[Vector2i]) -> Dictionary:
+	var sum := {}
+	for t in tiles:
+		var m := tile_materials(t)
+		for r: String in m:
+			sum[r] = float(sum.get(r, 0.0)) + float(m[r])
+	return sum
 
 
 func _tool_zone() -> int:
@@ -426,15 +603,25 @@ func _apply(tiles: Array[Vector2i]) -> void:
 		if c > 0:
 			total += c
 			todo.append(t)
+	var conv := _convert_target()
+	if conv >= 0:
+		_convert_to_salt(conv)
+		return
 	if _special_for_tool() != Config.Special.NONE:
 		if not all_valid:
-			message.emit("Hier ist kein Platz.")
+			var why := site_reason(_special_for_tool(), hover) if map.in_bounds(hover.x, hover.y) else ""
+			message.emit(why if why != "" else "Hier ist kein Platz.")
 			return
 		todo = tiles
 	if todo.is_empty():
 		return
-	if not sim.can_afford(total):
-		message.emit("Nicht genug Geld (benötigt $%d)" % total)
+	var mats := materials_for(todo)
+	var import_price: float = sim.build_need(mats)[1]
+	if not sim.can_afford(total + import_price):
+		if import_price > 0.0:
+			message.emit("Nicht genug Geld (benötigt $%d, davon Zukauf Baumaterial $%d)" % [total + int(import_price), int(import_price)])
+		else:
+			message.emit("Nicht genug Geld (benötigt $%d)" % total)
 		return
 
 	var rect := Rect2i(todo[0], Vector2i.ONE)
@@ -447,6 +634,7 @@ func _apply(tiles: Array[Vector2i]) -> void:
 	for t in todo:
 		rect = rect.merge(Rect2i(t, Vector2i.ONE))
 	sim.spend(total)
+	sim.use_build_materials(mats)
 	if not _recycled.is_empty():
 		var parts := PackedStringArray()
 		for res: String in _recycled:
@@ -489,11 +677,14 @@ func _upgrade(a: int) -> void:
 		message.emit("%s ist bereits voll ausgebaut." % Config.SPECIALS[sp]["name"])
 		return
 	var cost := int(Config.SPECIALS[sp]["upgrade"]) * lv
-	if not sim.can_afford(cost):
-		message.emit("Nicht genug Geld für den Ausbau (benötigt $%d)" % cost)
+	var mats := Simulation.scale_materials(Config.SPECIAL_MATERIALS.get(sp, {}), Config.UPGRADE_MATERIALS * lv * sim.build_factor())
+	var import_price: float = sim.build_need(mats)[1]
+	if not sim.can_afford(cost + import_price):
+		message.emit("Nicht genug Geld für den Ausbau (benötigt $%d)" % (cost + int(import_price)))
 		return
 	map.slevel[a] = lv + 1
 	sim.spend(cost)
+	sim.use_build_materials(mats)
 	var s: int = Config.SPECIALS[sp]["size"]
 	map.notify_changed(Rect2i(a % map.size, a / map.size, s, s))
 	sim.refresh(sim.async_commute)   # im Spiel gestaffelt, in Tests sofort
@@ -539,6 +730,10 @@ func _apply_tile(t: Vector2i) -> Rect2i:
 			map.zone[i] = _tool_zone()
 		Tool.BULLDOZE:
 			if map.special[i] != Config.Special.NONE:
+				var sa := map.anchor[i]
+				var back_sp: Dictionary = sim.recycle_special(map.special[sa], map.special_level(sa))
+				for res: String in back_sp:
+					_recycled[res] = float(_recycled.get(res, 0.0)) + float(back_sp[res])
 				r = _remove_special(i)
 			elif map.zone[i] != Config.Zone.NONE and map.level[i] >= 2:
 				var back: Dictionary = sim.recycle(map.zone[i], map.level[i])
@@ -626,7 +821,7 @@ func range_preview(t: Vector2i) -> Dictionary:
 			var s: int = Config.SPECIALS[sp]["size"]
 			var origin := Vector2i(up % map.size, up / map.size) if up >= 0 else t
 			var half := (s - 1) * 0.5
-			var rad: int = Config.SERVICE_RADIUS[lv]
+			var rad: int = Simulation.service_radius_for(sp, lv)
 			for dz in range(-rad, rad + s):
 				for dx in range(-rad, rad + s):
 					var x := origin.x + dx
@@ -702,6 +897,8 @@ func _update_preview() -> void:
 	var mm := _preview.multimesh
 	if tool == Tool.INSPECT or hover.x < 0:
 		mm.instance_count = 0
+		preview_site = ""
+		preview_convert = false
 		preview_cost_changed.emit(0, true)
 		return
 	var tiles := _affected_tiles()
@@ -713,6 +910,15 @@ func _update_preview() -> void:
 			valid = false
 		else:
 			total += c
+	var sp_prev := _special_for_tool()
+	preview_convert = _convert_target() >= 0
+	preview_site = site_reason(sp_prev, hover) if sp_prev != Config.Special.NONE and not preview_convert \
+		and map.in_bounds(hover.x, hover.y) and locked_reason(tool) == "" else ""
+	preview_materials = materials_for(tiles) if valid else {}
+	var need := sim.build_need(preview_materials)
+	preview_missing = need[0]
+	preview_import = need[1]
+	total += int(preview_import)
 	valid = valid and sim.can_afford(total)
 	var shown: Array[Vector2i] = []
 	for t in tiles:

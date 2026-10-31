@@ -21,6 +21,8 @@ var burning: PackedByteArray    # Brand: 0 = nein, 1..100 = Fortschritt in % (10
 var ruin: PackedByteArray       # Brandruine: Monate bis das Tile wieder bebaut werden kann
 var villa: PackedByteArray      # 1 = Wohnen Stufe 3 ist eine Villa (statt Wohnblock)
 var worn: PackedByteArray       # 1 = Gebäude verfällt (sinkt bald ab) -> abgenutzte Optik
+var empty: PackedByteArray      # Leerstand 0..100 % (0 = voll belegt; Default -> alte Saves/Tests voll); 100 = aufgegeben
+var vacant: PackedByteArray     # Monate im Leerstand (nach VACANT_MONTHS abgerissen)
 var ore: PackedByteArray        # Bodenvorkommen (Config.Ore)
 var ore_amt: PackedByteArray    # Restmenge des Vorkommens (0 = erschöpft)
 
@@ -44,6 +46,8 @@ func _init(map_size: int = Config.MAP_SIZE) -> void:
 	ruin.resize(n)
 	villa.resize(n)
 	worn.resize(n)
+	empty.resize(n)
+	vacant.resize(n)
 	ore.resize(n)
 	ore_amt.resize(n)
 
@@ -84,6 +88,29 @@ func is_power_line(x: int, z: int) -> bool:
 ## Einwohner eines Wohn-Tiles (Villa: wenige, sonst je Stufe).
 func res_capacity(i: int) -> int:
 	return Config.VILLA_POP if villa[i] == 1 and level[i] == 3 else Config.RES_CAPACITY[level[i]]
+
+
+## Tatsächliche Einwohner (Kapazität × Belegung).
+func residents(i: int) -> float:
+	return res_capacity(i) * (100 - empty[i]) * 0.01
+
+
+## Belegung in % (100 - Leerstand).
+func occupancy(i: int) -> int:
+	return 100 - empty[i]
+
+
+## Tatsächliche Arbeitsplätze eines Gewerbe-/Industrie-Tiles (Kapazität × Belegung).
+func jobs_at(i: int) -> float:
+	match zone[i]:
+		Config.Zone.COM: return Config.COM_CAPACITY[level[i]] * (100 - empty[i]) * 0.01
+		Config.Zone.IND: return Config.IND_CAPACITY[level[i]] * (100 - empty[i]) * 0.01
+	return 0.0
+
+
+## Aufgegeben: Gebäude steht, aber niemand wohnt/arbeitet mehr darin.
+func is_vacant(i: int) -> bool:
+	return level[i] > 0 and empty[i] >= 100 and zone[i] != Config.Zone.NONE
 
 
 ## Gebäude oder Sonderbau steht drauf
@@ -211,7 +238,7 @@ func notify_changed(rect: Rect2i, infra := true) -> void:
 	tiles_changed.emit(rect)
 
 
-const SAVE_FIELDS := ["height", "zone", "road", "level", "feature", "power_line", "special", "anchor", "rail", "transit", "slevel", "burning", "ruin", "villa", "worn", "ore", "ore_amt"]
+const SAVE_FIELDS := ["height", "zone", "road", "level", "feature", "power_line", "special", "anchor", "rail", "transit", "slevel", "burning", "ruin", "villa", "worn", "ore", "ore_amt", "empty", "vacant"]
 
 
 const ORE_VERSION := 2          # 2 = mit Fels (Ore.STONE)

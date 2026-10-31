@@ -50,6 +50,8 @@ Dev-Flags (nach `--`, funktionieren auch mit der App: `"build/Cube City.app/Cont
 
 ## Oberfläche
 
+**Popover-Gestaltung (23.10.):** Ansicht, Zufriedenheit, Meldungen, Forschung und Info-Karte nutzen einheitliche Bausteine (`scripts/ui/pop_ui.gd`): Kopf mit Icon/Titel/Kennzahl, Abschnitte mit farbiger Überschrift + Linie, Zeilen „Bezeichnung | Wert“ (Wert fett/farbig), Balken (Zufriedenheit um eine Mitte: rot links/grün rechts), Plaketten (ERFORSCHT/LÄUFT/BEREIT/GESPERRT), roter Problemkasten, Listeneinträge (Ansicht: ganze Zeile klickbar, aktiv grün). Feste Breite 440 px mit Umbruch, höher als der Bildschirm → scrollen. Die Info-Karte zerlegt ihre Textzeilen automatisch an „·“ und „:“ bzw. der ersten Zahl in Bezeichnung/Wert.
+
 - **Info-Karte** (Maus über Tile): kompakt = Titel, eine Kernzeile (Einwohner/Jobs, Auslastung, Pendler …) und **nur Probleme** in Rot (Verfall mit Grund, kein Strom, Brand, Überlastung). Mit **I** alle Details nach Abschnitten; die Wahl bleibt erhalten.
 - **Warnungen** (Probleme mit Signalton: Brand ohne Löschzug, Strom, Kasse im Minus, Zufriedenheit sinkt, Bürgerwünsche) erscheinen als schmale Streifen **rechts** unter Steuer/Tempo, höchstens 2, ~7 s; gleiche Warnung wird gezählt („x2“). Alles landet im **Verlauf** (Glocke).
 - **Infos** (Ansicht gewechselt, gespeichert, Bau nicht möglich …) erscheinen nur kurz und klein über der Werkzeugleiste, ohne Verlauf.
@@ -91,7 +93,7 @@ Dev-Werkzeuge liegen getrennt vom Spielcode in `scripts/dev/` und laufen nur mit
 
 - `dev_tools.gd` — wertet Flags aus: `--demo`, `--cam=x,z,dist`, `--ignite=x,z[,sek]` (Gebäude anzünden, Brand vorspulen, Kamera hin), `--ruin=x,z` (sofort abbrennen), `--overlay[=1..5]`, `--popup=view|happy`, `--menu`, `--flyout`, `--screenshot=pfad`, `--quit`
 - `demo_city.gd` — reproduzierbare Teststadt (Zonen, Strom, ÖPNV, 4-spurige Straße mit Verjüngung)
-- `dev_tests.gd` — `--selftest` (Timing, Speichern/Laden, Audio), `--dragtest` (echtes Maus-Ziehen), `--lanetest` (Rechtsverkehr auf Hauptstraßen), `--widetest` (Hauptstraßen-Erkennung), `--profile[=Sek,Tempo]` (Frame-Zeiten + Ruckler-Ursachen), `--gfx=0..2`, `--nowarmup`, `--servicetest`, `--tool=<name>`, `--traffictest` (Korridor: Straße/Parallelstraße/Hauptstraße/Bus/Bahn), `--pickcheck`, `--firetest` (Brand an der Wache gelöscht, ohne Wache abgebrannt + Ruine), `--bustest` (Vorstadt mit eigenem Straßennetz bekommt Busse), `--happytest` (Aufschlüsselung, Warnung bei Steuer hoch / Polizei weg), `--cheattest` (Geld-Cheat per Tastenereignis), `--greentest` (Grüngürtel gegen Verschmutzung, Terraforming reißt Straße ab), `--venuetest` (Stadion/Theater: Besucherverkehr, Kundschaft), `--zonetest` (Ladenzeile, Ballung, Nachbarschaft), `--taxtest` (Steuern je Zone, ÖPNV-Tarif), `--cartest` (Autos/Busse je Tarif, Diagnose ÖPNV, Bahnhofs-Auslastung), `--cardrift=Sek`, `--jamreport` (meistbelastete Straßen), `--loadfile=pfad` (Spielstand-Kopie laden), `--focus=x,z` (Kamera auf Tile), `--fronttest`, `--hover=x,z [--detail]`, `--notify`, `--hidehud`, `--fpstest`, `--mutetest`, `--savetest`, `--uiscale=f`, `--zoomtest`, `--rangetest`, `--appicon=pfad.png` (App-Icon rendern), `--splash` (+ `--screenshot`, Startbild), `--menu --asksave=slot`, `--gpumeasure=Sek,fps [--pause]`, `--popup=view|happy|log`, `--loadreport` (Auslastung der Dienste + Brände in 12 Monaten), `--powertest`, `--bigcity` (ganze Karte bebauen), `--buildtest` (Bau-Klick-Zeit, Pendler synchron/Hintergrund), `--restest`, `--processtest`, `--renewtest`, `--resbuild`
+- `dev_tests.gd` — `--selftest` (Timing, Speichern/Laden, Audio), `--dragtest` (echtes Maus-Ziehen), `--lanetest` (Rechtsverkehr auf Hauptstraßen), `--widetest` (Hauptstraßen-Erkennung), `--profile[=Sek,Tempo]` (Frame-Zeiten + Ruckler-Ursachen), `--gfx=0..2`, `--nowarmup`, `--servicetest`, `--tool=<name>`, `--traffictest` (Korridor: Straße/Parallelstraße/Hauptstraße/Bus/Bahn), `--pickcheck`, `--firetest` (Brand an der Wache gelöscht, ohne Wache abgebrannt + Ruine), `--bustest` (Vorstadt mit eigenem Straßennetz bekommt Busse), `--happytest` (Aufschlüsselung, Warnung bei Steuer hoch / Polizei weg), `--cheattest` (Geld-Cheat per Tastenereignis), `--greentest` (Grüngürtel gegen Verschmutzung, Terraforming reißt Straße ab), `--venuetest` (Stadion/Theater: Besucherverkehr, Kundschaft), `--zonetest` (Ladenzeile, Ballung, Nachbarschaft), `--taxtest` (Steuern je Zone, ÖPNV-Tarif), `--cartest` (Autos/Busse je Tarif, Diagnose ÖPNV, Bahnhofs-Auslastung), `--cardrift=Sek`, `--jamreport` (meistbelastete Straßen), `--loadfile=pfad` (Spielstand-Kopie laden), `--focus=x,z` (Kamera auf Tile), `--fronttest`, `--hover=x,z [--detail]`, `--notify`, `--hidehud`, `--fpstest`, `--mutetest`, `--savetest`, `--uiscale=f`, `--zoomtest`, `--rangetest`, `--appicon=pfad.png` (App-Icon rendern), `--splash[=brick|grass|stone]` (+ `--loadfile`, `--cam`, `--screenshot`: Startbild mit 3D-Block-Logo, Tilt-Shift), `--menu --asksave=slot`, `--gpumeasure=Sek,fps [--pause]`, `--popup=view|happy|log`, `--loadreport` (Auslastung der Dienste + Brände in 12 Monaten), `--powertest`, `--bigcity` (ganze Karte bebauen), `--buildtest` (Bau-Klick-Zeit, Pendler synchron/Hintergrund), `--restest`, `--processtest`, `--renewtest`, `--treereport`, `--researchtest`, `--resbuild`, `--freshrun=Jahre` (Neustart mit Startkapital: Startviertel + jährlicher Ausbau nach Kassenlage, Haushalt je Jahr, Wachstumsblocker), `--econreport` (Haushalt nach Posten, mit `--loadfile`)
 
 ```bash
 /Applications/Godot.app/Contents/MacOS/Godot --path . -- --demo --selftest --dragtest --traffictest --quit
@@ -149,19 +151,28 @@ Beim Aufziehen färbt die Vorschau jedes Tile nach **Eignung** (grün/gelb/rot).
 
 Werte und Reichweiten: `scripts/config.gd` (Abschnitte *Standortregeln*, *Zonen-Idealformen*). Die Info-Karte zeigt je Tile Ladenzeile/Ballung/Nachbarschaft, die Vorschau berücksichtigt sie. Test: `--zonetest` (u.a. 10×2 Gewerbe mit Querstraßen an den Enden: Stufen 3333223333; 16×1 ohne Querstraße: 3332211111122333). Screenshot-Flag `--villas`.
 
+**Belegung & Leerstand (23.10.):** Jedes Gebäude hat eine Belegung 0–100 % – Einwohner/Jobs = Kapazität × Belegung, die Stadt schrumpft also sofort und schrittweise, wenn Gebäude verfallen.
+- **Auszug je Monat:** kein Strom/keine Straße/keine Jobs bzw. Einwohner erreichbar −12 %; unzufrieden −6 % (Zeit zum Gegensteuern); nur „keine Nachfrage“ oder „zu groß für die Lage“/„Villenlage verloren“ −3 % und nie unter 30 % (das Gebäude steigt dann eher auf eine kleinere Stufe ab). Ohne Problem **Zuzug +10 %**. Neu gewachsene Gebäude starten voll belegt.
+- **Leerstand** bei 0 %: vernagelte Fenster, keine Einwohner/Jobs/Steuern, kein Stufenwechsel. Wird der Grund behoben, ziehen wieder Leute ein. Nach **24 Monaten** Leerstand wird es abgerissen (die Zone bleibt).
+- **Verfall im Viertel:** jedes leere Gebäude senkt die Zufriedenheit der Wohnhäuser im Umkreis von 3 Tiles um 3 Punkte (höchstens 12) – eigener Posten „Leerstand“ in der Zufriedenheit. Gegensteuern: Ursache beheben, Leerstand abreißen, Viertel mit Diensten/Parks aufwerten.
+- Anzeige: Info-Karte „Belegung 60 % (sinkt)“ bzw. Titel „LEERSTAND“ mit Grund und Abriss-Countdown; Meldung „Leerstand: … aufgegeben (Grund)“ mit Sprung zum Ort. Früher stiegen Gebäude bei diesen Gründen zufällig eine Stufe ab (4–8 %/Monat), die Einwohner fielen erst dann sprunghaft.
+- Messung: Neustart (`--freshrun=15`, Skript ohne Parks/Kultur) 935 statt 1.190 Einwohner nach 15 Jahren; Megacity des Nutzers stabil (42.660 → 42.675 in 12 Monaten). Test `--vacancytest`, Screenshot-Flag `--vacant`.
+
 **Verfall sichtbar:** Ein Gebäude, das absinken wird (Bodenwert/Lage reicht nicht mehr für die Stufe, unzufrieden, ohne Strom/Straße/Erreichbarkeit, keine Nachfrage, Villenlage verloren), sieht schon vorher abgenutzt aus: verwitterte Blöcke, kaputte Fenster, Ranken an den Wänden, Geröll. Die Info-Karte nennt den Grund („x Verfällt: Bodenwert 39 % zu niedrig für Stufe 3“). Abstieg dann mit 4–8 % Chance je Monat. Test `--decaytest`, Screenshot-Flag `--worn`.
 
 ### Steuern & ÖPNV-Tarif
 
 | Steuer (Regler W/G/I oben rechts) | neutral | Wirkung je Punkt über neutral |
 |---|---|---|
-| Wohnen | 9 % | Nachfrage −0,05 und Zufriedenheit −2 (empfindlich) |
+| Wohnen | 9 % | Nachfrage −0,05 und Zufriedenheit −4 je Punkt **plus quadratisch** (+1 → −4,4 %, +3 → −16 %, +6 → −38 %); unter neutral +2 je Punkt |
 | Gewerbe | 9 % | Gewerbe-Nachfrage −0,04 |
 | Industrie | 12 % | Industrie-Nachfrage −0,025 (robust, „dreckig, nimmt es hin“) |
 
+- **Verwaltung**: ab 5.000 Einwohnern Ausgabe 0,06 × (Einw. − 5.000)² / 50.000 pro Monat (10.000 Einw. → 30 $, 20.000 → 270 $, 40.000 → 1.470 $). Große Städte werden dadurch nicht endlos reich; Tooltip auf „+x / Monat“ zeigt den Posten.
 - Einnahmen/Monat = Einwohner × 0,12 × Wohnsteuer × 12 + Gewerbejobs × 0,1 × Gewerbesteuer × 12 + Industriejobs × 0,1 × Industriesteuer × 12 + ÖPNV-Tarif + Bodenabgabe der Villen. Tooltip auf „+x / Monat“ zeigt die Aufteilung.
 - **ÖPNV-Tarif** (Button unter den Steuern): **kostenlos** – keine Einnahmen, Einstieg in die Bahn wirkt günstiger, Busanteil 55 %, +5 Zufriedenheit für Wohnhäuser mit Bus-/Bahnanschluss · **normal** – $0,10 je Fahrgast, Busanteil 40 % · **teuer** – $0,20, Busanteil 25 %, −3 Zufriedenheit.
-- Demo-Stadt (`--taxtest`): neutral $193/Monat; Industrie 16 % → +$15, Nachfrage I −0,10; Wohnen 13 % → +$48, aber Zufriedenheit −8, Wohnnachfrage −0,27. Tarif kostenlos/normal/teuer: 244/178/110 Fahrgäste, $0/18/22, Zufriedenheit 65/60/57 %.
+- Demo-Stadt (`--taxtest`): neutral $188/Monat; Industrie 16 % → +$13, Nachfrage I −0,10; Wohnen 13 % → +$47, aber Zufriedenheit −22 (vor 23.10.: −8), Wohnnachfrage −0,40.
+- **Balance-Messung 23.10.** (`--freshrun=20`, `--econreport`): Neustart mit 20.000 $ fällt nie unter ~6.500 $, Saldo nach 20 Jahren +1.200 $/Jahr bei 1.300 Einw. (Wachstum bremst die Nachfrage, nicht das Geld). Megacity des Nutzers (42.700 Einw.): vorher +2.400 $/Monat (Einnahmen 30 % über Ausgaben, 14,5 Mio. $ in der Kasse), jetzt +530 $/Monat (Verwaltung 1.700 $, Zukauf 570 $), Zufriedenheit 91 % bei Wohnsteuer 10 %. Tarif kostenlos/normal/teuer: 244/178/110 Fahrgäste, $0/18/22, Zufriedenheit 65/60/57 %.
 
 ### Bäume & Parks
 
@@ -209,23 +220,86 @@ Werte und Reichweiten: `scripts/config.gd` (Abschnitte *Standortregeln*, *Zonen-
 | Gewerbe | 3 Bretter, 3 Ziegel, 2 Glas | 4 Ziegel, 8 Glas, 6 Stahl |
 | Industrie | 4 Bretter, 4 Ziegel | 6 Ziegel, 8 Stahl |
 
-- Fehlt Material, wird es **zugekauft** (2× Exportpreis, Ausgabe am Monatsende). Ohne Geld dafür wächst nichts („Baustoffe fehlen …, Zukauf $x zu teuer“). Info-Karte (Details): Bedarf der nächsten Stufe und ob es im Lager ist.
+- Fehlt Material, wird es **zugekauft** (3× Exportpreis, Ausgabe am Monatsende; bis 23.10. 2× – eigene Minen/Werke lohnten sich kaum). Ohne Geld dafür wächst nichts („Baustoffe fehlen …, Zukauf $x zu teuer“). Info-Karte (Details): Bedarf der nächsten Stufe und ob es im Lager ist.
+- **Baumaterial beim Bauen**: Straßen, Gleise, Leitungen, Haltestellen, Bahnhöfe, Parks und alle Sonderbauten kosten neben Geld auch Rohstoffe/Baustoffe. Sie kommen aus dem Lager; was fehlt, wird **sofort zugekauft** (3× Exportpreis) und ist im angezeigten Preis enthalten. Kostenblase am Cursor: Gesamtpreis, Material („50 Ziegel (50 fehlt)“), „davon Zukauf $x“; Werkzeug-Tooltip nennt das Material. Reicht das Geld nicht für Bau + Zukauf, wird nicht gebaut. Zonen kosten kein Material (erst ihr Wachstum). Ausbau eines Sonderbaus: halbes Baumaterial × aktuelle Stufe.
+
+| Bau | Material | | Bau | Material |
+|---|---|---|---|---|
+| Straße (je Tile) | 2 Stein | | Gleis (je Tile) | 2 Stein, 1 Stahl |
+| Stromleitung | 1 Holz | | Park | 4 Holz |
+| Haltestelle | 2 Stahl | | Bahnhof | 20 Ziegel, 5 Stahl, 4 Glas |
+| Polizei/Feuerwehr | 20 Ziegel, 6 Bretter, 2 Glas | | Schule | 25 Ziegel, 10 Bretter, 6 Glas |
+| Krankenhaus | 50 Ziegel, 20 Glas, 6 Stahl | | Bibliothek | 20 Ziegel, 10 Bretter, 4 Glas |
+| Kino | 25 Ziegel, 10 Glas, 4 Stahl | | Bürgerhaus | 80 Ziegel, 20 Glas, 10 Stahl |
+| Theater | 150 Ziegel, 40 Glas, 30 Stahl | | Stadion | 300 Stein, 150 Ziegel, 120 Stahl |
+| Kohlekraftwerk | 60 Ziegel, 30 Stahl | | Windrad | 6 Stahl |
+| Holzfäller | 30 Holz, 10 Bretter | | Grube | 20 Holz |
+| Steinbruch | 40 Holz, 6 Stahl | | Mine | 60 Holz, 40 Stein, 25 Stahl |
+| Lagerhaus | 30 Bretter, 20 Ziegel | | Baumschule | 15 Holz |
+| Prospektor | 10 Bretter, 8 Stahl | | Recyclinghof | 30 Ziegel, 15 Stahl |
+| Sägewerk | 50 Holz, 40 Stein | | Ziegelei | 30 Holz, 80 Stein |
+| Glashütte | 40 Ziegel, 40 Stein | | Stahlwerk | 80 Ziegel, 80 Stein |
+
+  (Zukaufwert ≈ 25–35 % des Geldpreises; Sägewerk/Ziegelei brauchen nur Rohstoffe, damit man ohne Baustoffe anfangen kann.)
 - **Kohlekraftwerk verbraucht 8 Kohle/Monat** aus dem Lager, sonst Zukauf (~24 $/Monat) – eigene Mine spart Geld. **Werke haben Vorrang** bei der Kohle (sie können nicht zukaufen), Kraftwerke nehmen den Rest. Kohle ist endlich → erneuerbare Energien (Roadmap).
 - Lager-Leiste: zweite Zeile Baustoffe; Tooltip mit Herstellung, Verbaut, Zugekauft, Export. Kassen-Tooltip: „davon Zukauf“.
-- Messung (`--budgettest`, 12 Monate): Demo-Stadt Saldo +30 $/Monat bei 27 $ Zukauf; Megacity +160 $ bei 204 $ Zukauf. Tests `--processtest`.
+- Messung (`--budgettest`, 12 Monate, Stand 23.10. mit 3×-Zukauf): Demo-Stadt −49 $/Monat bei 71 $ Zukauf (Kohlekraftwerk ohne eigene Mine – Steuer leicht anheben oder Mine bauen); Megacity des Nutzers +526 $ bei 497 $ Zukauf. Tests `--processtest`.
 
 ## Erneuerung (Bergbau-Wirtschaft, Stufe 4)
 
 | Gebäude (Gruppe Rohstoffe, Strom) | Wirkung | Kosten / Unterhalt |
 |---|---|---|
-| **Baumschule** (1×1) | pflanzt 2 Bäume je Monat und Stufe auf freiem Gras im Umkreis 4 (nächste Tiles zuerst) → mit Holzfäller nachhaltiges Holz | 400 $ / 3 $ |
+| **Baumschule** (1×1) | pflanzt 2 Bäume je Monat und Stufe auf freiem Gras im Umkreis 4 (nächste Tiles zuerst), **bis der Umkreis zur Hälfte Wald ist** → mit Holzfäller nachhaltiges Holz | 400 $ / 3 $ |
 | **Prospektor** (1×1) | findet mit 8 % je Monat und Stufe eine neue Ader (3–6 Tiles) auf freien Hügeln im Umkreis 8: Kohle ab 2, Eisen ab 4, Gold ab 5 Blöcken über Wasser. Funde sind **Restadern** (400–1.200 Einheiten je Tile, kleiner als Startvorkommen). Meldung mit Ort | 1.500 $ / 10 $ |
 | **Recyclinghof** (2×2, kein Ausbau) | Abriss eines Gebäudes ab Stufe 2 gibt **80 %** statt 40 % der verbauten Baustoffe zurück ins Lager | 2.000 $ / 8 $ |
 
-- **Wald wächst von selbst**: freies Gras mit 2+ Bäumen ringsum (inkl. Diagonalen) wird mit 1 % je Monat bewaldet – Wälder dehnen sich langsam aus, Einzelbäume nicht. Nie auf Zonen, Straßen, Strand.
+- **Wald erholt sich von selbst, breitet sich aber nicht aus**: nur Lücken mit 5+ Bäumen ringsum (von 8, inkl. Diagonalen) wachsen mit 1 % je Monat zu – gerodete Stellen schließen sich langsam von den Ecken her, Waldränder wandern nicht ins offene Land. Ab 25 % bewaldetem Land wächst gar nichts mehr von selbst. Nie auf Zonen, Straßen, Strand. (Bis 23.10. reichten 2 Nachbarn → nach Jahrhunderten war die Karte zugewachsen.)
 - **Adern regenerieren** sehr langsam: Fels/Erz/Ton unter der Startmenge (1.200) +10 Einheiten je Tile alle ~2 Jahre (erschöpfte Adern kommen also wieder, bleiben aber knapp). Sand regeneriert nicht (ohnehin reichlich).
-- **Recycling** beim Abreißen (Bulldozer) mit Meldung „Recycling: … zurück ins Lager“ – auch ohne Recyclinghof (40 %).
-- Info-Karte: gepflanzte Bäume / „Kein freies Gras im Umkreis“, letzter Prospektor-Fund. Test `--renewtest`; `--resbuild` setzt die Gebäude in die Demo und prüft Info-Karten + Abriss.
+- **Recycling** beim Abreißen (Bulldozer) mit Meldung „Recycling: … zurück ins Lager“ – auch ohne Recyclinghof (40 %). Gilt für Zonen-Gebäude ab Stufe 2 und für Sonderbauten (deren Baumaterial inkl. Ausbaustufen).
+- Info-Karte: gepflanzte Bäume / „Pause: Umkreis zu 50 % bewaldet“ / „Kein freies Gras im Umkreis“, letzter Prospektor-Fund. Test `--renewtest`, `--treereport` (Waldanteil eines Spielstands + Zuwachs in 12 Monaten); `--resbuild` setzt die Gebäude in die Demo und prüft Info-Karten + Abriss.
+
+## Energie & Tag/Nacht (Forschung Schritt 2)
+
+| Kraftwerk (Strom-Gruppe) | Bau | Leistung | Laufend | Nachteil |
+|---|---|---|---|---|
+| Kohlekraftwerk | 3.000 $ | 400 MW | 8 Kohle/Monat | starke Verschmutzung, Kohle endlich |
+| Windrad | 450 $ | 30 MW | – | wenig Leistung |
+| **Biomassekraftwerk** (2×2, ohne Forschung) | 1.200 $ | 60 MW | **20 Holz/Monat** (nach dem Sägewerk; fehlt es: Zukauf) | Abgas (halbe Kohle-Verschmutzung, Rauch), braucht Holzfäller + Baumschule |
+| **Solarfeld** (2×2, Forschung „Solarenergie“) | 2.500 $ | 50 MW **nur tagsüber** | – | nachts 0 |
+| **Batteriespeicher** (1×1, Forschung „Batteriespeicher“, braucht Solar) | 3.000 $ | – | – | erzeugt nichts: liefert nachts bis 40 MW aus dem Tagesüberschuss |
+| **Wasserkraftwerk** (2×2, Forschung „Wasserkraft“) | 9.000 $ | 120 MW Tag und Nacht | – | teuer, **nur direkt am Wasser** (mind. 3 Wasserfelder am Rand) |
+| **Pumpspeicher** (2×2, Forschung „Pumpspeicher“, nach Batterie) | 7.000 $ | – | – | Speicher 150 MW, **nur am Hang**: mind. 3 Blöcke über dem Wasser, Wasser im Umkreis 4 |
+| **Salzspeicher** (2×2, Forschung „Salzspeicher“, nach Pumpspeicher) | 8.000 $ | – | – | Speicher 300 MW (Flüssigsalz-Wärmespeicher / Carnot-Batterie). **Klick auf ein Kohlekraftwerk rüstet es zum halben Preis um** – dann fehlen dessen 400 MW (Vorschau warnt) |
+
+- **Tag/Nacht im Strom:** jedes Netz hat eine Tag- und eine Nachtbilanz. Nachts brauchen Gebäude 75 % des Tagesbedarfs, Solar liefert 0, Speicher geben den Tagesüberschuss ab (höchstens ihre Leistung). Versorgt wird nach der knapperen Hälfte – reicht die Nacht nicht, fehlt am Leitungsende Strom („Stromengpass … nachts“). Ohne Solar ändert sich nichts gegenüber früher. Strom-Tooltip und Info-Karte zeigen „Tag x MW / Nacht y MW (Speicher z)“.
+- **Sichtbarer Tageszyklus** (Echtzeit, 6 Minuten je Tag, unabhängig vom Spieltempo): Sonne wandert, Morgen-/Abendrot, Nacht mit Mondlicht – bewusst hell genug zum Bauen, Fenster leuchten. Menü → Grafik → „Tag/Nacht“ schaltet ab (dann immer Mittag). Nur Optik; die Strom-Bilanz rechnet Tag/Nacht je Monat unabhängig davon.
+- Tests `--energytest` (Solar allein / +Batterie / +Biomasse / Holz-Zukauf), Screenshot-Flags `--energybuild`, `--time=0..1` (0 Mitternacht, 0.25 Morgen, 0.72 Abend).
+- Standortregeln: Vorschau zeigt den Grund statt des Preises (z.B. „Pumpspeicher braucht einen Hang …“). Test `--energytestb` (mit `--demo`: Standorte, Bau, Umrüsten).
+
+## Forschung
+
+1. **Universität** (3×3, 15.000 $ + 200 Ziegel, 100 Stein, 60 Glas, 40 Stahl; Unterhalt 60 $): verfügbar ab **8.000 Einwohnern** und **70 % Schulversorgung**. Dienst „Hochschule“ mit 2,5-facher Reichweite und 4-facher Kapazität (Stufe 1: 3.200, Stufe 3: 18.000 Einwohner). **Akademiker** = von Unis versorgte Einwohner, je Uni höchstens ihre Kapazität. Ab 8.000 Einwohnern erwarten die Bürger eine Hochschule (Zufriedenheit).
+2. **Forschungsinstitut** (2×2, 8.000 $, Unterhalt 40 $, Strom): erst wenn eine Universität steht. Erzeugt **30 Punkte je Monat und Stufe** × Akademiker-Faktor × Budget-Faktor. Volle Leistung braucht **1.500 Akademiker je Institutsstufe** (sonst anteilig, mindestens 10 %) – mehr Institute brauchen also auch größere/mehr Unis. (Erster Entwurf nahm die Quote der ganzen Stadt: in der Megacity nur 5 % → Großstädte wären bestraft worden.)
+3. **Forschungsfenster** (Knopf oben neben „Ansicht“): ein Projekt gleichzeitig starten; **Budget** in Stufen 0 / 250 / 500 / 1.000 / 2.000 / 3.000 $ pro Monat, Faktor 0,25 + 0,75 × √(Budget / 1.000) (0 $ → ×0,25, 1.000 $ → ×1, 3.000 $ → ×1,55). Das Budget wird nur ausgegeben, solange ein Projekt läuft; **Gold** wird beim Start verbraucht (fehlt es: Sofort-Zukauf). Abschluss als Meldung.
+
+| Projekt | Punkte | Gold | Voraussetzung | Wirkung |
+|---|---|---|---|---|
+| Tiefbau | 1.500 | 30 | – | Minen, Steinbrüche, Gruben fördern 50 % mehr |
+| Effiziente Bauweise | 1.800 | 20 | – | 25 % weniger Baumaterial (Bauen, Ausbau, Wachsen) |
+| Kraftwerksfilter | 1.500 | 30 | – | Kohlekraftwerke verschmutzen halb so viel |
+| Moderne Hochöfen | 2.100 | 40 | Tiefbau | Werke brauchen halb so viel Kohle, 40 % weniger Verschmutzung |
+| Solarenergie | 1.800 | 30 | – | Solarfeld baubar (50 MW, nur tagsüber) |
+| Batteriespeicher | 2.100 | 50 | Solarenergie | Batterie baubar (liefert nachts bis 40 MW) |
+| Wasserkraft | 2.400 | 40 | – | Wasserkraftwerk baubar |
+| Pumpspeicher | 2.700 | 50 | Batteriespeicher | Pumpspeicher baubar |
+| Salzspeicher | 3.600 | 80 | Pumpspeicher | Salzspeicher baubar, Kohlekraftwerke umrüstbar |
+
+- **Dauer** (seit 23.10. ×3, Nutzer: „zu schnell“): 1 Institut Stufe 1 + 1.000 $/Monat ≈ 4 Jahre für Tiefbau; Institut Stufe 3 + 4.500 Akademiker + 3.000 $ ≈ 11 Monate. Jede Projektkarte zeigt die Dauer beim aktuellen und beim Höchstbudget.
+- **Durchbruch-Karte** bei Abschluss (Bildmitte): Wirkung in Zahlen für die eigene Stadt (z.B. „Förderung ~52 statt 30“), „Hinspringen“ zum betroffenen Gebäude.
+- **Sichtbar in der Welt:** Kohlekraftwerke und Werke rauchen (Schornsteinrauch, nur mit Strom) – ohne Forschung dunkel und dicht, mit Kraftwerksfilter/Modernen Hochöfen weiß, dünn und seltener. Industrie ab Stufe 2 raucht leicht (jedes dritte Gebäude, dünn, hellgrau), damit das Bild stimmig bleibt, ohne die Stadt zu verqualmen. Kraftwerksfilter setzt Filteraufsätze auf Schlot und Dach, Moderne Hochöfen Wäscher-Ringe und einen Elektroofen, Tiefbau einen zweiten Stahl-Förderturm mit Förderband (Mine) bzw. Förderband und Bagger (Steinbruch). Kostenblase: „-25 % Material (Effiziente Bauweise)“; Info-Karte betroffener Gebäude: Abschnitt „Forschung“.
+- Info-Karte: Institut zeigt Punkte/Monat, Projekt + Fortschritt, „Kein Projekt gewählt“; Universität die Zahl der Akademiker; „Zu wenig Akademiker (x % Leistung)“ am Institut. Haushalts-Tooltip: „davon Forschung“.
+- Screenshot-Flags `--techs=id,id` (als erforscht setzen), `--breakthrough=id` (Durchbruch-Karte), `--popup=research`. Test `--researchtest` (mit `--loadfile=<Kopie einer großen Stadt>`: Sperren, Bau, Gold, Dauer, Wirkung, Speichern).
+- Nächste Stufen (Roadmap): Solar/Wasserkraft/Speicher, Hochhäuser, Bürotürme, **Hightech-Industrie** (eigenes Zonen-Werkzeug, wenig Verschmutzung, braucht Akademiker), Verkehrsleitsystem.
 
 ## Verkehr
 
@@ -317,16 +391,25 @@ python3 tools/audio/gen_audio.py sfx ambient  # nur Effekte + Loops (~3 s)
 - [x] v0.2 Strom · v0.3 HUD/Icons/Verkehr · v0.4 Pendler, Speichern · v0.5 Audio
 - [x] v0.6 Flächen ziehen, Standortregeln, Pixel-Texturen · v0.7 Bus & Bahn, Hauptstraßen
 - [x] v0.8 Performance · v0.9 Dienste, Zufriedenheit, Kriminalität, Brände
-- [ ] Wasserversorgung (Pumpen, Rohre)
+- [ ] **Wasserversorgung**: Pumpen/Wasserwerk, Wasserleitungen (unterirdisch, wie Strom als Netz), Kläranlage; Ansicht Wasser
 - [x] Steuern je Zone (W/G/I), ÖPNV-Tarif, Zonen-Idealformen (Ladenzeile, Ballung, Nachbarschaft)
 - [x] Rohstoffe Schritt 1–2: Karte 128×128, Vorkommen, Abbau-Gebäude, Lager, Export
 - [x] Rohstoffe Schritt 3: Verarbeitung (Bretter, Ziegel, Glas, Stahl), Baustoffbedarf beim Wachsen, Kohlekraftwerk verbraucht Kohle
-- [ ] **Erneuerbare Energien** (Kohle ist endlich, Unabhängigkeit vom Handel): Windrad gibt es schon; dazu Solarfeld (Leistung nach Tageszeit), Wasserkraft (Damm an Fluss/See), Biomasse (verbrennt nachwachsendes Holz), Geothermie (mit der Untertage-Ebene). Schwankende Leistung → Speicher (Batterie, Pumpspeicher). Teils über Forschung freigeschaltet
+- [ ] **Erneuerbare Energien** (Kohle ist endlich, Unabhängigkeit vom Handel): umgesetzt über „Forschung Schritt 2 – Energie“ (unten); Geothermie später mit der Untertage-Ebene
 - [x] Rohstoffe Schritt 4: Erneuerung (Waldausbreitung, Baumschule, Prospektor, Regeneration, Recycling)
-- [ ] **Forschung & Technik** (Nutzerwunsch, statt nur Handel): Upgrades wie Tiefbau (neue/tiefere Vorkommen), effizientere Verarbeitung (weniger Material je Gebäude), Recycling, Ersatzstoffe
+- [x] **Forschung Schritt 1** (23.10.): Universität (ab 8.000 Einw. + 70 % Schule), Forschungsinstitut, Budget-Regler, Gold je Projekt, Forschungsfenster, Durchbruch-Karte, sichtbare Wirkung (Rauch, Modelle). Projekte: Tiefbau, Effiziente Bauweise, Kraftwerksfilter, Moderne Hochöfen
+- [ ] **Forschung Schritt 2 – Energie** (zugleich „Erneuerbare Energien“, Konzept 31.10.; **fertig 31.10.**: Tag/Nacht, Biomasse, Solarfeld, Batterie, Wasserkraft, Pumpspeicher, Salzspeicher):
+  - **Solarfeld** (nur tagsüber, braucht Fläche), **Wasserkraft** (nur an Fluss/See, teuer)
+  - **Biomasse** (Nutzerwunsch): günstig, ~60 MW, verbrennt Holz aus dem Lager (konkurriert mit dem Sägewerk, sonst teurer Zukauf → braucht Holzfäller + Baumschule), Abgas ≈ halbe Kohle-Verschmutzung mit sichtbarem Rauch; Raubbau am Wald senkt den Grünfilter
+  - **Speicher** in Forschungsstufen: Batterie (klein, teuer, Stahl + Gold) → Pumpspeicher (groß, nur Hang + Wasser) → **Salzspeicher** (Nutzeridee; Flüssigsalz-Wärmespeicher wie in Solarthermie-Kraftwerken bzw. Carnot-Batterie: sehr groß, günstig, alte Kohlekraftwerke umrüstbar statt Abriss; Sand + Stahl + Gold). Speicher nehmen Überschuss von Wind/Sonne auf und liefern nachts/bei Flaute
+- [ ] **Forschung Schritt 3 – Stadt**: Hochhäuser (Wohnen Stufe 4), Bürotürme (Gewerbe Stufe 4), **Hightech-Industrie** (Nutzerwunsch: eigenes Zonen-Werkzeug, gleiche Kategorie wie Industrie, wenig Verschmutzung, braucht Akademiker), Verkehrsleitsystem (−20 % Stau), Beton (neuer Baustoff aus Stein + Sand)
+- [ ] Forschung später: Untertage/Tiefbau 2 (Geothermie, U-Bahn), weitere Projekte nach Bedarf; Balance (Dauer, Kosten) nach echtem Spielen nachjustieren
 - [ ] **Lieferverkehr**: Liefermengen als LKW-Fahrten zum Lager (Straßenlast, sichtbare Laster), Güterbahnhof für entfernte Minen, Lieferweg-Kosten
 - [ ] Untertage-Ebene, Tunnel zu Nachbarstädten, Handel mit fiktiven Bürgermeistern
-- [ ] Budget-Fenster (Ressorts, Kredite, Jahresbilanz)
+- [ ] **U-Bahn** (Untertage-Ebene, Stationen, kein Flächenverbrauch an der Oberfläche)
+- [ ] **Erweiterter Handel** mit Nachbarstädten: Verträge (Strom, Rohstoffe, Müll), Preise nach Angebot/Nachfrage, Beziehungen zu den Bürgermeistern
+- [ ] **Konflikte** mit Nachbarstädten (z.B. Streit um Wasser/Grenzen/Verschmutzung, Handelsembargo) – Ausgestaltung offen
+- [ ] Budget-Fenster (Ressorts, **Kredite**, Jahresbilanz) – Nutzerwunsch: fehlt Geld für Bau + Material-Zukauf, Kredit aufnehmen statt nicht bauen
 - [x] Brände sichtbar (Flammen/Rauch/Ruinen), Feuerwehr-Einsätze mit Löschzügen, Meldungen mit Kamera-Sprung
 - [ ] Brand-Geräusche (Sirene, Knistern), evtl. Brandschutz-Ansicht (V)
 - [ ] Bewohner/Tiere aus dem Kit (Characters/Animals) als Leben in der Stadt

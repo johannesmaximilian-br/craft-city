@@ -99,6 +99,13 @@ $G --path . -- --demo --cam=32,32,60 --screenshot=/pfad/bild.png          # Scre
   berechnet; Industrie nach Ballung), `_growth_factor`, `suitability`, `growth_blockers`.
 - **Villa** = Map-Feld `villa` auf Wohnen Stufe 3, gesetzt beim Wachsen auf 3 (`villa_site`). Einwohner immer über
   `CityMap.res_capacity(i)`, nie direkt `RES_CAPACITY[level]` (sonst zählen Villen 80 statt 16).
+- **Belegung/Leerstand:** Map-Feld `empty` (Leerstand 0..100 %, **0 = voll** – so sind alte Saves, Tests und direkt
+  gesetzte Stufen automatisch belegt) + `vacant` (Monate leer). Einwohner/Jobs immer über `map.residents(i)` /
+  `map.jobs_at(i)` (nicht `res_capacity`/`*_CAPACITY` direkt), `map.occupancy(i)`, `map.is_vacant(i)`. In `_grow_rows`:
+  harte Gründe (`not ok` −12, unzufrieden −6) können leeren, sanfte (Nachfrage, zu groß, Villa) −3 bis min. 30 %;
+  Leerstand ohne Stufenwechsel, nach `VACANT_MONTHS` Abriss. Zufällige Stufen-Abstiege gibt es nur noch für „zu groß für
+  die Lage“ und Villa. `_blight_field()` → Zufriedenheit (happy_parts "Leerstand"). Zu starke Werte erzeugen eine
+  Abwärtsspirale – mit `--freshrun` messen.
 - **Verfall:** `decay_reason(i)` bündelt alle Abstiegsgründe aus `_grow()`; `_grow()` setzt monatlich `map.worn`
   (Map-Feld, damit der Renderer es lesen kann) und meldet Änderungen mit `infra=false`. Neuer Abstiegsgrund ⇒ in beiden ergänzen.
   Renderer: `_put_worn` tauscht ~35 % der Blöcke gegen verwitterte (`WORN_KEYS`), `_emit_worn_props` setzt Ranken/Geröll.
@@ -130,8 +137,11 @@ $G --path . -- --demo --cam=32,32,60 --screenshot=/pfad/bild.png          # Scre
   lagen sie im Gebäude und waren unsichtbar (Kriminalität/Zufriedenheit). Farben über `_tint()`: sRGB→linear und
   Deckkraft × `GROUND_ALPHA` 0.35 / `ROOF_ALPHA` 0.6 (Nutzer: Stadt soll durchscheinen).
 - **App-Icon/Startbild:** `assets/app/icon.png` (+ `.icns` per `iconutil`, im Export-Profil und `config/macos_native_icon`)
-  wird mit `--appicon=pfad.png` aus `IconFactory` gerendert, `assets/app/splash.png` mit `--demo --splash --cam=33,33,62
-  --screenshot=…`. Vollbild beim Start über `GraphicsSettings.apply_window()`, nie bei Läufen mit Dev-Flags.
+  wird mit `--appicon=pfad.png` aus `IconFactory` gerendert. `assets/app/splash.png` (seit 23.10.): Megacity-Kopie +
+  `SplashArt` (scripts/dev/splash_art.gd): `--loadfile=<megacity-kopie> --splash[=brick|grass|stone] --cam=64,64,70
+  --screenshot=…` – 3D-Logo aus Spielblöcken (Pixel-Schrift, 2x2 Blöcke je Pixel, Stil brick = Nutzerwahl) in eigener
+  SubViewport, schwebende Gebäudeblöcke, Tilt-Shift-Unschärfe der Stadt (CameraAttributesPractical), Lichthof,
+  Vignette, Schriftband. Nutzer-Feedback: bunte Flach-Würfel und Strahlenkranz passten nicht. Vollbild beim Start über `GraphicsSettings.apply_window()`, nie bei Läufen mit Dev-Flags.
 - **Rohstoffe:** Map-Felder `ore` (Config.Ore) und `ore_amt` (Byte; 1 Punkt = `ORE_UNIT` Einheiten, Bruchteile in
   `Simulation._ore_used`, nicht gespeichert). Erzeugung `CityMap._generate_ores` (nach Höhe/Wassernähe + Rauschen).
   Abbau-Gebäude = Sonderbauten mit `"produce"` (bzw. `"storage"`), kein `"service"`. `Simulation._produce()` läuft in
@@ -147,7 +157,51 @@ $G --path . -- --demo --cam=32,32,60 --screenshot=/pfad/bild.png          # Scre
 - **Erneuerung** (`Simulation._renew`, Etappe „abschluss“ vor `_produce`): Waldausbreitung und Ader-Regeneration als
   **Stichprobe** (n·Rate zufällige Tiles statt Wurf je Tile — Volldurchlauf mit `randf()` kostete ~5 ms). Geänderte Tiles
   **einzeln** melden: ein Sammel-Rechteck über verstreute Tiles wird schnell die ganze Karte ⇒ alle Chunks neu und
-  `FireDept._sync` verwirft bei voller Karte alle Einsätze. Recycling: `sim.recycle(zone, level)` aus dem Bulldozer.
+  `FireDept._sync` verwirft bei voller Karte alle Einsätze. Recycling: `sim.recycle(zone, level)` / `recycle_special` aus
+  dem Bulldozer. Wald wächst nur in Lücken (`FOREST_GAP` 5 von 8 Nachbarn) und bis `FOREST_MAX_SHARE` – mit „2 Nachbarn“
+  war die Megacity des Nutzers nach ~1000 Spieljahren zu 65 % Wald. Baumschule stoppt bei `NURSERY_MAX_SHARE`.
+- **Baumaterial beim Bauen:** `Config.BUILD_MATERIALS` (Infrastruktur je Tile) / `SPECIAL_MATERIALS` (je Sonderbau),
+  `ToolController.tile_materials/materials_for` (nur wo `tile_cost > 0`), `sim.build_need(mats)` → [fehlend, Zukaufpreis],
+  `sim.use_build_materials(mats)` nimmt aus dem Lager und bucht den Zukauf **sofort** ab (nicht Monatsende wie beim
+  Wachsen). Vorschau: `preview_cost_changed` enthält den Zukauf, Details in `tools.preview_materials/missing/import`
+  (HUD-Kostenblase). Neues Bau-Werkzeug ⇒ Material in beiden Tabellen + `Hud._tool_materials` ergänzen.
+- **Balance-Stellschrauben (23.10.):** `IMPORT_FACTOR` 3, Wohnsteuer-Zufriedenheit `tax_happiness()` (linear `TAX_HAPPY_UP` +
+  quadratisch `TAX_HAPPY_SQ` über neutral), Verwaltung `Simulation.admin_for(pop)` in `_budget` (`admin_cost`, HUD-Tooltip).
+  Messen mit `--freshrun=20` (Neustart, skriptgesteuerter Ausbau) und `--loadfile=<kopie> --econreport` (Posten).
+- **Forschung:** Universität = normaler Dienst (`SERVICES["university"]`, `radius_mul`/`capacity_mul` in SPECIALS →
+  immer `sim.service_radius(a)` / `service_capacity(a)` / `Simulation.service_radius_for(sp, lv)` statt `SERVICE_RADIUS[lv]`).
+  Sperren über SPECIALS-Schlüssel `unlock`, `need_coverage: [kategorie, anteil]`, `need_special` (`ToolController.locked_reason`).
+  Zustand in `Simulation` (`research_done/current/progress/budget`, gespeichert unter "research"), Monatsschritt `_research()`
+  vor `_budget()` (Ausgabe `research_spent` nur bei laufendem Projekt). Wirkung über `sim.tech(id)` an der jeweiligen Stelle
+  (`_produce`, `_process_goods`, `_env_begin`, `growth_materials`/`build_factor`). Neues Projekt ⇒ `Config.RESEARCH` + Wirkung + README-Tabelle.
+  HUD: Popup-Art "research" (`_fill_research`), Knopf `_research_btn`.
+  Akademiker = absolute Zahl (`academics_count()` aus `service_load` × Kapazität der Unis), nicht Stadtquote (die bestrafte
+  Großstädte). `institute_levels()` wird in `_recount` gezählt, `ToolController._special_present` cacht `need_special`
+  (locked_reason läuft je Tile/Mausbewegung – Kartenscan dort hat den Test minutenlang blockiert).
+- **Popover/Karten-UI:** Bausteine in `PopUI` (`pop_ui.gd`: header, section, row, bar, diverging, chip, box, problems,
+  list_item, note). Popover = `_popup` → `_popup_scroll` → `_popup_col`; nach dem Füllen immer `_fit_popup()` (feste
+  Breite, Höhe bis über die Werkzeugleiste, zweiter Durchgang nach einem Frame, weil umbrochene Labels ihre Höhe erst
+  nach dem Layout kennen). Bei offenem Popover (Monatswechsel baut neu auf) hält `_fit_popup` die alte Höhe und misst
+  erst 2 Frames später – nur der letzte Neuaufbau (`_fit_token`); sonst blitzte das Popover kurz auf Maximalhöhe auf
+  (Test `--popflash`). Info-Karte: `_show_info()` baut nur bei geändertem Inhalt neu (Signatur), `_info_rows()`
+  zerlegt Zeilen; Klartext für Tests in `hud.info_text`. Neue Info-Zeilen deshalb als „Bezeichnung Wert“ bzw. „A: B“,
+  mehrere mit „  ·  “ trennen.
+- **Sichtbare Forschung:** `StructureGenerator.techs` (aus `sim.research_done`, gesetzt in main.gd bei stats_changed und
+  in `_research()` vor dem Neuaufbau) schaltet Modell-Extras; bei Abschluss werden betroffene Gebäude **einzeln** neu
+  gemeldet (`tech_impact()["anchors"]`). `ChimneySmoke` (render/chimney_smoke.gd): Puffs an `STACKS` (Schlot-Spitzen in
+  Generator-Koordinaten, gedreht wie im Renderer über `_front_angle`; Kohlekraftwerk ungedreht) – neue Schlot-Gebäude
+  dort eintragen; Industrie-Schlote über `BuildingGenerator.ind_stack()` (gleicher Zufall wie `_ind`, bei Änderung dort
+  mitziehen). Signal `sim.research_finished(id)` → `Hud._on_research_finished` (Durchbruch-Karte).
+- **Strom Tag/Nacht:** `_compute_power` rechnet je Netz `day` (alle Kraftwerke), `night` (ohne `"solar"`-Kraftwerke) +
+  Speicher (`"storage_mw"`, höchstens Tagesüberschuss) und versorgt mit `min(day, night / NIGHT_DEMAND)` – ohne Solar
+  identisch zu früher (Determinismus unverändert). Netz-Dict hat `day/night/storage/store_used/night_limited`.
+  Biomasse verbrennt Holz in `_process_goods` (nach den Werken, Zukauf wie Kohle). Bau-Sperre über Forschung:
+  SPECIALS-Schlüssel `need_tech` (in `locked_reason`). Standortregeln über SPECIALS `"site"` ("water", "hill") in
+  `ToolController.site_reason()` (Vorschau `preview_site` ersetzt den Preis durch den Grund). Salzspeicher-Werkzeug
+  über einem Kohlekraftwerk = Umrüsten (`_convert_target`/`_convert_to_salt`, gleiche Grundfläche, `SALT_CONVERT`).
+- **Tageszyklus (Optik):** `DayNight` (render/day_night.gd, in main vor ShaderWarmup) steuert Sonne, Himmel, Nebel,
+  Umgebungslicht und das Leuchten des Fensterblocks "ice" (Emission dauerhaft an, nur Stärke ändert sich – Umschalten von
+  `emission_enabled` würde Shader neu kompilieren). Testläufe frieren die Uhrzeit ein (`frozen`, `--time=`).
 - **Speichern:** neue Map-Felder in `CityMap.SAVE_FIELDS` eintragen; fehlende Felder alter Saves werden genullt.
   `SaveManager.save` rotiert vorher Sicherungen (`<slot>.bak1..3`, nur Spieler-Slots). Tests, die Spieler-Slots
   benutzen wollen, stellen `SaveManager.dir` auf einen eigenen Ordner um (siehe `savetest`).
@@ -203,6 +257,8 @@ $G --path . -- --demo --cam=32,32,60 --screenshot=/pfad/bild.png          # Scre
 
 - Bahnhofs-Kapazität ist umgesetzt (Aufschlag + hartes Limit 150 %). Gleis-Kapazität (`RAIL_CAPACITY`) wirkt weiter nur
   weich. Pendler, die nirgends hinkommen, zählen nur als `unreachable_workers` (kein Wachstums-Malus) — ggf. später.
+- **Balance ist Zwischenstand (23.10.):** nach Einbau der Forschung neu prüfen (`--freshrun`, `--econreport`): Früh-Spiel
+  zu leicht (Geld bremst nie, nur Nachfrage), Startkapital ggf. 15.000; Spät-Spiel braucht Forschung als Geld-/Gold-Senke.
 - Nutzer-Spielstände analysieren: Datei nach Scratchpad **kopieren**, dann `--loadfile=<kopie>` (+ `--jamreport`, `--cartest`).
 
 Siehe README → Roadmap. Zusätzlich: Brand-Balance im echten Spiel beobachten (Brenndauer 10 s, Ausbreitung 25 %), Balance der Dienstkosten beobachten,

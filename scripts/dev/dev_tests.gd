@@ -1022,6 +1022,164 @@ static func decaytest() -> void:
 	s.free()
 
 
+## Energie: Solar allein -> nachts zu knapp; mit Batterie gedeckt; Biomasse verbrennt Holz (sonst Zukauf).
+static func energytest() -> void:
+	var m := CityMap.new()
+	m.height.fill(6)
+	var s := Simulation.new()
+	s.map = m
+	var put_special := func(x: int, z: int, sp: int) -> void:
+		var sz: int = Config.SPECIALS[sp]["size"]
+		var a := m.idx(x, z)
+		for dz in sz:
+			for dx in sz:
+				m.special[m.idx(x + dx, z + dz)] = sp
+				m.anchor[m.idx(x + dx, z + dz)] = a
+		m.slevel[a] = 1
+	for x in range(0, 40):
+		m.power_line[m.idx(x, 10)] = 1
+	for x in range(10, 22):              # Wohngebiet am Netz: 12 Häuser Stufe 2
+		m.zone[m.idx(x, 11)] = Config.Zone.RES
+		m.level[m.idx(x, 11)] = 2
+	put_special.call(0, 8, Config.Special.SOLAR)
+	var report := func(label: String) -> void:
+		s._compute_power()
+		var net: Dictionary = s.power_nets[s.power_net[m.idx(5, 10)]]
+		print("energytest %-26s Bedarf %d MW, Tag %d / Nacht %d (Speicher %d) -> versorgt bis %d MW, ohne Strom %d%s" % [
+			label, int(net["demand"]), int(net["day"]), int(net["night"]), int(net["store_used"]), int(net["capacity"]),
+			int(net["unserved"]), "  (nachts zu knapp)" if bool(net["night_limited"]) and int(net["unserved"]) > 0 else ""])
+	report.call("nur Solarfeld:")
+	put_special.call(3, 8, Config.Special.SOLAR)
+	report.call("2 Solarfelder:")
+	put_special.call(6, 9, Config.Special.BATTERY)
+	report.call("+ 1 Batterie:")
+	put_special.call(8, 8, Config.Special.BIOMASS)
+	report.call("+ Biomasse:")
+	s.stock["wood"] = 5.0
+	var m0 := s.money
+	s._process_goods()
+	s._budget()
+	print("energytest Biomasse mit 5 Holz im Lager: Holz danach %d, Zukauf %s, Hinweis '%s'" % [int(s.stock["wood"]),
+		s.imported.get("wood", 0.0), s.producer_info.get(m.idx(8, 8), {}).get("issue", "")])
+	# Teil B: Salzspeicher statt Batterie-Grenze
+	put_special.call(12, 8, Config.Special.SALT)
+	report.call("+ Salzspeicher:")
+	s.free()
+
+
+## Teil B im laufenden Spiel: Standortregeln (Wasser/Hang) über das Werkzeug, Umrüsten Kohle -> Salzspeicher.
+static func energytest_b(game: Node) -> void:
+	var map: CityMap = game.map
+	var sim: Simulation = game.sim
+	var tools: ToolController = game.tools
+	sim.money += 100000
+	for id: String in ["solar", "battery", "hydro", "pumped", "salt"]:
+		if not sim.research_done.has(id):
+			sim.research_done.append(id)
+	# Wasserkraft: erst mitten im Land (falsch), dann an der Küste
+	var land := Vector2i(-1, -1)
+	var shore := Vector2i(-1, -1)
+	var hill := Vector2i(-1, -1)
+	for z in range(4, map.size - 4):
+		for x in range(4, map.size - 4):
+			if land.x < 0 and tools.site_reason(Config.Special.HYDRO, Vector2i(x, z)) != "" and not map.is_water(x, z):
+				land = Vector2i(x, z)
+			if shore.x < 0 and not map.is_water(x, z) and not map.is_water(x + 1, z) and not map.is_water(x, z + 1) \
+					and not map.is_water(x + 1, z + 1) and tools.site_reason(Config.Special.HYDRO, Vector2i(x, z)) == "" \
+					and map.special[map.idx(x, z)] == Config.Special.NONE and map.zone[map.idx(x, z)] == Config.Zone.NONE:
+				shore = Vector2i(x, z)
+			if hill.x < 0 and tools.site_reason(Config.Special.PUMPED, Vector2i(x, z)) == "" \
+					and map.zone[map.idx(x, z)] == Config.Zone.NONE and map.special[map.idx(x, z)] == Config.Special.NONE:
+				hill = Vector2i(x, z)
+	print("energytest_b Wasserkraft im Land: '%s'" % tools.site_reason(Config.Special.HYDRO, land))
+	var msgs: Array[String] = []
+	tools.message.connect(func(t: String) -> void: msgs.append(t))
+	for pair: Array in [[ToolController.Tool.HYDRO, shore], [ToolController.Tool.PUMPED, hill]]:
+		var p: Vector2i = pair[1]
+		tools.set_tool(pair[0])
+		tools.hover = p
+		tools._apply(tools._affected_tiles())
+		var i := map.idx(p.x, p.y) if p.x >= 0 else 0
+		print("energytest_b %s bei %s: gebaut %s" % [ToolController.TOOLS[pair[0]]["name"], p,
+			p.x >= 0 and map.special[i] != Config.Special.NONE])
+	# Umrüsten: erstes Kohlekraftwerk
+	var coal := -1
+	for a in map.size * map.size:
+		if map.anchor[a] == a and map.special[a] == Config.Special.COAL:
+			coal = a
+			break
+	if coal >= 0:
+		var m0 := sim.money
+		tools.set_tool(ToolController.Tool.SALT)
+		tools.hover = Vector2i(coal % map.size, coal / map.size)
+		tools._update_preview()
+		print("energytest_b Vorschau über Kohlekraftwerk: Umrüsten %s, Kostenblase '%s'" % [tools.preview_convert,
+			game.hud._cost.text.replace("\n", " | ")])
+		tools._apply(tools._affected_tiles())
+		print("energytest_b Umgerüstet: %s, Kosten $%d" % [Config.SPECIALS[map.special[coal]]["name"], int(m0 - sim.money)])
+	tools.set_tool(ToolController.Tool.INSPECT)
+	print("energytest_b Meldungen: %s" % [msgs])
+
+
+## Belegung/Leerstand: Haus ohne Strom leert sich schrittweise, steht leer, drückt die Nachbarn; mit Strom wieder
+## bezogen; dauerhaft leer -> nach VACANT_MONTHS abgerissen.
+static func vacancytest() -> void:
+	var m := CityMap.new()
+	m.height.fill(6)
+	var s := Simulation.new()
+	s.map = m
+	s._rng.seed = 3
+	for x in range(2, 30):
+		m.road[m.idx(x, 10)] = 1
+	for x in range(6, 15):              # 9 Häuser à 30 = 270 Einw. (unter der Dienst-Schwelle 300)
+		m.zone[m.idx(x, 11)] = Config.Zone.RES
+		m.level[m.idx(x, 11)] = 2
+	for x in range(26, 30):
+		for z in range(11, 14):
+			m.zone[m.idx(x, z)] = Config.Zone.IND
+			m.level[m.idx(x, z)] = 2
+	var t := m.idx(10, 11)
+	var nb := m.idx(12, 11)
+	m.notify_changed(Rect2i(0, 0, m.size, m.size))
+	var month := func(cut: bool) -> void:
+		s.refresh()
+		s.powered.fill(1)
+		if cut:
+			s.powered[t] = 0
+		s._grow()
+		s._recount()
+	month.call(false)
+	var pop0 := s.population
+	var h0 := s.happiness[nb]
+	var trace := PackedStringArray()
+	for k in 10:
+		month.call(true)
+		trace.append("%d%%/%d" % [m.occupancy(t), s.population])
+	s.refresh()
+	print("vacancytest Haus ohne Strom, Belegung/Stadt-Einw. je Monat: %s (vorher %d Einw.)" % [", ".join(trace), pop0])
+	var others := PackedStringArray()
+	s.powered.fill(1)
+	for x in range(6, 15):
+		var j := m.idx(x, 11)
+		if j != t:
+			others.append("%d%%:%s" % [m.occupancy(j), s.decay_reason(j).substr(0, 18)])
+	print("vacancytest übrige Häuser: %s  (Nachfrage W %.2f)" % [", ".join(others), s.demand_res])
+	print("vacancytest Leerstand %s, Zufriedenheit Nachbar %d%% -> %d%%, Anteil 'Leerstand' %d" % [m.is_vacant(t),
+		roundi(h0 * 100.0), roundi(s.happiness[nb] * 100.0), roundi(float(s.happy_parts.get("Leerstand", 0.0)) * 100.0)])
+	trace.clear()
+	for k in 4:
+		month.call(false)
+		trace.append("%d%%" % m.occupancy(t))
+	print("vacancytest Strom wieder da: Belegung %s, leer %s" % [", ".join(trace), m.is_vacant(t)])
+	var months := 0
+	while m.level[t] > 0 and months < 60:
+		month.call(true)
+		months += 1
+	print("vacancytest dauerhaft ohne Strom: nach %d Monaten Stufe %d (Abriss nach %d Monaten Leerstand), Zone %d" % [months,
+		m.level[t], Config.VACANT_MONTHS, m.zone[t]])
+	s.free()
+
+
 ## Einige Gebäude der Demo-Stadt als verfallend markieren (Screenshot).
 static func mark_worn(game: Node) -> void:
 	var map: CityMap = game.map
@@ -1432,9 +1590,10 @@ static func renewtest() -> void:
 	for x in range(0, 60):
 		m.power_line[m.idx(x, 40)] = 1
 	put_special.call(0, 38, Config.Special.COAL)
-	for x in range(5, 15):              # Wäldchen 10x10 fern von allem
-		for z in range(5, 15):
-			m.feature[m.idx(x, z)] = Config.Feature.TREE
+	for x in range(5, 25):              # Wald 20x20 fern von allem, mit gerodeter 6x6-Lichtung in der Mitte
+		for z in range(5, 25):
+			var hole := x >= 12 and x < 18 and z >= 12 and z < 18
+			m.feature[m.idx(x, z)] = Config.Feature.NONE if hole else Config.Feature.TREE
 	put_special.call(30, 41, Config.Special.NURSERY)
 	for x in range(80, 90):             # Hügel für den Prospektor
 		for z in range(30, 50):
@@ -1459,25 +1618,42 @@ static func renewtest() -> void:
 				c += 1
 		return c
 	var t0: int = trees.call()
+	var hole_trees := func() -> int:
+		var c := 0
+		for x in range(12, 18):
+			for z in range(12, 18):
+				if m.feature[m.idx(x, z)] == Config.Feature.TREE:
+					c += 1
+		return c
 	var o0: int = ores.call()
 	var found: Array[String] = []
 	sim.alert.connect(func(t: String, _p: Vector2i) -> void: found.append(t))
 	var planted := 0
-	for k in 24:
+	var ring := func() -> int:                # Gras direkt außerhalb des Waldrands
+		var c := 0
+		for x in range(4, 26):
+			for z in [4, 25]:
+				if m.feature[m.idx(x, z)] == Config.Feature.TREE:
+					c += 1
+		return c
+	for k in 120:
 		sim._compute_power()
 		sim._renew()
 		planted += sim.planted
+		if k == 23:
+			print("renewtest nach 24 Monaten: Lichtung %d/36 zugewachsen, Waldrand nach außen %d" % [hole_trees.call(), ring.call()])
+	print("renewtest nach 10 Jahren: Lichtung %d/36 zugewachsen, Waldrand nach außen %d (soll 0)" % [hole_trees.call(), ring.call()])
 	var near := 0
 	for i in m.size * m.size:
 		if m.feature[i] == Config.Feature.TREE and absi(i % m.size - 30) <= Config.NURSERY_RANGE + 1 \
 				and absi(i / m.size - 41) <= Config.NURSERY_RANGE + 1:
 			near += 1
-	print("renewtest 24 Monate: Bäume %d -> %d (Baumschule gepflanzt %d, davon im Umkreis %d)" % [t0, trees.call(), planted, near])
+	print("renewtest 10 Jahre: Bäume %d -> %d (Baumschule gepflanzt %d, davon im Umkreis %d)" % [t0, trees.call(), planted, near])
 	var regrown := 0
 	for x in range(50, 70):
 		regrown += m.ore_amt[m.idx(x, 10)]
-	print("renewtest 20 leere Kohle-Tiles: zusammen +%d Einheiten (Erwartung ~20 = 1 je Tile in 2 Jahren)" % regrown)
-	print("renewtest Prospektor Stufe 3: %d Funde, Vorkommen-Tiles %d -> %d, Meldungen %s" % [found.size(), o0, ores.call(),
+	print("renewtest 20 leere Kohle-Tiles: zusammen +%d Einheiten (Erwartung ~100 = 1 je Tile alle 2 Jahre)" % regrown)
+	print("renewtest Prospektor Stufe 3 (10 Jahre): %d Funde, Vorkommen-Tiles %d -> %d, Meldungen %s" % [found.size(), o0, ores.call(),
 		found])
 	sim.stock["planks"] = 0.0
 	sim.stock["bricks"] = 0.0
@@ -1487,7 +1663,223 @@ static func renewtest() -> void:
 	sim._compute_power()
 	back = sim.recycle(Config.Zone.RES, 3)
 	print("renewtest Abriss Wohnen 3 mit Recyclinghof: %s, Lager Bretter %d" % [back, int(sim.stock["planks"])])
+	# Baumaterial beim Bauen: Lager zuerst, Rest sofort zugekauft
+	sim.money = 10000.0
+	sim.stock["bricks"] = 10.0
+	var mats: Dictionary = Config.SPECIAL_MATERIALS[Config.Special.POLICE]
+	var need := sim.build_need(mats)
+	var paid := sim.use_build_materials(mats)
+	print("renewtest Baumaterial Polizei %s: fehlt %s, Zukauf $%d, Kasse $%d, Ziegel im Lager %d" % [mats, need[0], int(paid),
+		int(sim.money), int(sim.stock["bricks"])])
+	var back_sp := sim.recycle_special(Config.Special.POLICE, 2)
+	print("renewtest Abriss Polizei Stufe 2 (mit Recyclinghof): %s" % back_sp)
 	sim.free()
+
+
+## Haushalt aufgeschlüsselt (Einnahmen/Ausgaben nach Posten) für den geladenen Stand, nach 1 Monat.
+static func econreport(game: Node) -> void:
+	var sim: Simulation = game.sim
+	sim.tick_month()
+	var inc := PackedStringArray()
+	for k: String in sim.income_parts:
+		inc.append("%s %d" % [k, roundi(float(sim.income_parts[k]))])
+	print("econreport %s: Kasse $%d, Einw. %d, Jobs %d/%d, Steuer %s, Zufriedenheit %d%%" % [sim.date_string(), int(sim.money),
+		sim.population, sim.jobs_com, sim.jobs_ind, sim.tax, roundi(sim.city_happiness * 100.0)])
+	print("econreport Einnahmen $%d: %s" % [roundi(sim.last_income), ", ".join(inc)])
+	print("econreport Ausgaben $%d: Straßen %d, Parks %d, Leitungen %d, Sonderbauten %d, Gleise %d, Haltestellen %d, Bahnhöfe %d, Zukauf %d, Verwaltung %d" % [
+		roundi(sim.last_expense), roundi(sim.road_count * Config.UPKEEP_ROAD), roundi(sim.park_count * Config.UPKEEP_PARK),
+		roundi(sim.line_count * Config.UPKEEP_POWERLINE), roundi(sim.special_upkeep), roundi(sim.rail_count * Config.UPKEEP_RAIL),
+		roundi(sim.bus_stop_count * Config.UPKEEP_BUS_STOP), roundi(sim.station_count * Config.UPKEEP_STATION), roundi(sim.import_cost), roundi(sim.admin_cost)])
+	print("econreport Zufriedenheit Anteile %s" % sim.happy_parts)
+	print("econreport je Einwohner: Einnahmen $%.2f, Ausgaben $%.2f / Monat" % [sim.last_income / maxf(sim.population, 1),
+		sim.last_expense / maxf(sim.population, 1)])
+
+
+## Neustart-Verlauf: neue Karte, Startkapital, kleines Startviertel, danach jedes Jahr ausbauen, solange Geld da ist
+## (Straße + 2 Zonenblöcke, Windrad bei Strommangel, Dienste ab Erwartung). Ausgabe je Jahr.
+static func freshrun(game: Node, years: int) -> void:
+	var map: CityMap = game.map
+	var sim: Simulation = game.sim
+	var tools: ToolController = game.tools
+	DemoCity.generate_map(map)
+	sim.money = Config.START_MONEY
+	map.notify_changed(Rect2i(0, 0, map.size, map.size))
+	sim.refresh()
+	var c := map.size / 2
+	var place := func(tool: ToolController.Tool, tiles: Array[Vector2i]) -> void:
+		tools.set_tool(tool)
+		tools._apply(tiles)
+	var click := func(tool: ToolController.Tool, at: Vector2i) -> void:
+		tools.set_tool(tool)
+		tools.hover = at
+		tools._apply(tools._affected_tiles())
+	# Straßenachse in x-Richtung; Blöcke 6x3 ober- und unterhalb, je Abschnitt 7 Tiles
+	var segment := func(k: int, top: ToolController.Tool, bottom: ToolController.Tool) -> void:
+		var x0 := c - 10 + k * 7
+		var road: Array[Vector2i] = []
+		for x in range(x0, x0 + 7):
+			road.append(Vector2i(x, c))
+		road.append(Vector2i(x0 + 6, c - 1))
+		road.append(Vector2i(x0 + 6, c - 2))
+		road.append(Vector2i(x0 + 6, c - 3))
+		road.append(Vector2i(x0 + 6, c + 1))
+		road.append(Vector2i(x0 + 6, c + 2))
+		road.append(Vector2i(x0 + 6, c + 3))
+		place.call(ToolController.Tool.ROAD, road)
+		for blk: Array in [[top, c - 3], [bottom, c + 1]]:
+			var area: Array[Vector2i] = []
+			for z in 3:
+				for x in 6:
+					area.append(Vector2i(x0 + x, int(blk[1]) + z))
+			place.call(blk[0], area)
+		# Strom über die Straßen (Zonen leiten selbst, Straßen nicht)
+		place.call(ToolController.Tool.POWERLINE, [Vector2i(x0 + 6, c - 2), Vector2i(x0 + 6, c + 2), Vector2i(x0 + 2, c),
+			Vector2i(x0 - 1, c - 2), Vector2i(x0 - 1, c + 2)] as Array[Vector2i])
+	var start_money := sim.money
+	segment.call(0, ToolController.Tool.IND, ToolController.Tool.RES)
+	segment.call(1, ToolController.Tool.COM, ToolController.Tool.RES)
+	click.call(ToolController.Tool.WIND, Vector2i(c - 12, c - 2))
+	click.call(ToolController.Tool.WIND, Vector2i(c - 12, c + 2))
+	place.call(ToolController.Tool.POWERLINE, [Vector2i(c - 11, c - 2), Vector2i(c - 11, c - 1), Vector2i(c - 11, c + 1),
+		Vector2i(c - 11, c + 2), Vector2i(c - 11, c)] as Array[Vector2i])
+	print("freshrun Start: Kasse $%d -> $%d (Startviertel kostet $%d)" % [int(start_money), int(sim.money), int(start_money - sim.money)])
+	var seg := 2
+	var winds := 2
+	var built := {}
+	var low := sim.money
+	for y in years:
+		var inc := 0.0
+		var exp := 0.0
+		for m in 12:
+			sim.tick_month()
+			inc += sim.last_income
+			exp += sim.last_expense
+			low = minf(low, sim.money)
+		var did := PackedStringArray()
+		# Dienste, sobald erwartet (Schwellen wie im Spiel: Polizei/Feuer 300, Schule 300, Krankenhaus 600)
+		for pair: Array in [[ToolController.Tool.FIRE, 300], [ToolController.Tool.POLICE, 300],
+				[ToolController.Tool.SCHOOL, 500], [ToolController.Tool.HOSPITAL, 900]]:
+			if not built.has(pair[0]) and sim.population >= int(pair[1]) and sim.money > 4000:
+				_place_near_center(map, tools, pair[0])
+				built[pair[0]] = true
+				did.append(ToolController.TOOLS[pair[0]]["name"])
+		if sim.power_demand > sim.power_supply * 0.8 and sim.money > 1500:
+			click.call(ToolController.Tool.WIND, Vector2i(c - 10 + winds * 2, c - 4))   # direkt an der Zone -> leitet
+			winds += 1
+			did.append("Windrad")
+		while sim.money > 3000 and seg < 12:
+			var top: ToolController.Tool = [ToolController.Tool.COM, ToolController.Tool.IND][seg % 2]
+			segment.call(seg, top, ToolController.Tool.RES)
+			seg += 1
+			did.append("Abschnitt")
+		print("freshrun Jahr %d: Kasse $%6d  Einw. %5d  Jobs %4d  Einnahmen/Jahr $%6d  Ausgaben/Jahr $%6d (Zukauf %d)  Saldo $%6d  Strom %d/%d  %s" % [
+			y + 1, int(sim.money), sim.population, sim.jobs_com + sim.jobs_ind, roundi(inc), roundi(exp), roundi(sim.import_cost),
+			roundi(inc - exp), sim.power_demand, sim.power_supply, ", ".join(did)])
+	print("freshrun tiefster Kassenstand $%d" % int(low))
+	var why := {}
+	var zones := [0, 0, 0, 0]
+	for i in map.size * map.size:
+		if map.zone[i] != Config.Zone.NONE:
+			zones[map.zone[i]] += 1
+			for b: String in sim.growth_blockers(i):
+				why[b.substr(0, 40)] = int(why.get(b.substr(0, 40), 0)) + 1
+	print("freshrun Zonen-Tiles W/G/I %d/%d/%d, Nachfrage W %.2f G %.2f I %.2f, Arbeitslos %d%%" % [zones[1], zones[2], zones[3],
+		sim.demand_res, sim.demand_com, sim.demand_ind, roundi(sim.unemployment * 100.0)])
+	print("freshrun Blocker: %s" % why)
+	var occ_sum := 0
+	var houses := 0
+	var vac := {}
+	for i in map.size * map.size:
+		if map.level[i] > 0 and map.zone[i] != Config.Zone.NONE:
+			houses += 1
+			occ_sum += map.occupancy(i)
+			if map.is_vacant(i):
+				var r := sim.decay_reason(i).substr(0, 30)
+				vac[r] = int(vac.get(r, 0)) + 1
+	print("freshrun Belegung Ø %d %% über %d Gebäude, Leerstand je Grund: %s" % [occ_sum / maxi(houses, 1), houses, vac])
+	for net: Dictionary in sim.power_nets:
+		print("freshrun Netz cap %s demand %s plants %s unserved %s" % [net.get("capacity"), net.get("demand"), net.get("plants"), net.get("unserved")])
+## Forschung: Sperren, Uni + Institut bauen, Projekt starten, bis zum Abschluss simulieren, Wirkung prüfen.
+## Mit --loadfile=<Megacity-Kopie> (genug Einwohner); ohne nur die Sperren.
+static func researchtest(game: Node) -> void:
+	var map: CityMap = game.map
+	var sim: Simulation = game.sim
+	var tools: ToolController = game.tools
+	print("researchtest Einw. %d, Schule %d %%: Uni gesperrt? '%s', Institut gesperrt? '%s'" % [sim.population,
+		roundi(float(sim.city_coverage.get("education", 0.0)) * 100.0), tools.locked_reason(ToolController.Tool.UNIVERSITY),
+		tools.locked_reason(ToolController.Tool.INSTITUTE)])
+	if sim.population < 8000:
+		return
+	sim.money += 100000
+	var before := sim.money
+	_place_near_center(map, tools, ToolController.Tool.UNIVERSITY)
+	print("researchtest Uni gebaut für $%d, Institut jetzt gesperrt? '%s'" % [int(before - sim.money),
+		tools.locked_reason(ToolController.Tool.INSTITUTE)])
+	_place_near_center(map, tools, ToolController.Tool.INSTITUTE)
+	tools.set_tool(ToolController.Tool.INSPECT)
+	sim.tick_month()
+	print("researchtest Institute %d, Akademiker %d (Quote %d %%, Faktor %.2f), Punkte/Monat bei $0: %.1f" % [sim.institute_levels(),
+		int(sim.academics_count()), roundi(sim.academics() * 100.0), sim.academic_factor(), sim.research_points()])
+	sim.research_budget = 1000.0
+	var gold0 := float(sim.stock["gold"])
+	var m0 := sim.money
+	var err := sim.start_research("blast_furnace")
+	print("researchtest Hochöfen ohne Tiefbau: '%s'" % err)
+	err = sim.start_research("deep_mining")
+	print("researchtest Tiefbau gestartet: '%s', Gold %d -> %d, Kasse -$%d (Gold-Zukauf)" % [err, int(gold0),
+		int(sim.stock["gold"]), int(m0 - sim.money)])
+	var months := 0
+	var spent := 0.0
+	while sim.research_current != "" and months < 120:
+		sim._research()            # nur der Forschungsschritt (ganzer Monat dauert in großen Städten ~15 s)
+		spent += sim.research_spent
+		months += 1
+	print("researchtest Tiefbau fertig nach %d Monaten, Budget ausgegeben $%d, erforscht %s, %.1f Punkte/Monat" % [months, int(spent),
+		sim.research_done, sim.research_rate])
+	var prod_before := 0.0
+	for r: String in ["stone", "coal", "iron"]:
+		prod_before += float(sim.production.get(r, 0.0))
+	sim.tick_month()
+	var prod_after := 0.0
+	for r: String in ["stone", "coal", "iron"]:
+		prod_after += float(sim.production.get(r, 0.0))
+	print("researchtest Förderung Stein+Kohle+Eisen im Monat: %d (vorher letzter Monat %d)" % [int(prod_after), int(prod_before)])
+	sim.tick_month()
+	print("researchtest ohne Projekt: Forschungsausgabe $%d (soll 0)" % int(sim.research_spent))
+	var d := sim.to_dict()
+	var sim2 := Simulation.new()
+	sim2.map = map
+	sim2.from_dict(d)
+	print("researchtest Speichern/Laden: erforscht %s, Budget %d" % [sim2.research_done, int(sim2.research_budget)])
+	sim2.free()
+	game.hud._toggle_popup("research")
+	await game.get_tree().process_frame
+
+
+## Bäume auf der Karte: Anzahl, Anteil am Land, Baumschulen; danach 12 Monate simulieren.
+static func treereport(game: Node) -> void:
+	var map: CityMap = game.map
+	var sim: Simulation = game.sim
+	var count := func() -> Array:
+		var t := 0
+		var land := 0
+		for i in map.size * map.size:
+			if map.height[i] >= Config.WATER_LEVEL:
+				land += 1
+			if map.feature[i] == Config.Feature.TREE:
+				t += 1
+		return [t, land]
+	var nurs := 0
+	for i in map.size * map.size:
+		if map.anchor[i] == i and map.special[i] == Config.Special.NURSERY:
+			nurs += 1
+	var c0: Array = count.call()
+	print("treereport %s: Bäume %d = %d%% des Landes, Baumschulen %d" % [sim.date_string(), c0[0],
+		roundi(100.0 * c0[0] / maxi(int(c0[1]), 1)), nurs])
+	for k in 12:
+		sim.tick_month()
+	var c1: Array = count.call()
+	print("treereport nach 12 Monaten: Bäume %d (+%d)" % [c1[0], int(c1[0]) - int(c0[0])])
 
 
 ## Anzahl Vorkommen-Tiles je Art auf der aktuellen Karte.
@@ -1529,7 +1921,7 @@ static func place_resources(game: Node) -> void:
 	for i in map.size * map.size:
 		if map.anchor[i] == i and Config.SPECIALS[map.special[i]].has("renew"):
 			game.hud._on_hover(Vector2i(i % map.size, i / map.size))
-			print("resbuild Info %s | %s" % [game.hud._info_title.text, game.hud._info_body.text.replace("\n", " | ")])
+			print("resbuild Info %s" % game.hud.info_text)
 	game.hud._info_detail = false
 	# Abriss eines Wohnhauses ab Stufe 2 -> Recycling-Meldung
 	var msgs: Array[String] = []

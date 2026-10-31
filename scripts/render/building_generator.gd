@@ -114,6 +114,15 @@ static func _com(lv: int, rng: RandomNumberGenerator, put: Callable) -> void:
 			put.call("metal", Vector3i(1, floors + 2, 1))
 
 
+## Schlot-Position eines Industriegebäudes (gleicher Zufall wie _ind): [Vector2i(cx, cz), Spitze y] – für ChimneySmoke.
+static func ind_stack(seed_value: int, lv: int) -> Array:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = seed_value
+	var cx := 0 if rng.randf() < 0.5 else 2
+	var cz := 0 if rng.randf() < 0.5 else 2
+	return [Vector2i(cx, cz), 6 if lv == 2 else 8]
+
+
 static func _ind(lv: int, rng: RandomNumberGenerator, put: Callable) -> void:
 	var cx := 0 if rng.randf() < 0.5 else 2
 	var cz := 0 if rng.randf() < 0.5 else 2

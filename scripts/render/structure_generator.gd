@@ -6,6 +6,9 @@ const POLE_HEIGHT := 3.4
 
 
 ## Kohlekraftwerk, 6x6 Blöcke: Halle (x 0-3), Schornstein + Kohlehaufen (x 4-5).
+static var techs: Array[String] = []   # erforschte Projekte (main.gd setzt sie aus sim.research_done)
+
+
 static func coal(b: BlockBatch, base: Vector3) -> void:
 	for y in 3:
 		for z in 6:
@@ -26,6 +29,11 @@ static func coal(b: BlockBatch, base: Vector3) -> void:
 		b.put("coal", base + Vector3(5, 0, z))
 	b.put("coal", base + Vector3(5, 1, 4))
 	b.put("crate", base + Vector3(4, 0, 0))
+	if techs.has("plant_filter"):                                                             # Filteraufsatz
+		b.put_box("metal", base + Vector3(5.0, 8.4, 2.0), Vector3(2.4, 0.8, 2.4))
+		b.put_box("vox_white", base + Vector3(5.0, 8.9, 2.0), Vector3(1.8, 0.2, 1.8))
+		b.put_box("metal", base + Vector3(3.0, 4.4, 1.0), Vector3(1.6, 0.8, 1.2))             # Filteranlage auf dem Dach
+		b.segment("metal", base + Vector3(3.6, 4.6, 1.2), base + Vector3(4.2, 7.5, 1.6), 0.15)
 
 
 ## Windrad auf einem Tile (3x3 Blöcke). Rotor optional (für Animation separat).
@@ -188,6 +196,22 @@ static func service(b: BlockBatch, base: Vector3, sp: int, lv: int) -> void:
 			prospector(b, base, lv)
 		Config.Special.RECYCLER:
 			recycler(b, base, lv)
+		Config.Special.UNIVERSITY:
+			university(b, base, lv)
+		Config.Special.BIOMASS:
+			biomass(b, base)
+		Config.Special.SOLAR:
+			solar(b, base)
+		Config.Special.BATTERY:
+			battery(b, base)
+		Config.Special.HYDRO:
+			hydro(b, base)
+		Config.Special.PUMPED:
+			pumped(b, base)
+		Config.Special.SALT:
+			salt(b, base)
+		Config.Special.INSTITUTE:
+			institute(b, base, lv)
 		Config.Special.STEELWORKS:
 			steelworks(b, base, lv)
 		Config.Special.THEATER:
@@ -224,6 +248,122 @@ static func theater(b: BlockBatch, base: Vector3, lv: int) -> void:
 				if x == 1 or x == 4 or z == 3 or z == 5:
 					b.put("brick", base + Vector3(x, y, z))
 	_roof(b, base + Vector3(1, 0, 3), 4, 3, f + 2 + lv, "darkbrick")
+
+
+## Biomassekraftwerk (6x6): Ziegel-Kesselhaus mit Schlot, großer Holzstapel, Förderband.
+static func biomass(b: BlockBatch, base: Vector3) -> void:
+	_hull(b, base + Vector3(0, 0, 2), 4, 4, 0, 3, "brick", "wood", "ice")
+	_roof(b, base + Vector3(0, 0, 2), 4, 4, 3, "darkbrick")
+	for y in range(0, 8):
+		b.put("brick" if y < 7 else "darkbrick", base + Vector3(4, y, 4))                    # Schlot
+	for k in 3:                                                                               # Holzstapel
+		for j in 2 - (k / 2):
+			b.put_box("log", base + Vector3(1.0 + k * 1.1, 0.3 + j * 0.55, 0.9), Vector3(1.0, 0.5, 1.4), PI * 0.5)
+	b.segment("vox_dark", base + Vector3(3.6, 0.5, 1.0), base + Vector3(3.6, 2.4, 2.4), 0.3)    # Förderband
+	b.put_box("vox_green", base + Vector3(5.2, 0.3, 1.0), Vector3(1.0, 0.6, 1.4))             # Hackschnitzel
+
+
+## Solarfeld (6x6): Reihen schräger blauer Paneele auf Metallständern.
+static func solar(b: BlockBatch, base: Vector3) -> void:
+	for row in 3:
+		var z := 1.0 + row * 2.0
+		for col in 2:
+			var x := 1.5 + col * 3.0
+			b.put_box("metal", base + Vector3(x - 1.0, 0.3, z), Vector3(0.12, 0.6, 0.12))
+			b.put_box("metal", base + Vector3(x + 1.0, 0.3, z), Vector3(0.12, 0.6, 0.12))
+			b.put_xf("vox_blue", Transform3D(Basis(Vector3.RIGHT, -0.5).scaled(Vector3(2.8, 0.1, 1.6)),
+				base + Vector3(x, 0.75, z)))
+			b.put_xf("vox_white", Transform3D(Basis(Vector3.RIGHT, -0.5).scaled(Vector3(2.9, 0.06, 1.7)),
+				base + Vector3(x, 0.7, z + 0.02)))
+	b.put_box("metal", base + Vector3(5.4, 0.6, 5.4), Vector3(0.9, 1.2, 0.9))                # Wechselrichter
+
+
+## Batteriespeicher (3x3): zwei Container-Module mit grünen Streifen, Kühlgitter.
+static func battery(b: BlockBatch, base: Vector3) -> void:
+	for k in 2:
+		var z := 0.8 + k * 1.4
+		b.put_box("metal", base + Vector3(1.5, 0.55, z), Vector3(2.6, 1.1, 1.1))
+		b.put_box("vox_green", base + Vector3(1.5, 0.75, z - 0.56), Vector3(2.4, 0.18, 0.04))
+		b.put_box("vox_dark", base + Vector3(1.5, 1.15, z), Vector3(1.6, 0.1, 0.7))           # Kühlgitter
+	b.put_box("vox_yellow", base + Vector3(2.7, 0.35, 2.7), Vector3(0.4, 0.7, 0.4))           # Trafo
+
+
+## Wasserkraftwerk (6x6): Staumauer aus Stein, Turbinenhaus, blaue Druckrohre, Auslauf.
+static func hydro(b: BlockBatch, base: Vector3) -> void:
+	for x in 6:                                                                               # Staumauer hinten
+		for y in 4:
+			b.put("stone" if y < 3 else "greybrick", base + Vector3(x, y, 5))
+	_hull(b, base + Vector3(1, 0, 0), 4, 3, 0, 2, "greybrick", "stone", "ice")                # Turbinenhaus
+	_roof(b, base + Vector3(1, 0, 0), 4, 3, 2, "metal")
+	for x: float in [1.8, 3.0, 4.2]:                                                           # Druckrohre
+		b.segment("vox_blue", base + Vector3(x, 3.6, 5.2), base + Vector3(x, 1.4, 3.0), 0.35)
+	b.put_box("vox_glass", base + Vector3(3.0, 0.15, -0.3), Vector3(3.0, 0.3, 0.8))           # Auslauf
+	b.put_box("vox_yellow", base + Vector3(5.4, 0.5, 1.0), Vector3(0.6, 1.0, 0.6))            # Trafo
+
+
+## Pumpspeicher (6x6): Oberbecken mit Wasser, Druckrohr den Hang hinab, Pumpenhaus.
+static func pumped(b: BlockBatch, base: Vector3) -> void:
+	for z in range(2, 6):
+		for x in 6:
+			var edge := x == 0 or x == 5 or z == 2 or z == 5
+			for y in 2:
+				if edge:
+					b.put("stone", base + Vector3(x, y, z))
+	b.put_box("vox_glass", base + Vector3(3.0, 1.7, 3.5), Vector3(4.0, 0.2, 2.0))             # Wasser im Becken
+	b.segment("vox_blue", base + Vector3(1.0, 1.5, 2.2), base + Vector3(1.0, 0.4, 0.4), 0.4)  # Druckrohr
+	_hull(b, base + Vector3(3, 0, 0), 3, 2, 0, 1, "greybrick", "greybrick", "ice")            # Pumpenhaus
+	_roof(b, base + Vector3(3, 0, 0), 3, 2, 1, "metal")
+
+
+## Salzspeicher (6x6): zwei große Tanks (heiß/kalt), Wärmetauscher-Turm mit glühendem Band.
+static func salt(b: BlockBatch, base: Vector3) -> void:
+	for t: Vector2 in [Vector2(1.6, 2.0), Vector2(4.4, 2.0)]:
+		b.put_box("metal", base + Vector3(t.x, 1.4, t.y), Vector3(2.4, 2.8, 2.4))
+		b.put_box("vox_white", base + Vector3(t.x, 2.9, t.y), Vector3(2.2, 0.2, 2.2))
+	b.put_box("cheese", base + Vector3(1.6, 1.4, 0.78), Vector3(2.0, 0.25, 0.06))             # heißer Tank: Glutband
+	b.put_box("vox_blue", base + Vector3(4.4, 1.4, 0.78), Vector3(2.0, 0.25, 0.06))           # kalter Tank
+	_hull(b, base + Vector3(2, 0, 4), 2, 2, 0, 4, "greybrick", "metal")                       # Wärmetauscher
+	b.segment("metal", base + Vector3(1.6, 2.2, 3.2), base + Vector3(2.5, 2.2, 4.2), 0.25)
+	b.segment("metal", base + Vector3(4.4, 2.2, 3.2), base + Vector3(3.5, 2.2, 4.2), 0.25)
+	b.put_box("sand", base + Vector3(5.2, 0.3, 5.2), Vector3(1.0, 0.6, 1.0))                  # Salzvorrat
+
+
+## Universität (9x9): Hauptgebäude mit Säulenportal und Kuppel vorn, zwei Seitenflügel, Rasen-Innenhof.
+static func university(b: BlockBatch, base: Vector3, lv: int) -> void:
+	var f := lv + 2
+	_hull(b, base, 9, 3, 0, f, "stone", "yellowbrick", "ice")                                # Hauptgebäude
+	_roof(b, base, 9, 3, f, "darkbrick")
+	for x: float in [2.5, 3.6, 4.5, 5.4, 6.5]:                                               # Säulen
+		b.put_box("stone", base + Vector3(x, f * 0.5, -0.35), Vector3(0.35, f, 0.35))
+	b.put_box("stone", base + Vector3(4.5, f + 0.15, -0.2), Vector3(5.0, 0.3, 0.9))          # Gesims
+	for y in 2:                                                                              # Kuppel
+		b.put_box("metal", base + Vector3(4.5, f + 1.0 + y * 0.8, 1.5), Vector3(3.0 - y * 1.2, 0.8, 3.0 - y * 1.2))
+	b.put_box("vox_yellow", base + Vector3(4.5, f + 2.8, 1.5), Vector3(0.3, 0.5, 0.3))
+	var wing := lv + 1
+	_hull(b, base + Vector3(0, 0, 3), 3, 6, 0, wing, "stone", "yellowbrick", "ice")          # Seitenflügel
+	_roof(b, base + Vector3(0, 0, 3), 3, 6, wing, "darkbrick")
+	_hull(b, base + Vector3(6, 0, 3), 3, 6, 0, wing, "stone", "yellowbrick", "ice")
+	_roof(b, base + Vector3(6, 0, 3), 3, 6, wing, "darkbrick")
+	b.put_box("vox_green", base + Vector3(4.5, 0.05, 6.0), Vector3(3.0, 0.1, 6.0))           # Innenhof
+	b.put_box("stone", base + Vector3(4.5, 0.12, 6.0), Vector3(0.6, 0.1, 6.0))               # Weg
+	b.put_prop("bush", base + Vector3(3.6, 0, 4.5), 0.0)
+	b.put_prop("bush", base + Vector3(5.4, 0, 7.5), 1.2)
+
+
+## Forschungsinstitut (6x6): moderner Glasbau, Labortrakt, Parabolantenne auf dem Dach.
+static func institute(b: BlockBatch, base: Vector3, lv: int) -> void:
+	var f := lv + 2
+	_hull(b, base, 6, 4, 0, f, "stone", "ice", "")                                           # Glasfassade
+	_roof(b, base, 6, 4, f, "greybrick")
+	_hull(b, base + Vector3(0, 0, 4), 4, 2, 0, 2, "greybrick", "greybrick", "ice")           # Labortrakt
+	_roof(b, base + Vector3(0, 0, 4), 4, 2, 2, "metal")
+	b.put_box("metal", base + Vector3(4.5, f + 0.4, 2.0), Vector3(0.3, 0.8, 0.3))            # Antenne
+	b.put_box("vox_white", base + Vector3(4.5, f + 1.0, 2.0), Vector3(1.6, 0.15, 1.6))       # Schüssel
+	b.put_box("vox_blue", base + Vector3(3.0, 1.4, -0.05), Vector3(2.4, 0.4, 0.1))           # Schild
+	if lv >= 2:
+		b.put_box("metal", base + Vector3(1.5, f + 0.5, 1.5), Vector3(1.2, 1.0, 1.2))       # Rechenzentrum
+	if lv >= 3:
+		b.put_box("vox_red", base + Vector3(1.5, f + 1.2, 1.5), Vector3(0.3, 0.3, 0.3))
 
 
 ## Stadion (9x9): Tribünen-Ring (Höhe je Stufe), Rasen mit Linien, Flutlichtmasten in den Ecken.
@@ -282,6 +422,10 @@ static func quarry(b: BlockBatch, base: Vector3, lv: int) -> void:
 	b.segment("coal", base + top + Vector3(3.0, -0.5, 3.0), base + Vector3(4.0, 1.2, 4.0), 0.05)
 	b.put_box("stone", base + Vector3(4.0, 1.0, 4.0), Vector3(0.6, 0.5, 0.6))                 # Block am Haken
 	b.put_box("vox_yellow", base + Vector3(0.6, 0.35, 4.6), Vector3(0.9, 0.5, 0.6))           # Lore
+	if techs.has("deep_mining"):                                                              # Tiefbau: Förderband + Bagger
+		b.segment("vox_dark", base + Vector3(4.5, 3.0 + lv * 0.5, 4.5), base + Vector3(1.0, 0.5, 5.0), 0.3)
+		b.put_box("vox_yellow", base + Vector3(4.6, 2.2 + lv, 2.0), Vector3(1.2, 0.8, 0.9))
+		b.segment("vox_yellow", base + Vector3(4.6, 2.6 + lv, 2.0), base + Vector3(3.4, 3.4 + lv, 1.0), 0.15)
 
 
 ## Grube (3x3): Sand- und Tonhaufen, kleiner Bagger.
@@ -317,6 +461,13 @@ static func mine(b: BlockBatch, base: Vector3, lv: int) -> void:
 	b.put_box("coal", base + Vector3(3.0, 0.7, 1.0), Vector3(0.6, 0.2, 0.5))
 	b.put_box("coal", base + Vector3(5.0, 0.3, 0.8), Vector3(1.0, 0.6, 1.0))                  # Erzhaufen
 	b.put_box("iron_ore", base + Vector3(5.0, 0.25, 2.0), Vector3(0.8, 0.5, 0.8))
+	if techs.has("deep_mining"):                                                              # Tiefbau: Stahl-Förderturm
+		var t := 9.0 + lv
+		for c: Vector2 in [Vector2(4.2, 4.2), Vector2(5.8, 4.2), Vector2(4.2, 5.8), Vector2(5.8, 5.8)]:
+			b.segment("metal", base + Vector3(c.x, 2.0, c.y), base + Vector3(5.0, t, 5.0), 0.18)
+		b.put_box("vox_blue", base + Vector3(5.0, t + 0.4, 5.0), Vector3(1.8, 1.8, 0.2))      # großes Seilrad
+		b.put_box("metal", base + Vector3(5.0, t - 0.6, 5.0), Vector3(1.2, 0.8, 1.2))         # Maschinenhaus
+		b.segment("vox_dark", base + Vector3(5.0, 2.2, 4.0), base + Vector3(3.0, 0.6, 1.0), 0.3)   # Förderband
 
 
 ## Lagerhaus (6x6): große Halle aus Holz, Schieferdach, Kisten davor.
@@ -355,6 +506,8 @@ static func brickworks(b: BlockBatch, base: Vector3, lv: int) -> void:
 	for k in 3:
 		b.put_box("brick", base + Vector3(0.8 + k * 1.2, 0.3, 0.6), Vector3(0.9, 0.6, 0.7))   # Ziegelstapel
 	b.put_box("clay", base + Vector3(0.6, 0.2, 5.3), Vector3(1.0, 0.4, 1.0))
+	if techs.has("blast_furnace"):
+		_modern_furnace(b, base + Vector3(4.5, 8.0 + lv, 4.5), base + Vector3(5.2, 0, 1.0))
 
 
 ## Glashütte (6x6): Halle mit Schmelzofen (Glut), Glasblöcke, Schlot.
@@ -367,6 +520,8 @@ static func glassworks(b: BlockBatch, base: Vector3, lv: int) -> void:
 	for k in 3:
 		b.put_box("ice", base + Vector3(5.4, 0.35 + k * 0.6, 0.6), Vector3(0.55, 0.55, 0.55)) # Glasblöcke
 	b.put_box("sand", base + Vector3(5.3, 0.25, 4.5), Vector3(1.0, 0.5, 1.0))
+	if techs.has("blast_furnace"):
+		_modern_furnace(b, base + Vector3(4.5, 6.0 + lv, 4.5), base + Vector3(5.2, 0, 2.6))
 
 
 ## Stahlwerk (6x6): dunkle Halle, zwei Schlote, Hochofen mit Glut, Stahlträger.
@@ -380,6 +535,20 @@ static func steelworks(b: BlockBatch, base: Vector3, lv: int) -> void:
 	b.put_box("iron_ore", base + Vector3(1.0, 0.3, 5.0), Vector3(1.2, 0.6, 1.0))              # Eisenerz
 	for k in 2 + lv:
 		b.put_box("metal", base + Vector3(4.2, 0.1 + k * 0.2, 5.0), Vector3(2.2, 0.15, 0.3)) # Stahlträger
+	if techs.has("blast_furnace"):
+		for c: Vector2 in [Vector2(1.5, 2.5), Vector2(4.5, 2.5)]:
+			_modern_furnace(b, base + Vector3(c.x, 8.0 + lv, c.y), Vector3.INF)
+		_modern_furnace(b, Vector3.INF, base + Vector3(2.8, 0, 5.0))
+
+
+## Moderne Hochöfen: Wäscher-Ring auf dem Schlot (top) und blau leuchtender Elektroofen-Block (ground).
+static func _modern_furnace(b: BlockBatch, top: Vector3, ground: Vector3) -> void:
+	if top != Vector3.INF:
+		b.put_box("metal", top + Vector3(0, 0.2, 0), Vector3(1.5, 0.4, 1.5))
+		b.put_box("ice", top + Vector3(0, 0.5, 0), Vector3(1.1, 0.2, 1.1))
+	if ground != Vector3.INF:
+		b.put_box("metal", ground + Vector3(0, 0.7, 0), Vector3(1.2, 1.4, 1.2))
+		b.put_box("vox_blue", ground + Vector3(0, 0.6, -0.62), Vector3(0.7, 0.5, 0.06))
 
 
 ## Baumschule (3x3): Reihen junger Bäume, Geräteschuppen, Gießkanne (blau).
