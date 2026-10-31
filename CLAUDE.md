@@ -165,6 +165,15 @@ $G --path . -- --demo --cam=32,32,60 --screenshot=/pfad/bild.png          # Scre
   `sim.use_build_materials(mats)` nimmt aus dem Lager und bucht den Zukauf **sofort** ab (nicht Monatsende wie beim
   Wachsen). Vorschau: `preview_cost_changed` enthält den Zukauf, Details in `tools.preview_materials/missing/import`
   (HUD-Kostenblase). Neues Bau-Werkzeug ⇒ Material in beiden Tabellen + `Hud._tool_materials` ergänzen.
+- **Balance 31.10. (nach Bot-Messung `--humanrun`):** `MATERIAL_FROM_POP` 2000 + `MATERIAL_DEBT` (Wachsen darf bis −2.000 $
+  zukaufen – sonst Armutsfalle), Schule/Krankenhaus erwartet ab 1.000, Dienst-Unterhalt Stufe 1 × `SERVICE_UPKEEP_EARLY`,
+  Steuer-Quadrat erst ab `TAX_HAPPY_SQ_FROM`, Forschung: Startpreis `RESEARCH_START_PER_POINT`, Budget bis 10.000 $.
+  **Bot** `HumanPlayer` (scripts/dev/human_player.gd, `--humanrun=Jahre,seed`): schaut alle 3 Monate, Zufall, baut Blöcke
+  je Zonenart erst bei 60 % Bebauung, verbindet Netze, baut Dienste aus. Bot-Fehler erst ausschließen, bevor man daraus
+  Balance ableitet (Windrad-Flut, Steuer-Rundung, Gesamt- statt Zonen-Bebauung waren Bot-Fehler).
+  Danach (31.10.): Steuerbasis `TAX_BASE_RES/JOB` +50 %, `UPKEEP_ROAD` 0.2, Schuldzinsen `DEBT_INTEREST`, Tempo
+  `SECONDS_PER_MONTH` 8/4/1,5 s, Uni ab 6.000. Ergebnis Bot 50 J.: 1.500–4.000 Einw., keine Pleiten; Megacity +5.700 $/Monat
+  (Forschung ist die Geldsenke). Ziel: normaler Spieler erreicht die Uni nach ~50–70 Spieljahren.
 - **Balance-Stellschrauben (23.10.):** `IMPORT_FACTOR` 3, Wohnsteuer-Zufriedenheit `tax_happiness()` (linear `TAX_HAPPY_UP` +
   quadratisch `TAX_HAPPY_SQ` über neutral), Verwaltung `Simulation.admin_for(pop)` in `_budget` (`admin_cost`, HUD-Tooltip).
   Messen mit `--freshrun=20` (Neustart, skriptgesteuerter Ausbau) und `--loadfile=<kopie> --econreport` (Posten).
@@ -211,6 +220,15 @@ $G --path . -- --demo --cam=32,32,60 --screenshot=/pfad/bild.png          # Scre
 - **Forschungsfenster:** Projekte tragen `"group"` in `Config.RESEARCH`; `_fill_research` baut je Bereich einen
   aufklappbaren `PopUI.list_item` (`_research_open`), darunter Karten (`_research_row`, `PopUI.box`) in Reihenfolge
   `_research_ordered` (Vorgänger zuerst); gesperrt = ausgegraut + „Voraussetzung: …“ (keine Einrückung/Pfeile, Nutzerwunsch). Breite je Popover-Art in `_popup_width()`. Neues Projekt ⇒ `group` setzen.
+- **Stufe 4 (Hochhaus/Büroturm):** alle Stufen-Tabellen haben 5 Einträge (`RES/COM/IND_CAPACITY`, `POWER_USE`,
+  `MATERIAL_COST`, `POLLUTION_IND_PER_LEVEL`, `MapOverlay.ROOF`, `StatusMarkers.LEVEL_OFFSET`) – neue Stufen-Tabelle ⇒
+  5 Einträge. `_max_level` erlaubt 4 nur mit Forschung (`highrise`: Bodenwert `RES_MIN_LAND[4]`, keine Villa; `offices`:
+  `COM_MAX_LEVEL_BY_DEPTH` 4 + Ecke + `COM_TOWER_LAND`). Industrie bleibt bei 3.
+- **Hightech-Industrie:** Map-Feld `hightech` (Zone bleibt IND), Werkzeug `Tool.HIGHTECH` (`_tool_zone` = IND, `_clear`
+  setzt zurück). Verschmutzung × `HIGHTECH_POLLUTION`, Steuer über `jobs_hightech` (Posten "Hightech"), `_max_level` = 0
+  ohne Hochschul-Abdeckung (`_uni_cover`). Renderer `BuildingGenerator._hightech`, kein Rauch.
+- **Verkehrsleitsystem:** `traffic_control` (in `_recount` aus `tech("traffic")`, steht in `COMMUTE_IN`, weil der
+  Pendler-Worker keine Forschung kennt) teilt die Straßenkapazität durch `TRAFFIC_CONTROL`.
 - **Speichern:** neue Map-Felder in `CityMap.SAVE_FIELDS` eintragen; fehlende Felder alter Saves werden genullt.
   `SaveManager.save` rotiert vorher Sicherungen (`<slot>.bak1..3`, nur Spieler-Slots). Tests, die Spieler-Slots
   benutzen wollen, stellen `SaveManager.dir` auf einen eigenen Ordner um (siehe `savetest`).

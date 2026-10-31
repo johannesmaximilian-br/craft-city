@@ -3,7 +3,7 @@ extends MultiMeshInstance3D
 ## Schwebende, drehende Voxel-Blitze (aus Kit-Blöcken) über Zonen ohne Strom.
 
 const B := Config.TILE_BLOCKS
-const LEVEL_OFFSET := [2.2, 4.2, 6.0, 11.5]
+const LEVEL_OFFSET := [2.2, 4.2, 6.0, 11.5, 22.0]
 
 var map: CityMap
 var sim: Simulation

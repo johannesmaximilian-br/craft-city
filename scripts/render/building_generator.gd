@@ -5,7 +5,7 @@ extends RefCounted
 ## prop.call(key: String, local: Vector3, rot: float)
 
 
-static func emit(zone: int, lv: int, seed_value: int, put: Callable, prop: Callable, villa := false) -> void:
+static func emit(zone: int, lv: int, seed_value: int, put: Callable, prop: Callable, villa := false, hightech := false) -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = seed_value
 	match zone:
@@ -15,7 +15,11 @@ static func emit(zone: int, lv: int, seed_value: int, put: Callable, prop: Calla
 			else:
 				_res(lv, rng, put, prop)
 		Config.Zone.COM: _com(lv, rng, put)
-		Config.Zone.IND: _ind(lv, rng, put)
+		Config.Zone.IND:
+			if hightech:
+				_hightech(lv, rng, put, prop)
+			else:
+				_ind(lv, rng, put)
 
 
 static func _is_face_mid(x: int, z: int) -> bool:
@@ -74,6 +78,18 @@ static func _res(lv: int, rng: RandomNumberGenerator, put: Callable, prop: Calla
 				put.call("leaves", Vector3i(rng.randi_range(0, 2), floors + 1, rng.randi_range(0, 2)))
 			else:
 				put.call("crate", Vector3i(rng.randi_range(0, 2), floors + 1, rng.randi_range(0, 2)))
+		4:
+			# Hochhaus (Forschung): Sockel, viele Etagen mit Fensterbändern, Rücksprung oben, Dachgarten + Technik
+			var floors := rng.randi_range(14, 18)
+			var wall := "square" if rng.randf() < 0.5 else "yellowbrick"
+			_shell(put, 0, 2, "greybrick", "ice")
+			for y in range(2, floors):
+				_shell(put, y, 1, wall, "ice" if y % 2 == 0 else wall)
+			_slab(put, floors, "square")
+			put.call("leaves", Vector3i(0, floors + 1, 0))
+			put.call("leaves", Vector3i(2, floors + 1, 2))
+			put.call("metal", Vector3i(1, floors + 1, 1))
+			put.call("metal", Vector3i(1, floors + 2, 1))
 
 
 ## Villa: flacher Bungalow mit Flachdach-Terrasse, Pool, Hecke und Garten.
@@ -112,6 +128,29 @@ static func _com(lv: int, rng: RandomNumberGenerator, put: Callable) -> void:
 			_slab(put, floors, "darkbrick")
 			put.call("metal", Vector3i(1, floors + 1, 1))
 			put.call("metal", Vector3i(1, floors + 2, 1))
+		4:
+			# Büroturm (Forschung): Glasturm mit hellen Kanten, Krone und Antenne
+			var floors := rng.randi_range(18, 24)
+			_shell(put, 0, floors, "square" if rng.randf() < 0.6 else "metal", "ice")
+			_slab(put, floors, "metal")
+			put.call("ice", Vector3i(1, floors + 1, 1))
+			for y in range(floors + 2, floors + 5):
+				put.call("metal", Vector3i(1, y, 1))
+
+
+## Hightech-Industrie: helle, flache Hallen mit Glas, Solardach, Campus-Grün – kein Schlot.
+static func _hightech(lv: int, rng: RandomNumberGenerator, put: Callable, prop: Callable) -> void:
+	var floors := lv
+	_shell(put, 0, floors, "square", "ice")
+	_slab(put, floors, "square")
+	for x in 3:
+		put.call("vox_blue", Vector3i(x, floors + 1, 1 if lv < 3 else rng.randi_range(0, 2)))   # Solarpaneele
+	if lv >= 2:
+		put.call("metal", Vector3i(rng.randi_range(0, 2), floors + 1, 0))
+	if lv >= 3:
+		put.call("ice", Vector3i(1, floors + 1, 2))
+		put.call("ice", Vector3i(1, floors + 2, 2))
+	prop.call("bush", Vector3(0.4, 0, 2.6), rng.randf() * TAU)
 
 
 ## Schlot-Position eines Industriegebäudes (gleicher Zufall wie _ind): [Vector2i(cx, cz), Spitze y] – für ChimneySmoke.

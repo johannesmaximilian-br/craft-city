@@ -11,7 +11,7 @@ signal applied(tool: Tool)
 enum Tool { INSPECT, ROAD, POWERLINE, BUS_STOP, RAIL, STATION, RES, COM, IND, COAL, WIND, TREE, PARK, RAISE, LOWER, BULLDOZE,
 	POLICE, FIRE, SCHOOL, HOSPITAL, LIBRARY, CINEMA, TOWNHALL, THEATER, STADIUM,
 	LUMBER, QUARRY, PIT, MINE, WAREHOUSE, SAWMILL, BRICKWORKS, GLASSWORKS, STEELWORKS, NURSERY, PROSPECTOR, RECYCLER,
-	UNIVERSITY, INSTITUTE, BIOMASS, SOLAR, BATTERY, HYDRO, PUMPED, SALT }
+	UNIVERSITY, INSTITUTE, BIOMASS, SOLAR, BATTERY, HYDRO, PUMPED, SALT, HIGHTECH, CONCRETE }
 
 ## Anzeige-Metadaten: Name, Icon, Taste, Gruppe (für Toolbar-Trenner)
 const TOOLS := {
@@ -75,6 +75,10 @@ const TOOLS := {
 		"hint": "50 MW, nur tagsüber - nachts Speicher oder Grundlast nötig  ·  sauber  ·  2x2  ·  Forschung Solarenergie"},
 	Tool.BATTERY: {"name": "Batteriespeicher", "icon": "battery", "key": KEY_NONE, "group": 3, "cost": 3000,
 		"hint": "Lädt mit dem Tagesüberschuss, liefert nachts bis 40 MW  ·  Forschung Batteriespeicher"},
+	Tool.HIGHTECH: {"name": "Hightech-Industrie", "icon": "hightech", "key": KEY_NONE, "group": 6, "cost": 5,
+		"hint": "Industrie-Zone: 85 % weniger Verschmutzung, 60 % mehr Steuer  ·  wächst nur mit Akademikern (Uni in Reichweite)"},
+	Tool.CONCRETE: {"name": "Betonwerk", "icon": "concrete", "key": KEY_NONE, "group": 10, "cost": 2500,
+		"hint": "10 Stein + 10 Sand + 1 Kohle -> 12 Beton  ·  für Hochhäuser und Bürotürme  ·  Forschung Beton"},
 	Tool.HYDRO: {"name": "Wasserkraftwerk", "icon": "hydro", "key": KEY_NONE, "group": 3, "cost": 9000,
 		"hint": "120 MW Tag und Nacht, sauber  ·  nur direkt am Wasser  ·  2x2  ·  Forschung Wasserkraft"},
 	Tool.PUMPED: {"name": "Pumpspeicher", "icon": "pumped", "key": KEY_NONE, "group": 3, "cost": 7000,
@@ -82,7 +86,7 @@ const TOOLS := {
 	Tool.SALT: {"name": "Salzspeicher", "icon": "salt", "key": KEY_NONE, "group": 3, "cost": 8000,
 		"hint": "Speichert 300 MW für die Nacht  ·  Klick auf Kohlekraftwerk = Umrüsten zum halben Preis  ·  Forschung Salzspeicher"},
 	Tool.UNIVERSITY: {"name": "Universität", "icon": "university", "key": KEY_NONE, "group": 7, "cost": 15000,
-		"hint": "Hochschule: Akademiker für Forschung  ·  3x3  ·  ab 8.000 Einw. und 70 % Schulversorgung  ·  großer Einzugskreis"},
+		"hint": "Hochschule: Akademiker für Forschung  ·  3x3  ·  ab 6.000 Einw. und 70 % Schulversorgung  ·  großer Einzugskreis"},
 	Tool.INSTITUTE: {"name": "Forschungsinstitut", "icon": "institute", "key": KEY_NONE, "group": 7, "cost": 8000,
 		"hint": "Forschungspunkte (mehr Akademiker = schneller)  ·  2x2  ·  braucht Universität  ·  Projekte im Forschungsfenster"},
 	Tool.SAWMILL:   {"name": "Sägewerk", "icon": "sawmill", "key": KEY_NONE, "group": 10, "cost": 1500,
@@ -221,6 +225,7 @@ func special_for(t: Tool) -> int:
 		Tool.HYDRO: return Config.Special.HYDRO
 		Tool.PUMPED: return Config.Special.PUMPED
 		Tool.SALT: return Config.Special.SALT
+		Tool.CONCRETE: return Config.Special.CONCRETE
 		Tool.INSTITUTE: return Config.Special.INSTITUTE
 	return Config.Special.NONE
 
@@ -231,6 +236,8 @@ func locked_reason(t: Tool) -> String:
 	tool = t
 	var sp := _special_for_tool()
 	tool = prev
+	if t == Tool.HIGHTECH and not sim.tech("hightech"):
+		return "Erst erforschen: Hightech-Industrie (Forschungsfenster)"
 	if sp == Config.Special.NONE:
 		return ""
 	var def: Dictionary = Config.SPECIALS[sp]
@@ -409,16 +416,17 @@ func tile_cost(t: Vector2i) -> int:
 			if water or special: return -1
 			if map.power_line[i] == 1 or map.zone[i] != Config.Zone.NONE: return 0
 			return Config.COST_POWERLINE
-		Tool.RES, Tool.COM, Tool.IND:
+		Tool.RES, Tool.COM, Tool.IND, Tool.HIGHTECH:
 			if water or special or rail or map.road[i] != 0: return -1
-			if map.zone[i] == _tool_zone(): return 0
+			if tool == Tool.HIGHTECH and locked_reason(tool) != "": return -1
+			if map.zone[i] == _tool_zone() and (map.hightech[i] == 1) == (tool == Tool.HIGHTECH): return 0
 			return Config.COST_ZONE + demolish
 		Tool.COAL, Tool.WIND, Tool.POLICE, Tool.FIRE, Tool.SCHOOL, Tool.HOSPITAL, \
 				Tool.LIBRARY, Tool.CINEMA, Tool.TOWNHALL, Tool.THEATER, Tool.STADIUM, \
 				Tool.LUMBER, Tool.QUARRY, Tool.PIT, Tool.MINE, Tool.WAREHOUSE, \
 				Tool.SAWMILL, Tool.BRICKWORKS, Tool.GLASSWORKS, Tool.STEELWORKS, \
 				Tool.NURSERY, Tool.PROSPECTOR, Tool.RECYCLER, Tool.UNIVERSITY, Tool.INSTITUTE, \
-				Tool.BIOMASS, Tool.SOLAR, Tool.BATTERY, Tool.HYDRO, Tool.PUMPED, Tool.SALT:
+				Tool.BIOMASS, Tool.SOLAR, Tool.BATTERY, Tool.HYDRO, Tool.PUMPED, Tool.SALT, Tool.CONCRETE:
 			var sp := _special_for_tool()
 			if locked_reason(tool) != "": return -1
 			var up := _upgrade_target()
@@ -578,7 +586,7 @@ func _tool_zone() -> int:
 	match tool:
 		Tool.RES: return Config.Zone.RES
 		Tool.COM: return Config.Zone.COM
-		Tool.IND: return Config.Zone.IND
+		Tool.IND, Tool.HIGHTECH: return Config.Zone.IND
 	return Config.Zone.NONE
 
 
@@ -647,6 +655,7 @@ func _apply(tiles: Array[Vector2i]) -> void:
 
 ## keep_infra: Stromleitung, Gleis und Haltestellen bleiben (z.B. Straße über Gleis = Bahnübergang).
 func _clear(i: int, keep_infra := false) -> void:
+	map.hightech[i] = 0
 	map.road[i] = 0
 	map.zone[i] = Config.Zone.NONE
 	map.level[i] = 0
@@ -725,9 +734,10 @@ func _apply_tile(t: Vector2i) -> Rect2i:
 			map.rail[i] = 1
 		Tool.STATION:
 			map.transit[i] = Config.Transit.STATION
-		Tool.RES, Tool.COM, Tool.IND:
+		Tool.RES, Tool.COM, Tool.IND, Tool.HIGHTECH:
 			_clear(i)
 			map.zone[i] = _tool_zone()
+			map.hightech[i] = 1 if tool == Tool.HIGHTECH else 0
 		Tool.BULLDOZE:
 			if map.special[i] != Config.Special.NONE:
 				var sa := map.anchor[i]

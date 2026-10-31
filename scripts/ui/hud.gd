@@ -26,7 +26,7 @@ const TOOLBAR := [
 	[],
 	[ToolController.Tool.RES],
 	[ToolController.Tool.COM],
-	[ToolController.Tool.IND],
+	[ToolController.Tool.IND, ToolController.Tool.HIGHTECH],
 	[],
 	[ToolController.Tool.TREE, ToolController.Tool.PARK],
 	[ToolController.Tool.RAISE, ToolController.Tool.LOWER],
@@ -39,7 +39,7 @@ const TOOLBAR := [
 		ToolController.Tool.WAREHOUSE, ToolController.Tool.NURSERY, ToolController.Tool.PROSPECTOR,
 		ToolController.Tool.RECYCLER],
 	[ToolController.Tool.STEELWORKS, ToolController.Tool.SAWMILL, ToolController.Tool.BRICKWORKS,
-		ToolController.Tool.GLASSWORKS],
+		ToolController.Tool.GLASSWORKS, ToolController.Tool.CONCRETE],
 	[],
 	[ToolController.Tool.BULLDOZE],
 ]
@@ -690,7 +690,7 @@ func _fill_research() -> void:
 	_popup_col.add_child(brow)
 	var bt := PopUI.label(brow, "Budget", 16, UiTheme.TEXT_DIM)
 	bt.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	bt.tooltip_text = "Wird nur ausgegeben, solange ein Projekt läuft. Gold wird beim Start verbraucht (fehlt es: Zukauf)."
+	bt.tooltip_text = "Wird nur ausgegeben, solange ein Projekt läuft. Beim Start: Startpreis + Gold (fehlt es: Zukauf)."
 	bt.mouse_filter = Control.MOUSE_FILTER_PASS
 	_text_button(brow, "-", _research_budget.bind(-1), "Budget senken")
 	var bl := PopUI.label(brow, "$%s / Monat" % _fmt(int(sim.research_budget)), 16, UiTheme.TEXT, true)
@@ -787,7 +787,8 @@ func _research_row(list: VBoxContainer, id: String) -> void:
 	var bottom := HBoxContainer.new()
 	bottom.add_theme_constant_override("separation", 8)
 	card.add_child(bottom)
-	var info := PopUI.label(bottom, "%s Punkte  ·  %d Gold%s" % [_fmt(int(def["points"])), int(def["gold"]),
+	var info := PopUI.label(bottom, "Start $%s  ·  %s Punkte  ·  %d Gold%s" % [_fmt(int(Simulation.research_start_cost(id))),
+		_fmt(int(def["points"])), int(def["gold"]),
 		("  ·  ~%d Monate" % eta) if eta > 0 else ""], 14, UiTheme.TEXT_DIM)
 	info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	if running:
@@ -1560,6 +1561,8 @@ func _refresh_inner() -> void:
 	inc.append("Ausgaben  $%d" % roundi(sim.last_expense))
 	if sim.research_spent > 0.0:
 		inc.append("  davon Forschung  $%d" % roundi(sim.research_spent))
+	if sim.interest_cost > 0.0:
+		inc.append("  davon Schuldzinsen  $%d  (1 %% je Monat auf das Minus)" % roundi(sim.interest_cost))
 	if sim.admin_cost > 0.0:
 		inc.append("  davon Verwaltung  $%d  (ab %s Einw., steigt mit der Größe)" % [roundi(sim.admin_cost), _fmt(Config.ADMIN_FROM)])
 	if sim.import_cost > 0.0:
@@ -1743,6 +1746,10 @@ func _on_hover(t: Vector2i) -> void:
 		var zn := map.zone[i]
 		var lv := map.level[i]
 		title = "%s  ·  Stufe %d" % [Config.ZONE_NAMES[zn], lv]
+		if zn == Config.Zone.IND and map.hightech[i] == 1:
+			title = "Hightech-Industrie  ·  Stufe %d" % lv
+		elif lv == 4:
+			title = "%s  ·  Stufe 4" % ("Hochhaus" if zn == Config.Zone.RES else "Büroturm")
 		if map.villa[i] == 1 and lv == 3:
 			title = "Villa  ·  Bodenabgabe $%d" % int(Config.VILLA_LEVY)
 		match zn:

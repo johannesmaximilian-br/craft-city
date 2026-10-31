@@ -244,7 +244,7 @@ func _emit_tile(tx: int, tz: int) -> void:
 			var put := _put_worn.bind(absi(hash(Vector2i(tx, tz)))) if worn else _b.put_local
 			if map.is_vacant(i):
 				put = _put_vacant.bind(absi(hash(Vector2i(tx, tz))))
-			BuildingGenerator.emit(zn, lv, hash(Vector3i(tx, tz, lv)), put, _b.prop_local, map.villa[i] == 1)
+			BuildingGenerator.emit(zn, lv, hash(Vector3i(tx, tz, lv)), put, _b.prop_local, map.villa[i] == 1, map.hightech[i] == 1)
 			if worn:
 				_emit_worn_props(tx, tz)
 		return

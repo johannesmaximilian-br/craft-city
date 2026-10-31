@@ -11,7 +11,7 @@ enum Zone { NONE, RES, COM, IND }
 enum Feature { NONE, TREE, PARK }
 enum Special { NONE, COAL, WIND, POLICE, FIRE, SCHOOL, HOSPITAL, LIBRARY, CINEMA, TOWNHALL, THEATER, STADIUM,
 	LUMBER, QUARRY, PIT, MINE, WAREHOUSE, SAWMILL, BRICKWORKS, GLASSWORKS, STEELWORKS, NURSERY, PROSPECTOR, RECYCLER,
-	UNIVERSITY, INSTITUTE, BIOMASS, SOLAR, BATTERY, HYDRO, PUMPED, SALT }
+	UNIVERSITY, INSTITUTE, BIOMASS, SOLAR, BATTERY, HYDRO, PUMPED, SALT, CONCRETE }
 # Bodenvorkommen (CityMap.ore): Art je Tile, Menge in CityMap.ore_amt
 enum Ore { NONE, COAL, IRON, GOLD, CLAY, SAND, STONE }
 enum Road { NONE, STREET }
@@ -41,7 +41,10 @@ const LAND_TRANSIT := 0.08              # Bodenwert-Bonus mit Bus- oder Bahnansc
 # Straßen: Kapazität (Pendler/Monat ohne Stau) und Tempo. Zwei parallele, benachbarte
 # Straßen verschmelzen automatisch zur 4-spurigen Hauptstraße (mehr Kapazität, schneller).
 const COST_ROAD := 10
-const UPKEEP_ROAD := 0.4
+const UPKEEP_ROAD := 0.2        # vorher 0.4: Kleinstädte trugen sich nicht (Bot-Messung 31.10.)
+const TAX_BASE_RES := 0.18      # Steuerbasis je Einwohner (× Steuersatz × 12), vorher 0.12
+const TAX_BASE_JOB := 0.15      # ... je Job, vorher 0.1
+const DEBT_INTEREST := 0.01     # Zinsen je Monat auf einen Minus-Kontostand
 const STREET_CAPACITY := 300.0
 const STREET_SPEED := 1.0
 const WIDE_CAPACITY := 450.0            # je Tile der Hauptstraße (Paar: 900 statt 600)
@@ -49,7 +52,11 @@ const WIDE_SPEED := 1.35
 
 # ---- Standortregeln (siehe README "Zonen richtig planen") ----
 # Verschmutzung: Quelle -> [Stärke, Reichweite in Tiles], linear abfallend
-const POLLUTION_IND_PER_LEVEL := [0.0, 1.2, 2.0, 3.0]
+const POLLUTION_IND_PER_LEVEL := [0.0, 1.2, 2.0, 3.0, 3.0]
+const HIGHTECH_POLLUTION := 0.15    # Hightech-Industrie: Anteil der normalen Industrie-Verschmutzung
+const HIGHTECH_TAX := 1.6           # ... Steuer je Job im Vergleich zur Industrie
+const HIGHTECH_ACADEMICS := 0.2     # ... wächst nur, wo die Hochschul-Versorgung mindestens so hoch ist
+const TRAFFIC_CONTROL := 0.8        # Verkehrsleitsystem: Faktor auf die Auslastung (Stau)
 const POLLUTION_IND_RANGE := 4
 const POLLUTION_COAL := 4.0
 const POLLUTION_COAL_RANGE := 7
@@ -75,6 +82,7 @@ const RESOURCES := {
 	"bricks": {"name": "Ziegel",  "price": 2.5, "color": Color("b5503a"), "good": true},
 	"glass":  {"name": "Glas",    "price": 4.0, "color": Color("9fd3ee"), "good": true},
 	"steel":  {"name": "Stahl",   "price": 8.0, "color": Color("6f7a86"), "good": true},
+	"concrete": {"name": "Beton", "price": 3.0, "color": Color("b9b6ad"), "good": true},   # Forschung "Beton"
 }
 const ORE_RESOURCE := ["", "coal", "iron", "gold", "clay", "sand", "stone"]   # Index = Ore
 const STOCK_BASE := 200            # Lagerkapazität je Rohstoff ohne Lagerhaus
@@ -91,12 +99,15 @@ const MINE_RANGE := 3
 const MINE_RATE := {"coal": 15, "iron": 10, "gold": 3}
 # Baustoffbedarf beim Wachsen auf Stufe 2/3 (ab MATERIAL_FROM_POP Einwohnern). Fehlt etwas, wird es zugekauft
 # (IMPORT_FACTOR x Exportpreis); ohne Geld dafür stoppt das Wachstum.
-const MATERIAL_FROM_POP := 400
+const MATERIAL_FROM_POP := 2000     # vorher 400: Kleinstädte steckten in der Armutsfalle (kein Geld -> kein Material -> kein Wachstum)
+const MATERIAL_DEBT := 2000.0      # Material-Zukauf beim Wachsen darf die Kasse bis zu so weit ins Minus drücken
 const IMPORT_FACTOR := 3.0         # Zukauf = 3× Exportpreis (bei 2× lohnten eigene Minen/Werke kaum: 4 % der Ausgaben)
 const MATERIAL_COST := {
-	Zone.RES: [{}, {}, {"planks": 4, "bricks": 4}, {"bricks": 8, "glass": 4, "steel": 3}],
-	Zone.COM: [{}, {}, {"planks": 3, "bricks": 3, "glass": 2}, {"bricks": 4, "glass": 8, "steel": 6}],
-	Zone.IND: [{}, {}, {"planks": 4, "bricks": 4}, {"bricks": 6, "steel": 8}],
+	Zone.RES: [{}, {}, {"planks": 4, "bricks": 4}, {"bricks": 8, "glass": 4, "steel": 3},
+		{"concrete": 14, "glass": 8, "steel": 6}],                                     # Stufe 4 = Hochhaus
+	Zone.COM: [{}, {}, {"planks": 3, "bricks": 3, "glass": 2}, {"bricks": 4, "glass": 8, "steel": 6},
+		{"concrete": 12, "glass": 14, "steel": 10}],                                    # Stufe 4 = Büroturm
+	Zone.IND: [{}, {}, {"planks": 4, "bricks": 4}, {"bricks": 6, "steel": 8}, {}],
 }
 # Baumaterial beim Bauen (aus dem Lager, Fehlendes wird sofort zum Zukaufpreis bezahlt). Je Tile bzw. je Gebäude.
 const BUILD_MATERIALS := {
@@ -136,6 +147,7 @@ const SPECIAL_MATERIALS := {        # Zukaufwert ca. 15-25 % des Geldpreises
 	Special.BRICKWORKS: {"wood": 30, "stone": 80},
 	Special.GLASSWORKS: {"bricks": 40, "stone": 40},
 	Special.STEELWORKS: {"bricks": 80, "stone": 80},
+	Special.CONCRETE: {"bricks": 40, "steel": 15, "stone": 40},
 }
 const BIOMASS_WOOD_USE := 20       # Holz je Monat und Biomassekraftwerk (fehlt es: Zukauf, konkurriert mit dem Sägewerk)
 const SALT_CONVERT := 0.5          # Kohlekraftwerk zum Salzspeicher umrüsten: Anteil von Preis und Material
@@ -166,6 +178,7 @@ const TAX_NEUTRAL := [0.0, 0.09, 0.09, 0.12]       # Index = Zone (RES, COM, IND
 const TAX_DEMAND := [0.0, 5.0, 4.0, 2.5]           # Nachfrage-Abzug je Steuerpunkt über neutral (x 100)
 const TAX_HAPPY := 2.0                             # Zufriedenheit: nur die Wohnsteuer; Bonus je Punkt unter neutral
 const TAX_HAPPY_UP := 4.0                          # Abzug je Punkt über neutral ...
+const TAX_HAPPY_SQ_FROM := 0.02                    # quadratischer Aufschlag erst ab 2 Punkten über neutral
 const TAX_HAPPY_SQ := 40.0                         # ... plus quadratisch: +1 -> -4,4 %, +3 -> -16 %, +6 -> -38 %
 # Verwaltung: Ausgabe/Monat = ADMIN_RATE × (Einw. - ADMIN_FROM)² / ADMIN_SCALE -> große Städte werden nicht endlos reich
 const ADMIN_FROM := 5000
@@ -181,7 +194,7 @@ const FARE_BUS_SHARE := [0.55, 0.4, 0.25]          # Busanteil, wenn Start + Zie
 const FARE_HAPPY := [0.05, 0.0, -0.03]             # Zufriedenheit für Wohnhäuser mit Bus-/Bahnanschluss
 
 # ---- Zonen-Idealformen ----
-const COM_MAX_LEVEL_BY_DEPTH := [3, 3, 3, 2]       # Gewerbe = Ladenzeile: Stufe je Abstand zur Straße (1 = direkt dran)
+const COM_MAX_LEVEL_BY_DEPTH := [4, 4, 3, 2]       # Gewerbe = Ladenzeile: Stufe je Abstand zur Straße (1 = direkt dran)
 const COM_DEPTH_GROWTH := [1.0, 1.0, 0.8, 0.6]     # ... und Wachstum je Abstand
 const COM_CORNER_LEVEL := [4, 6]                   # Weg entlang der Straße bis zur nächsten Kreuzung/Ecke: <=4 Stufe 3, <=6 Stufe 2, sonst 1
 const COM_FRONT_BONUS := 1.3                       # Wachstum an Hauptstraße / Haltestelle
@@ -208,7 +221,8 @@ const LAND_HEIGHT := 0.012              # je Block über Wasserniveau (Aussicht,
 const LAND_POLLUTION := 0.09            # Abzug je Verschmutzungspunkt
 const LAND_CONGESTION := 0.12           # Abzug je Auslastung der Zufahrt
 # Wohnen: Mindest-Bodenwert je Stufe
-const RES_MIN_LAND := [0.0, 0.0, 0.35, 0.55]
+const RES_MIN_LAND := [0.0, 0.0, 0.35, 0.55, 0.75]      # Stufe 4 (Hochhaus) nur mit Forschung
+const COM_TOWER_LAND := 0.6                           # Büroturm (Gewerbe 4): Bodenwert, Ecke <= COM_CORNER_LEVEL[0]
 # Gewerbe: Kundschaft = Einwohner im Umkreis
 const COM_CUSTOMER_RANGE := 6
 const COM_CUSTOMERS_FULL := 300.0       # ab so vielen Einwohnern volle Wachstumsrate
@@ -266,21 +280,26 @@ const SPECIALS := {
 		"process": {"in": {"sand": 10, "coal": 3}, "out": {"glass": 8}}, "pollution": [1.5, 4]},
 	Special.STEELWORKS: {"name": "Stahlwerk", "size": 2, "cost": 4000, "upgrade": 4000, "upkeep": 14.0, "power": 0, "use": 6,
 		"process": {"in": {"iron": 10, "coal": 5}, "out": {"steel": 8}}, "pollution": [2.5, 5]},
+	Special.CONCRETE: {"name": "Betonwerk", "size": 2, "cost": 2500, "upgrade": 2500, "upkeep": 8.0, "power": 0, "use": 3,
+		"process": {"in": {"stone": 10, "sand": 10, "coal": 1}, "out": {"concrete": 12}}, "pollution": [1.2, 3],
+		"need_tech": "concrete"},
 	Special.THEATER:  {"name": "Theater", "size": 2, "cost": 8000, "upgrade": 6000, "upkeep": 35.0, "power": 0, "use": 5, "service": "venue",
 		"unlock": 3000, "visitors": 300, "event_every": 1},
 	Special.STADIUM:  {"name": "Stadion", "size": 3, "cost": 15000, "upgrade": 10000, "upkeep": 60.0, "power": 0, "use": 12, "service": "venue",
 		"unlock": 5000, "visitors": 900, "event_every": 3},
 	# Forschung: Uni = Dienst "university" (Akademikerquote), Institut erzeugt Forschungspunkte
 	Special.UNIVERSITY: {"name": "Universität", "size": 3, "cost": 15000, "upgrade": 10000, "upkeep": 60.0, "power": 0, "use": 8,
-		"service": "university", "unlock": 8000, "need_coverage": ["education", 0.7], "radius_mul": 2.5, "capacity_mul": 4.0},
+		"service": "university", "unlock": 6000, "need_coverage": ["education", 0.7], "radius_mul": 2.5, "capacity_mul": 4.0},
 	Special.INSTITUTE: {"name": "Forschungsinstitut", "size": 2, "cost": 8000, "upgrade": 8000, "upkeep": 40.0, "power": 0, "use": 6,
 		"research": true, "need_special": Special.UNIVERSITY},
 }
 # ---- Forschung ----
 const RESEARCH_POINTS := 30          # Punkte je Monat und Institutsstufe bei genug Akademikern und Referenzbudget
 const ACADEMICS_PER_LEVEL := 1500    # Akademiker (von Unis versorgte Einwohner) je Institutsstufe für volle Leistung
-const RESEARCH_BUDGET_REF := 1000.0  # Budget ($/Monat) für Faktor 1
-const RESEARCH_BUDGET_STEPS := [0, 250, 500, 1000, 2000, 3000]
+const RESEARCH_BUDGET_REF := 2000.0  # Budget ($/Monat) für Faktor 1 (vorher 1000: reiche Städte merkten es nicht)
+const RESEARCH_BUDGET_STEPS := [0, 500, 1000, 2000, 5000, 10000]
+const RESEARCH_START_PER_POINT := 10.0   # Startpreis je Projekt = Punkte × 10 $ (z.B. Tiefbau 15.000 $)
+const SERVICE_UPKEEP_EARLY := 0.7     # Unterhalt von Dienstbauten auf Stufe 1 (günstiger Einstieg)
 const RESEARCH_MIN_ACADEMICS := 0.1  # Untergrenze des Akademiker-Faktors (ein Institut forscht immer ein wenig)
 # Projekte: group = Bereich im Forschungsfenster (aufklappbar), points = Forschungspunkte (×3 seit 23.10.: 1 Institut Stufe 1 + 1.000 $ ≈ 4 Jahre), gold = einmalig beim Start (fehlt es: Zukauf), requires = Vorgänger
 const RESEARCH := {
@@ -300,6 +319,16 @@ const RESEARCH := {
 		"points": 2700, "gold": 50, "requires": ["battery"]},
 	"salt": {"group": "Energie", "name": "Salzspeicher", "desc": "Flüssigsalz-Wärmespeicher (Carnot-Batterie): 300 MW für die Nacht, Kohlekraftwerke umrüstbar",
 		"points": 3600, "gold": 80, "requires": ["pumped"]},
+	"concrete": {"group": "Stadt", "name": "Beton", "desc": "Betonwerk bauen: Stein + Sand -> Beton (Baustoff für Hochhäuser und Bürotürme)",
+		"points": 2400, "gold": 30, "requires": []},
+	"highrise": {"group": "Stadt", "name": "Hochhäuser", "desc": "Wohnen Stufe 4: 200 Einwohner statt 80, ab 75 % Bodenwert, braucht Beton",
+		"points": 3000, "gold": 60, "requires": ["concrete"]},
+	"offices": {"group": "Stadt", "name": "Bürotürme", "desc": "Gewerbe Stufe 4: 120 Jobs statt 50, an Kreuzungen ab 60 % Bodenwert, braucht Beton",
+		"points": 3000, "gold": 60, "requires": ["concrete"]},
+	"hightech": {"group": "Stadt", "name": "Hightech-Industrie", "desc": "Eigenes Zonen-Werkzeug: Industrie mit 85 % weniger Verschmutzung und 60 % mehr Steuer, nur bei Akademikern (Uni)",
+		"points": 3600, "gold": 120, "requires": []},
+	"traffic": {"group": "Stadt", "name": "Verkehrsleitsystem", "desc": "Ampeln und Leitsystem: 20 % weniger Stau in der ganzen Stadt",
+		"points": 2400, "gold": 40, "requires": []},
 	"blast_furnace": {"group": "Rohstoffe & Industrie", "name": "Moderne Hochöfen", "desc": "Werke brauchen halb so viel Kohle und verschmutzen 40 % weniger",
 		"points": 2100, "gold": 40, "requires": ["deep_mining"]},
 }
@@ -318,11 +347,11 @@ const SERVICE_POWER_LEVEL := [0.0, 1.0, 1.5, 2.0]   # Stromverbrauch von Dienstb
 const SERVICES := {
 	"police": ["Polizei", 300, 0.10],
 	"fire": ["Feuerwehr", 300, 0.08],
-	"education": ["Schule", 600, 0.12],
-	"health": ["Krankenhaus", 600, 0.12],
+	"education": ["Schule", 1000, 0.12],      # vorher 600 (zu früh für eine kleine Kasse)
+	"health": ["Krankenhaus", 1000, 0.12],
 	"culture": ["Kultur", 1500, 0.08],
 	"venue": ["Großkultur", 4000, 0.08],
-	"university": ["Hochschule", 8000, 0.04],
+	"university": ["Hochschule", 6000, 0.04],
 }
 const HAPPY_BASE := 0.55
 # Belegung / Leerstand
@@ -361,9 +390,9 @@ const FIRE_RUIN_MONTHS := 6             # Brandruine blockiert Neubau
 
 # Stromverbrauch (MW) pro Gebäudestufe
 const POWER_USE := {
-	Zone.RES: [0, 1, 2, 4],
-	Zone.COM: [0, 2, 4, 7],
-	Zone.IND: [0, 3, 6, 10],
+	Zone.RES: [0, 1, 2, 4, 8],
+	Zone.COM: [0, 2, 4, 7, 14],
+	Zone.IND: [0, 3, 6, 10, 10],
 }
 
 const START_MONEY := 20000.0
@@ -384,9 +413,9 @@ const UPKEEP_PARK := 3.0               # Parks: Pflege, Wege, Bänke (Bäume kos
 const UPKEEP_POWERLINE := 0.1
 
 # Kapazität pro Gebäudestufe (Index = Stufe 0..3)
-const RES_CAPACITY := [0, 10, 30, 80]   # Einwohner
-const COM_CAPACITY := [0, 8, 20, 50]    # Jobs
-const IND_CAPACITY := [0, 12, 30, 60]   # Jobs
+const RES_CAPACITY := [0, 10, 30, 80, 200]   # Einwohner (Stufe 4 = Hochhaus, Forschung)
+const COM_CAPACITY := [0, 8, 20, 50, 120]    # Jobs (Stufe 4 = Büroturm, Forschung)
+const IND_CAPACITY := [0, 12, 30, 60, 60]    # Jobs (Industrie bleibt bei Stufe 3)
 
 const ROAD_ACCESS_RANGE := 3            # max. Abstand Zone -> Straße (Tiles)
 

@@ -9,7 +9,7 @@ signal message(text: String)
 signal alert(text: String, tile: Vector2i)   # Meldung mit Ort (Klick/Tab springt hin)
 signal research_finished(id: String)          # Projekt abgeschlossen -> HUD zeigt Durchbruch-Karte
 
-const SECONDS_PER_MONTH := [0.0, 3.0, 1.5, 0.5]
+const SECONDS_PER_MONTH := [0.0, 8.0, 4.0, 1.5]    # vorher 3/1,5/0,5: 40 Spieljahre waren 24 bzw. 4 Minuten
 const MONTH_NAMES := ["Jan", "Feb", "Mär", "Apr", "Mai", "Jun", "Jul", "Aug", "Sep", "Okt", "Nov", "Dez"]
 
 var map: CityMap
@@ -89,6 +89,9 @@ var research_budget := 0.0          # eingestelltes Budget $/Monat (Config.RESEA
 var research_rate := 0.0            # Punkte im letzten Monat
 var _inst_levels := 0
 var research_spent := 0.0           # Forschungsausgaben im letzten Monat
+var traffic_control := false        # Forschung Verkehrsleitsystem (Kopie für den Pendler-Worker, s. COMMUTE_IN)
+var jobs_hightech := 0              # davon Hightech-Jobs (höhere Steuer)
+var interest_cost := 0.0            # Schuldzinsen im letzten Monat
 var admin_cost := 0.0               # Verwaltungskosten im letzten Monat
 var build_imports := 0.0           # Sofort-Zukauf von Baumaterial beim Bauen (Summe seit Spielstart, nicht gespeichert)
 var planted := 0                    # Bäume, die Baumschulen im letzten Monat gepflanzt haben
@@ -148,7 +151,7 @@ var _worker: Simulation = null
 var _commute_task := -1
 var _commute_again := false         # während der Berechnung geändert -> danach nochmal
 var _commute_discard := false       # Karte ersetzt (Laden/Neu) -> laufendes Ergebnis verwerfen
-const COMMUTE_IN := ["congestion", "road_dist", "road_src", "fare", "month", "year", "station_use", "powered"]
+const COMMUTE_IN := ["congestion", "road_dist", "road_src", "fare", "month", "year", "station_use", "powered", "traffic_control"]
 const COMMUTE_OUT := ["traffic", "congestion", "commute_cost", "road_comp", "comp_has_res", "comp_has_job",
 	"bus_served", "_station_links", "_road_station_links", "rail_traffic", "station_use", "bus_riders",
 	"rail_riders", "_transit_trips", "avg_commute", "transit_share", "unreachable_workers", "avg_congestion",
@@ -585,7 +588,7 @@ func _compute_commute() -> void:
 	for i in n:
 		if map.road[i] != 0:
 			var wide := map.wide_partner(i % map.size, i / map.size) != Vector2i.ZERO
-			cap[i] = Config.WIDE_CAPACITY if wide else Config.STREET_CAPACITY
+			cap[i] = (Config.WIDE_CAPACITY if wide else Config.STREET_CAPACITY) / (Config.TRAFFIC_CONTROL if traffic_control else 1.0)
 			inv_speed[i] = 1.0 / (Config.WIDE_SPEED if wide else Config.STREET_SPEED)
 
 	# Arbeitskräfte und Jobs je Straßen-Anschluss sammeln
@@ -1111,7 +1114,8 @@ func _env_begin() -> void:
 	var works_f := Config.TECH_FURNACE_POLLUTION if tech("blast_furnace") else 1.0
 	for i in n:
 		if zone[i] == Config.Zone.IND and level[i] > 0:
-			_stamp(i, Config.POLLUTION_IND_PER_LEVEL[level[i]], Config.POLLUTION_IND_RANGE)
+			_stamp(i, Config.POLLUTION_IND_PER_LEVEL[level[i]] * (Config.HIGHTECH_POLLUTION if map.hightech[i] == 1 else 1.0),
+				Config.POLLUTION_IND_RANGE)
 		elif anchor[i] == i and special[i] == Config.Special.COAL:
 			_stamp(i, Config.POLLUTION_COAL * coal_f, Config.POLLUTION_COAL_RANGE)
 		elif anchor[i] == i and special[i] != Config.Special.NONE and Config.SPECIALS[special[i]].has("pollution"):
@@ -1596,6 +1600,7 @@ func _recount() -> void:
 	var ind_cap: Array = Config.IND_CAPACITY
 	var empty := map.empty
 	var pop_f := 0.0
+	var ht_f := 0.0
 	var com_f := 0.0
 	var ind_f := 0.0
 	for i in map.size * map.size:
@@ -1613,6 +1618,8 @@ func _recount() -> void:
 			com_f += com_cap[lv] * occ
 		elif zn == Config.Zone.IND:
 			ind_f += ind_cap[lv] * occ
+			if map.hightech[i] == 1:
+				ht_f += ind_cap[lv] * occ
 		if road[i] != 0: road_count += 1
 		line_count += line[i]
 		if rail[i] != 0: rail_count += 1
@@ -1626,10 +1633,13 @@ func _recount() -> void:
 			var lvl := map.special_level(i) if sdef.has("service") or sdef.has("research") else 1
 			if map.special[i] == Config.Special.INSTITUTE and special_powered(i):
 				_inst_levels += lvl
-			special_upkeep += Config.SPECIALS[map.special[i]]["upkeep"] * Config.UPKEEP_LEVEL[lvl]
+			var early := Config.SERVICE_UPKEEP_EARLY if sdef.has("service") and lvl == 1 else 1.0
+			special_upkeep += Config.SPECIALS[map.special[i]]["upkeep"] * Config.UPKEEP_LEVEL[lvl] * early
 	population = roundi(pop_f)
 	jobs_com = roundi(com_f)
 	jobs_ind = roundi(ind_f)
+	jobs_hightech = roundi(ht_f)
+	traffic_control = tech("traffic")
 
 
 func _update_demand() -> void:
@@ -1698,9 +1708,17 @@ func growth_blockers(i: int) -> PackedStringArray:
 			out.append("%d Tiles bis zur nächsten Kreuzung - Querstraße bauen" % corner_dist(i))
 		else:
 			out.append("Ladenzeile: Stufe %d nur näher an der Straße" % (lv + 1))
-	if map.zone[i] == Config.Zone.IND and lv < 3 and lv >= _max_level(i):
+	if map.zone[i] == Config.Zone.IND and map.hightech[i] == 1 and _uni_cover(i) < Config.HIGHTECH_ACADEMICS:
+		out.append("Hightech braucht Akademiker: Universität in Reichweite (Hochschule %d %%)" % roundi(_uni_cover(i) * 100.0))
+	elif map.zone[i] == Config.Zone.IND and lv < 3 and lv >= _max_level(i):
 		out.append("Zu wenig Industrie ringsum (%d) - Ballung ab %d für Stufe %d" % [
 			int(ind_cluster[i]), Config.IND_CLUSTER_LEVEL[lv], lv + 1])
+	if map.zone[i] == Config.Zone.RES and lv == 3 and tech("highrise") and map.villa[i] == 0 and land_value.size() > i \
+			and land_value[i] < Config.RES_MIN_LAND[4]:
+		out.append("Hochhaus erst ab %d %% Bodenwert (hier %d %%)" % [roundi(Config.RES_MIN_LAND[4] * 100.0),
+			roundi(land_value[i] * 100.0)])
+	if map.zone[i] == Config.Zone.COM and lv == 3 and tech("offices") and _max_level(i) < 4:
+		out.append("Büroturm: direkt an der Straße nahe einer Kreuzung und ab %d %% Bodenwert" % roundi(Config.COM_TOWER_LAND * 100.0))
 	if map.zone[i] == Config.Zone.RES and happiness.size() > i and lv > 0 and happiness[i] < Config.HAPPY_LEAVE:
 		out.append("Unzufrieden - Leute ziehen weg")
 	if demand_for(map.zone[i]) <= 0.0:
@@ -1852,8 +1870,15 @@ func _max_level(i: int) -> int:
 		Config.Zone.COM:
 			# Ladenzeile: je weiter von der Straße, desto niedriger
 			var by_depth: int = Config.COM_MAX_LEVEL_BY_DEPTH[clampi(road_dist[i], 0, 3)]
-			return mini(by_depth, _corner_level(i))
+			var corner := _corner_level(i)
+			# Büroturm (Stufe 4): Forschung, direkt an der Straße nahe der Kreuzung, hoher Bodenwert
+			if corner == 3 and by_depth == 4 and tech("offices") and land_value.size() > i \
+					and land_value[i] >= Config.COM_TOWER_LAND:
+				corner = 4
+			return mini(by_depth, corner)
 		Config.Zone.IND:
+			if map.hightech[i] == 1 and _uni_cover(i) < Config.HIGHTECH_ACADEMICS:
+				return 0                # Hightech ohne Akademiker in Reichweite: wächst nicht / verfällt
 			var lv_i := 1
 			for k in range(1, 3):
 				if ind_cluster.size() > i and ind_cluster[i] >= Config.IND_CLUSTER_LEVEL[k]:
@@ -1862,10 +1887,16 @@ func _max_level(i: int) -> int:
 		Config.Zone.NONE:
 			return 3
 	var lv := 1
-	for k in range(2, 4):
+	var top := 4 if tech("highrise") and map.villa[i] == 0 else 3     # Hochhaus nur mit Forschung, Villen bleiben Villen
+	for k in range(2, top + 1):
 		if land_value[i] >= Config.RES_MIN_LAND[k]:
 			lv = k
 	return lv
+
+
+func _uni_cover(i: int) -> float:
+	var cov: PackedFloat32Array = coverage.get("university", PackedFloat32Array())
+	return cov[i] if cov.size() > i else 0.0
 
 
 ## Gewerbe: Laufkundschaft kommt von Kreuzungen -> Stufe nach Weg zur nächsten Kreuzung/Ecke.
@@ -1912,6 +1943,8 @@ func decay_reason(i: int) -> String:
 			Config.Zone.COM:
 				return "Lage reicht nur für Stufe %d (Abstand Straße/Kreuzung)" % mx
 			_:
+				if map.hightech[i] == 1 and mx == 0:
+					return "Hightech braucht Akademiker: Universität in Reichweite"
 				return "Zu wenig Industrie ringsum für Stufe %d" % lv
 	if demand_for(zn) < -0.25:
 		return "Keine Nachfrage"
@@ -2549,6 +2582,19 @@ func tech_impact(id: String) -> Dictionary:
 			lines.append("Solarfeld in der Strom-Gruppe: 50 MW tagsüber, sauber")
 			lines.append("Nachts liefert es nichts - Grundlast (Kohle, Biomasse, Wind) oder Speicher behalten")
 			lines.append("Nächstes Projekt: Batteriespeicher")
+		"concrete":
+			lines.append("Betonwerk in der Verarbeitung: 10 Stein + 10 Sand + 1 Kohle -> 12 Beton")
+			lines.append("Beton braucht man für Hochhäuser und Bürotürme (sonst Zukauf)")
+		"highrise":
+			lines.append("Wohnhäuser ab 75 % Bodenwert wachsen zum Hochhaus: 200 statt 80 Einwohner")
+			lines.append("Braucht Beton, Glas und Stahl - Bodenwert heben: Parks, Dienste, weg von Industrie")
+		"offices":
+			lines.append("Gewerbe direkt an der Straße nahe Kreuzungen (ab 60 % Bodenwert) wächst zum Büroturm: 120 Jobs")
+		"hightech":
+			lines.append("Neues Zonen-Werkzeug Hightech-Industrie (Industrie-Gruppe)")
+			lines.append("85 % weniger Verschmutzung, 60 % mehr Steuer - wächst nur im Einzugsbereich einer Universität")
+		"traffic":
+			lines.append("Ampeln und Leitsystem: Straßen vertragen 25 % mehr Verkehr, Stau sinkt")
 		"hydro":
 			lines.append("Wasserkraftwerk in der Strom-Gruppe: 120 MW Tag und Nacht, ohne Abgas")
 			lines.append("Nur direkt am Wasser baubar (Fluss oder See)")
@@ -2585,6 +2631,10 @@ func research_blocker(id: String) -> String:
 	return ""
 
 
+static func research_start_cost(id: String) -> float:
+	return float(Config.RESEARCH[id]["points"]) * Config.RESEARCH_START_PER_POINT
+
+
 ## Projekt starten: Gold aus dem Lager, Rest sofort zukaufen. Rückgabe: Fehlertext oder "".
 func start_research(id: String) -> String:
 	var why := research_blocker(id)
@@ -2592,8 +2642,10 @@ func start_research(id: String) -> String:
 		return why
 	var mats := {"gold": float(Config.RESEARCH[id]["gold"])}
 	var price: float = build_need(mats)[1]
-	if not can_afford(price):
-		return "Nicht genug Geld für den Gold-Zukauf ($%d)" % int(price)
+	var start := research_start_cost(id)
+	if not can_afford(price + start):
+		return "Nicht genug Geld: Start $%d + Gold-Zukauf $%d" % [int(start), int(price)]
+	spend(start)
 	use_build_materials(mats)
 	research_current = id
 	research_progress = 0.0
@@ -2655,7 +2707,8 @@ func tax_happiness() -> float:
 	var d := float(tax[Config.Zone.RES]) - Config.TAX_NEUTRAL[Config.Zone.RES]
 	if d <= 0.0:
 		return d * Config.TAX_HAPPY
-	return d * Config.TAX_HAPPY_UP + d * d * Config.TAX_HAPPY_SQ
+	var q := maxf(d - Config.TAX_HAPPY_SQ_FROM, 0.0)
+	return d * Config.TAX_HAPPY_UP + q * q * Config.TAX_HAPPY_SQ
 
 
 static func admin_for(pop: int) -> float:
@@ -2915,7 +2968,7 @@ func _use_materials(zn: int, lv: int) -> bool:
 	if population < Config.MATERIAL_FROM_POP or not Config.MATERIAL_COST.has(zn):
 		return true
 	var need := material_need(zn, lv)
-	if float(need[1]) > 0.0 and money - _import_pending < float(need[1]):
+	if float(need[1]) > 0.0 and money - _import_pending - float(need[1]) < -Config.MATERIAL_DEBT:
 		return false
 	var cost := growth_materials(zn, lv)
 	for r: String in cost:
@@ -3094,9 +3147,10 @@ func _fires() -> void:
 func _budget() -> void:
 	var jobs := jobs_com + jobs_ind
 	income_parts = {
-		"Wohnen": population * 0.12 * float(tax[Config.Zone.RES]) * 12.0,
-		"Gewerbe": jobs_com * 0.1 * float(tax[Config.Zone.COM]) * 12.0,
-		"Industrie": jobs_ind * 0.1 * float(tax[Config.Zone.IND]) * 12.0,
+		"Wohnen": population * Config.TAX_BASE_RES * float(tax[Config.Zone.RES]) * 12.0,
+		"Gewerbe": jobs_com * Config.TAX_BASE_JOB * float(tax[Config.Zone.COM]) * 12.0,
+		"Industrie": (jobs_ind - jobs_hightech) * Config.TAX_BASE_JOB * float(tax[Config.Zone.IND]) * 12.0,
+		"Hightech": jobs_hightech * Config.TAX_BASE_JOB * float(tax[Config.Zone.IND]) * 12.0 * Config.HIGHTECH_TAX,
 		"ÖPNV": (bus_riders + rail_riders) * float(Config.FARE_PRICE[fare]),
 		"Bodenabgabe": villa_count * Config.VILLA_LEVY,
 		"Rohstoff-Export": export_income,
@@ -3105,7 +3159,8 @@ func _budget() -> void:
 	for k: String in income_parts:
 		last_income += float(income_parts[k])
 	admin_cost = admin_for(population)
-	last_expense = admin_cost + research_spent + road_count * Config.UPKEEP_ROAD + park_count * Config.UPKEEP_PARK \
+	interest_cost = maxf(-money, 0.0) * Config.DEBT_INTEREST     # Schulden kosten Zinsen
+	last_expense = admin_cost + interest_cost + research_spent + road_count * Config.UPKEEP_ROAD + park_count * Config.UPKEEP_PARK \
 		+ line_count * Config.UPKEEP_POWERLINE + special_upkeep \
 		+ rail_count * Config.UPKEEP_RAIL + bus_stop_count * Config.UPKEEP_BUS_STOP \
 		+ station_count * Config.UPKEEP_STATION + _import_pending

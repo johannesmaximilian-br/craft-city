@@ -23,6 +23,7 @@ var villa: PackedByteArray      # 1 = Wohnen Stufe 3 ist eine Villa (statt Wohnb
 var worn: PackedByteArray       # 1 = Gebäude verfällt (sinkt bald ab) -> abgenutzte Optik
 var empty: PackedByteArray      # Leerstand 0..100 % (0 = voll belegt; Default -> alte Saves/Tests voll); 100 = aufgegeben
 var vacant: PackedByteArray     # Monate im Leerstand (nach VACANT_MONTHS abgerissen)
+var hightech: PackedByteArray   # 1 = Industrie-Zone als Hightech (Forschung, eigenes Werkzeug)
 var ore: PackedByteArray        # Bodenvorkommen (Config.Ore)
 var ore_amt: PackedByteArray    # Restmenge des Vorkommens (0 = erschöpft)
 
@@ -48,6 +49,7 @@ func _init(map_size: int = Config.MAP_SIZE) -> void:
 	worn.resize(n)
 	empty.resize(n)
 	vacant.resize(n)
+	hightech.resize(n)
 	ore.resize(n)
 	ore_amt.resize(n)
 
@@ -238,7 +240,7 @@ func notify_changed(rect: Rect2i, infra := true) -> void:
 	tiles_changed.emit(rect)
 
 
-const SAVE_FIELDS := ["height", "zone", "road", "level", "feature", "power_line", "special", "anchor", "rail", "transit", "slevel", "burning", "ruin", "villa", "worn", "ore", "ore_amt", "empty", "vacant"]
+const SAVE_FIELDS := ["height", "zone", "road", "level", "feature", "power_line", "special", "anchor", "rail", "transit", "slevel", "burning", "ruin", "villa", "worn", "ore", "ore_amt", "empty", "vacant", "hightech"]
 
 
 const ORE_VERSION := 2          # 2 = mit Fels (Ore.STONE)

@@ -210,6 +210,8 @@ static func service(b: BlockBatch, base: Vector3, sp: int, lv: int) -> void:
 			pumped(b, base)
 		Config.Special.SALT:
 			salt(b, base)
+		Config.Special.CONCRETE:
+			concrete(b, base, lv)
 		Config.Special.INSTITUTE:
 			institute(b, base, lv)
 		Config.Special.STEELWORKS:
@@ -326,6 +328,19 @@ static func salt(b: BlockBatch, base: Vector3) -> void:
 	b.segment("metal", base + Vector3(1.6, 2.2, 3.2), base + Vector3(2.5, 2.2, 4.2), 0.25)
 	b.segment("metal", base + Vector3(4.4, 2.2, 3.2), base + Vector3(3.5, 2.2, 4.2), 0.25)
 	b.put_box("sand", base + Vector3(5.2, 0.3, 5.2), Vector3(1.0, 0.6, 1.0))                  # Salzvorrat
+
+
+## Betonwerk (6x6): zwei hohe Zementsilos, Mischturm, Fahrmischer-Trommel, Kies-/Sandhaufen.
+static func concrete(b: BlockBatch, base: Vector3, lv: int) -> void:
+	for sx: float in [1.2, 2.6]:
+		b.put_box("vox_white", base + Vector3(sx, 2.6 + lv * 0.3, 1.4), Vector3(1.1, 5.2 + lv * 0.6, 1.1))
+		b.put_box("metal", base + Vector3(sx, 5.4 + lv * 0.6, 1.4), Vector3(0.6, 0.4, 0.6))
+	_hull(b, base + Vector3(3, 0, 0), 3, 3, 0, 3, "greybrick", "metal")                       # Mischturm
+	_roof(b, base + Vector3(3, 0, 0), 3, 3, 3, "metal")
+	b.segment("vox_dark", base + Vector3(2.0, 4.5, 1.4), base + Vector3(3.6, 3.2, 1.5), 0.25) # Förderband
+	b.put_xf("vox_yellow", Transform3D(Basis(Vector3.RIGHT, 0.3).scaled(Vector3(1.0, 1.0, 1.6)), base + Vector3(4.6, 0.8, 4.3)))
+	b.put_box("stone", base + Vector3(1.0, 0.35, 4.6), Vector3(1.4, 0.7, 1.4))               # Kies
+	b.put_box("sand", base + Vector3(2.6, 0.3, 4.8), Vector3(1.2, 0.6, 1.2))
 
 
 ## Universität (9x9): Hauptgebäude mit Säulenportal und Kuppel vorn, zwei Seitenflügel, Rasen-Innenhof.

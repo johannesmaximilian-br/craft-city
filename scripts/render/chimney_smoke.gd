@@ -65,7 +65,8 @@ func _rescan() -> void:
 			_emitters.append([rot * (base + p + Vector3(0, lv + 0.3, 0)), kind])
 	# Industrie: Schlot aus dem Gebäude-Generator, nur Stufe 2-3, jedes dritte Gebäude, nur mit Strom
 	for i in map.size * map.size:
-		if map.zone[i] != Config.Zone.IND or map.level[i] < 2 or sim.powered[i] == 0 or absi(hash(i)) % 3 != 0:
+		if map.zone[i] != Config.Zone.IND or map.level[i] < 2 or map.hightech[i] == 1 or sim.powered[i] == 0 \
+				or absi(hash(i)) % 3 != 0:
 			continue
 		var tx := i % map.size
 		var tz := i / map.size

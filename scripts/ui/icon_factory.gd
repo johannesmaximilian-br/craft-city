@@ -44,6 +44,7 @@ const SERVICE_ICONS := {
 	"university": Config.Special.UNIVERSITY, "institute": Config.Special.INSTITUTE,
 	"biomass": Config.Special.BIOMASS, "solar": Config.Special.SOLAR, "battery": Config.Special.BATTERY,
 	"hydro": Config.Special.HYDRO, "pumped": Config.Special.PUMPED, "salt": Config.Special.SALT,
+	"concrete": Config.Special.CONCRETE,
 }
 
 var lib: BlockLibrary
@@ -119,11 +120,12 @@ func _content(icon_name: String) -> Node3D:
 			var top := Vector3(1.5, 1 + StructureGenerator.POLE_HEIGHT, 1.5)
 			b.segment("coal", top, top + Vector3(0, -0.4, 2.2), 0.08)
 			b.segment("coal", top, top + Vector3(0, -0.4, -2.2), 0.08)
-		"res", "com", "ind":
+		"res", "com", "ind", "hightech":
 			_ground(b, 3)
 			b.base = Vector3(0, 1, 0)
-			var zone: int = {"res": Config.Zone.RES, "com": Config.Zone.COM, "ind": Config.Zone.IND}[icon_name]
-			BuildingGenerator.emit(zone, 2, 7, b.put_local, b.prop_local)
+			var zone: int = {"res": Config.Zone.RES, "com": Config.Zone.COM, "ind": Config.Zone.IND,
+				"hightech": Config.Zone.IND}[icon_name]
+			BuildingGenerator.emit(zone, 2, 7, b.put_local, b.prop_local, false, icon_name == "hightech")
 		"app":
 			# Insel 9x9 Blöcke: Gras + Erdschicht, Hochhaus, Haus, Fabrik, Bäume, Straße
 			for z in 9:
@@ -152,7 +154,7 @@ func _content(icon_name: String) -> Node3D:
 			StructureGenerator.coal(b, Vector3(0, 1, 0))
 		"police", "fire", "school", "hospital", "library", "cinema", "townhall", "theater", "stadium", \
 				"lumber", "quarry", "pit", "mine", "warehouse", "sawmill", "brickworks", "glassworks", "steelworks", \
-				"nursery", "prospector", "recycler", "university", "institute", "biomass", "solar", "battery", "hydro", "pumped", "salt":
+				"nursery", "prospector", "recycler", "university", "institute", "biomass", "solar", "battery", "hydro", "pumped", "salt", "concrete":
 			var sp: int = SERVICE_ICONS[icon_name]
 			var s: int = Config.SPECIALS[sp]["size"] * Config.TILE_BLOCKS
 			_ground(b, s)

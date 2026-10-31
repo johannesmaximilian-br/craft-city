@@ -1067,6 +1067,64 @@ static func energytest() -> void:
 	s.free()
 
 
+## Forschung Schritt 3 (mit --loadfile=<große Stadt mit Uni>): Stadt-Projekte erforscht setzen, Hightech-Zone an der
+## Uni ausweisen, 12 Monate -> Hochhäuser, Bürotürme, Hightech, Stau, Einnahmen.
+static func citytechtest(game: Node) -> void:
+	var map: CityMap = game.map
+	var sim: Simulation = game.sim
+	var tools: ToolController = game.tools
+	var count := func() -> Dictionary:
+		var c := {"res4": 0, "com4": 0, "ht": 0, "ht_built": 0}
+		for i in map.size * map.size:
+			if map.level[i] == 4 and map.zone[i] == Config.Zone.RES: c["res4"] += 1
+			if map.level[i] == 4 and map.zone[i] == Config.Zone.COM: c["com4"] += 1
+			if map.hightech[i] == 1:
+				c["ht"] += 1
+				if map.level[i] > 0: c["ht_built"] += 1
+		return c
+	sim.tick_month()
+	var c0: Dictionary = count.call()
+	var pop0 := sim.population
+	var jam0 := sim.avg_congestion
+	sim.money += 200000
+	print("citytechtest vorher: Einw. %d, Stau Ø %d%%, Hightech-Werkzeug gesperrt: '%s'" % [pop0, roundi(jam0 * 100.0),
+		tools.locked_reason(ToolController.Tool.HIGHTECH)])
+	for id: String in ["concrete", "highrise", "offices", "hightech", "traffic"]:
+		if not sim.research_done.has(id):
+			sim.research_done.append(id)
+	# Hightech: freie Fläche an einer Straße nahe der ersten Universität (6x2)
+	var uni := -1
+	for a in map.size * map.size:
+		if map.anchor[a] == a and map.special[a] == Config.Special.UNIVERSITY:
+			uni = a
+			break
+	var placed := 0
+	if uni >= 0:
+		tools.set_tool(ToolController.Tool.HIGHTECH)
+		var ux := uni % map.size
+		var uz := uni / map.size
+		for r in range(3, 14):
+			for z in range(uz - r, uz + r + 1):
+				for x in range(ux - r, ux + r + 1):
+					if placed >= 12 or not map.in_bounds(x, z):
+						continue
+					var i := map.idx(x, z)
+					if map.zone[i] == Config.Zone.NONE and map.road[i] == 0 and map.special[i] == Config.Special.NONE \
+							and not map.is_water(x, z) and sim.road_dist.size() > i and sim.road_dist[i] <= 2 and map.rail[i] == 0:
+						tools._apply([Vector2i(x, z)] as Array[Vector2i])
+						placed += 1
+		tools.set_tool(ToolController.Tool.INSPECT)
+	print("citytechtest Hightech-Zone ausgewiesen: %d Tiles (Uni %s)" % [placed, uni >= 0])
+	for m in 12:
+		sim.tick_month()
+	var c1: Dictionary = count.call()
+	print("citytechtest nach 12 Monaten: Einw. %d -> %d, Hochhäuser %d -> %d, Bürotürme %d -> %d, Hightech %d/%d bebaut, Stau Ø %d%% -> %d%%" % [
+		pop0, sim.population, c0["res4"], c1["res4"], c0["com4"], c1["com4"], c1["ht_built"], c1["ht"],
+		roundi(jam0 * 100.0), roundi(sim.avg_congestion * 100.0)])
+	print("citytechtest Einnahmen: %s, Beton im Lager %d, zugekauft letzter Monat %s" % [sim.income_parts,
+		int(sim.stock.get("concrete", 0.0)), sim.imported.get("concrete", 0.0)])
+
+
 ## Teil B im laufenden Spiel: Standortregeln (Wasser/Hang) über das Werkzeug, Umrüsten Kohle -> Salzspeicher.
 static func energytest_b(game: Node) -> void:
 	var map: CityMap = game.map

@@ -26,7 +26,7 @@ var mode := Mode.OFF
 var service_cat := ""
 var _roofs: MultiMeshInstance3D     # Einfärbung bebauter Tiles auf Dachhöhe (sonst im Gebäude versteckt)
 # ungefähre Dachhöhe (Blöcke) je Zone und Stufe
-const ROOF := [[0, 0, 0, 0], [0, 2.0, 3.2, 6.5], [0, 2.0, 5.0, 11.0], [0, 3.0, 3.2, 4.2]]          # gesetzt = Versorgungsansicht dieses Dienstes (hat Vorrang)
+const ROOF := [[0, 0, 0, 0, 0], [0, 2.0, 3.2, 6.5, 17.0], [0, 2.0, 5.0, 11.0, 22.0], [0, 3.0, 3.2, 4.2, 4.2]]          # gesetzt = Versorgungsansicht dieses Dienstes (hat Vorrang)
 
 
 func setup(city_map: CityMap, simulation: Simulation) -> void:

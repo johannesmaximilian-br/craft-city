@@ -134,6 +134,15 @@ static func run(game: Node) -> void:
 		DevTests.decaytest()
 	if has("--worn"):
 		DevTests.mark_worn(game)
+	if has("--lv4"):
+		# Screenshot: Wohnen/Gewerbe Stufe 3 -> 4, Industrie -> Hightech (nur Optik)
+		var mp: CityMap = game.map
+		for i in mp.size * mp.size:
+			if mp.level[i] == 3 and mp.zone[i] in [Config.Zone.RES, Config.Zone.COM] and mp.villa[i] == 0:
+				mp.level[i] = 4
+			elif mp.zone[i] == Config.Zone.IND and mp.level[i] > 0:
+				mp.hightech[i] = 1
+		mp.notify_changed(Rect2i(0, 0, mp.size, mp.size), false)
 	if has("--vacant"):
 		# jedes 3. Gebäude als Leerstand markieren (Screenshot)
 		var mp: CityMap = game.map
@@ -184,6 +193,12 @@ static func run(game: Node) -> void:
 		for i in game.map.size * game.map.size:
 			if game.map.anchor[i] == i and game.map.special[i] in [Config.Special.BIOMASS, Config.Special.SOLAR, Config.Special.BATTERY]:
 				print("energybuild %s bei %d,%d" % [Config.SPECIALS[game.map.special[i]]["name"], i % game.map.size, i / game.map.size])
+	if value("--humanrun") != "":
+		# --humanrun=Jahre[,seed]: Neustart wie ein Mensch gespielt (Balance-Messung)
+		var hv := value("--humanrun").split(",")
+		HumanPlayer.new().run(game, int(hv[0]), int(hv[1]) if hv.size() > 1 else 1)
+	if has("--citytechtest"):
+		await DevTests.citytechtest(game)
 	if has("--energytest"):
 		DevTests.energytest()
 	if has("--energytestb"):

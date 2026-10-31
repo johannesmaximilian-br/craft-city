@@ -164,12 +164,13 @@ Werte und Reichweiten: `scripts/config.gd` (Abschnitte *Standortregeln*, *Zonen-
 
 | Steuer (Regler W/G/I oben rechts) | neutral | Wirkung je Punkt über neutral |
 |---|---|---|
-| Wohnen | 9 % | Nachfrage −0,05 und Zufriedenheit −4 je Punkt **plus quadratisch** (+1 → −4,4 %, +3 → −16 %, +6 → −38 %); unter neutral +2 je Punkt |
+| Wohnen | 9 % | Nachfrage −0,05 und Zufriedenheit −4 je Punkt, **ab +2 Punkten zusätzlich quadratisch** (+2 → −8 %, +3 → −12,4 %, +6 → −30,4 %); unter neutral +2 je Punkt |
 | Gewerbe | 9 % | Gewerbe-Nachfrage −0,04 |
 | Industrie | 12 % | Industrie-Nachfrage −0,025 (robust, „dreckig, nimmt es hin“) |
 
 - **Verwaltung**: ab 5.000 Einwohnern Ausgabe 0,06 × (Einw. − 5.000)² / 50.000 pro Monat (10.000 Einw. → 30 $, 20.000 → 270 $, 40.000 → 1.470 $). Große Städte werden dadurch nicht endlos reich; Tooltip auf „+x / Monat“ zeigt den Posten.
-- Einnahmen/Monat = Einwohner × 0,12 × Wohnsteuer × 12 + Gewerbejobs × 0,1 × Gewerbesteuer × 12 + Industriejobs × 0,1 × Industriesteuer × 12 + ÖPNV-Tarif + Bodenabgabe der Villen. Tooltip auf „+x / Monat“ zeigt die Aufteilung.
+- Einnahmen/Monat = Einwohner × 0,18 × Wohnsteuer × 12 + Gewerbejobs × 0,15 × Gewerbesteuer × 12 + Industriejobs × 0,15 × Industriesteuer × 12 (Hightech × 1,6) + ÖPNV-Tarif + Bodenabgabe der Villen (seit 31.10. +50 %, Straßenunterhalt halbiert auf 0,2 $/Feld – Kleinstädte trugen sich nicht). **Schulden kosten 1 % Zinsen pro Monat** auf den Minusbetrag. Tooltip auf „+x / Monat“ zeigt die Aufteilung.
+- **Spieltempo** (seit 31.10. langsamer): normal 8 s, schnell 4 s, sehr schnell 1,5 s je Spielmonat (vorher 3/1,5/0,5 s – 40 Spieljahre waren nur 24 bzw. 4 Minuten). 40 Jahre ≈ 64 / 32 / 12 Minuten.
 - **ÖPNV-Tarif** (Button unter den Steuern): **kostenlos** – keine Einnahmen, Einstieg in die Bahn wirkt günstiger, Busanteil 55 %, +5 Zufriedenheit für Wohnhäuser mit Bus-/Bahnanschluss · **normal** – $0,10 je Fahrgast, Busanteil 40 % · **teuer** – $0,20, Busanteil 25 %, −3 Zufriedenheit.
 - Demo-Stadt (`--taxtest`): neutral $188/Monat; Industrie 16 % → +$13, Nachfrage I −0,10; Wohnen 13 % → +$47, aber Zufriedenheit −22 (vor 23.10.: −8), Wohnnachfrage −0,40.
 - **Balance-Messung 23.10.** (`--freshrun=20`, `--econreport`): Neustart mit 20.000 $ fällt nie unter ~6.500 $, Saldo nach 20 Jahren +1.200 $/Jahr bei 1.300 Einw. (Wachstum bremst die Nachfrage, nicht das Geld). Megacity des Nutzers (42.700 Einw.): vorher +2.400 $/Monat (Einnahmen 30 % über Ausgaben, 14,5 Mio. $ in der Kasse), jetzt +530 $/Monat (Verwaltung 1.700 $, Zukauf 570 $), Zufriedenheit 91 % bei Wohnsteuer 10 %. Tarif kostenlos/normal/teuer: 244/178/110 Fahrgäste, $0/18/22, Zufriedenheit 65/60/57 %.
@@ -212,7 +213,7 @@ Werte und Reichweiten: `scripts/config.gd` (Abschnitte *Standortregeln*, *Zonen-
 
 (× Ausbaustufe; reicht ein Rohstoff nicht, läuft das Werk anteilig – Info-Karte: „Zu wenig Sand (50 % Auslastung)“.)
 
-- **Baustoffbedarf beim Wachsen** (ab 400 Einwohnern; Stufe 1 bleibt kostenlos):
+- **Baustoffbedarf beim Wachsen** (ab **2.000** Einwohnern – vorher 400, das war eine Armutsfalle für Kleinstädte; Stufe 1 bleibt kostenlos; der Zukauf darf die Kasse bis −2.000 $ ins Minus drücken, statt das Wachstum zu stoppen):
 
 | | Stufe 2 | Stufe 3 |
 |---|---|---|
@@ -276,11 +277,24 @@ Werte und Reichweiten: `scripts/config.gd` (Abschnitte *Standortregeln*, *Zonen-
 - Tests `--energytest` (Solar allein / +Batterie / +Biomasse / Holz-Zukauf), Screenshot-Flags `--energybuild`, `--time=0..1` (0 Mitternacht, 0.25 Morgen, 0.72 Abend).
 - Standortregeln: Vorschau zeigt den Grund statt des Preises (z.B. „Pumpspeicher braucht einen Hang …“). Test `--energytestb` (mit `--demo`: Standorte, Bau, Umrüsten).
 
+## Stadt-Forschung (Forschung Schritt 3)
+
+| Projekt | Voraussetzung | Wirkung |
+|---|---|---|
+| **Beton** | – | Betonwerk (Verarbeitung, 2×2): 10 Stein + 10 Sand + 1 Kohle → 12 Beton |
+| **Hochhäuser** | Beton | Wohnen **Stufe 4**: 200 statt 80 Einwohner, ab 75 % Bodenwert (keine Villen), Bau braucht 14 Beton, 8 Glas, 6 Stahl |
+| **Bürotürme** | Beton | Gewerbe **Stufe 4**: 120 statt 50 Jobs, direkt an der Straße nahe einer Kreuzung und ab 60 % Bodenwert; 12 Beton, 14 Glas, 10 Stahl |
+| **Hightech-Industrie** | – | eigenes Zonen-Werkzeug (Industrie-Gruppe): zählt als Industrie, gleiche Jobs, **15 % der Verschmutzung**, **1,6× Steuer** (eigener Einnahme-Posten „Hightech“), kein Rauch; wächst nur, wo die Hochschul-Versorgung ≥ 20 % ist (Universität in Reichweite), sonst Blocker „Hightech braucht Akademiker“ |
+| **Verkehrsleitsystem** | – | Straßen vertragen 25 % mehr Verkehr (Auslastung × 0,8) → weniger Stau |
+
+Info-Karte: „Hochhaus/Büroturm · Stufe 4“, „Hightech-Industrie“; Wachstumsblocker nennen fehlenden Bodenwert/Lage. Test `--citytechtest` (mit `--loadfile=<große Stadt mit Uni>`).
+
 ## Forschung
 
-1. **Universität** (3×3, 15.000 $ + 200 Ziegel, 100 Stein, 60 Glas, 40 Stahl; Unterhalt 60 $): verfügbar ab **8.000 Einwohnern** und **70 % Schulversorgung**. Dienst „Hochschule“ mit 2,5-facher Reichweite und 4-facher Kapazität (Stufe 1: 3.200, Stufe 3: 18.000 Einwohner). **Akademiker** = von Unis versorgte Einwohner, je Uni höchstens ihre Kapazität. Ab 8.000 Einwohnern erwarten die Bürger eine Hochschule (Zufriedenheit).
+1. **Universität** (3×3, 15.000 $ + 200 Ziegel, 100 Stein, 60 Glas, 40 Stahl; Unterhalt 60 $): verfügbar ab **6.000 Einwohnern** (vorher 8.000 – laut Bot-Messung für normale Spieler kaum erreichbar) und **70 % Schulversorgung**. Dienst „Hochschule“ mit 2,5-facher Reichweite und 4-facher Kapazität (Stufe 1: 3.200, Stufe 3: 18.000 Einwohner). **Akademiker** = von Unis versorgte Einwohner, je Uni höchstens ihre Kapazität. Ab 6.000 Einwohnern erwarten die Bürger eine Hochschule (Zufriedenheit).
 2. **Forschungsinstitut** (2×2, 8.000 $, Unterhalt 40 $, Strom): erst wenn eine Universität steht. Erzeugt **30 Punkte je Monat und Stufe** × Akademiker-Faktor × Budget-Faktor. Volle Leistung braucht **1.500 Akademiker je Institutsstufe** (sonst anteilig, mindestens 10 %) – mehr Institute brauchen also auch größere/mehr Unis. (Erster Entwurf nahm die Quote der ganzen Stadt: in der Megacity nur 5 % → Großstädte wären bestraft worden.)
-3. **Forschungsfenster** (Knopf oben neben „Ansicht“, 620 px breit): Kopf mit Instituten/Akademikern und Budget in je einer Zeile, darunter **Bereiche zum Aufklappen** (Rohstoffe & Industrie, Energie; aufgeklappt, wenn dort etwas läuft oder bereit ist) mit **einer Karte je Projekt** in Abhängigkeitsreihenfolge: Name + Plakette (BEREIT/LÄUFT/GESPERRT/ERFORSCHT), Wirkung, Punkte/Gold/Dauer, „Projekt starten“ bzw. Fortschrittsbalken. Gesperrte Karten sind ausgegraut und nennen die Voraussetzung („Voraussetzung: Batteriespeicher erforschen“), erforschte sind kompakt. Ein Projekt gleichzeitig; **Budget** in Stufen 0 / 250 / 500 / 1.000 / 2.000 / 3.000 $ pro Monat, Faktor 0,25 + 0,75 × √(Budget / 1.000) (0 $ → ×0,25, 1.000 $ → ×1, 3.000 $ → ×1,55). Das Budget wird nur ausgegeben, solange ein Projekt läuft; **Gold** wird beim Start verbraucht (fehlt es: Sofort-Zukauf). Abschluss als Meldung.
+- **Kosten (31.10. erhöht):** Startpreis je Projekt = Punkte × 10 $ (Tiefbau 15.000 $, Salzspeicher 36.000 $) + Gold; Budget-Stufen 0 / 500 / 1.000 / 2.000 / 5.000 / 10.000 $ pro Monat, Faktor 0,25 + 0,75 × √(Budget / 2.000) (2.000 $ → ×1, 10.000 $ → ×1,93).
+3. **Forschungsfenster** (Knopf oben neben „Ansicht“, 620 px breit): Kopf mit Instituten/Akademikern und Budget in je einer Zeile, darunter **Bereiche zum Aufklappen** (Rohstoffe & Industrie, Energie; aufgeklappt, wenn dort etwas läuft oder bereit ist) mit **einer Karte je Projekt** in Abhängigkeitsreihenfolge: Name + Plakette (BEREIT/LÄUFT/GESPERRT/ERFORSCHT), Wirkung, Punkte/Gold/Dauer, „Projekt starten“ bzw. Fortschrittsbalken. Gesperrte Karten sind ausgegraut und nennen die Voraussetzung („Voraussetzung: Batteriespeicher erforschen“), erforschte sind kompakt. Ein Projekt gleichzeitig; **Budget** in Stufen (siehe Kosten oben). Das Budget wird nur ausgegeben, solange ein Projekt läuft; **Gold** wird beim Start verbraucht (fehlt es: Sofort-Zukauf). Abschluss als Meldung.
 
 | Projekt | Punkte | Gold | Voraussetzung | Wirkung |
 |---|---|---|---|---|
@@ -397,18 +411,20 @@ python3 tools/audio/gen_audio.py sfx ambient  # nur Effekte + Loops (~3 s)
 - [x] Rohstoffe Schritt 3: Verarbeitung (Bretter, Ziegel, Glas, Stahl), Baustoffbedarf beim Wachsen, Kohlekraftwerk verbraucht Kohle
 - [ ] **Erneuerbare Energien** (Kohle ist endlich, Unabhängigkeit vom Handel): umgesetzt über „Forschung Schritt 2 – Energie“ (unten); Geothermie später mit der Untertage-Ebene
 - [x] Rohstoffe Schritt 4: Erneuerung (Waldausbreitung, Baumschule, Prospektor, Regeneration, Recycling)
-- [x] **Forschung Schritt 1** (23.10.): Universität (ab 8.000 Einw. + 70 % Schule), Forschungsinstitut, Budget-Regler, Gold je Projekt, Forschungsfenster, Durchbruch-Karte, sichtbare Wirkung (Rauch, Modelle). Projekte: Tiefbau, Effiziente Bauweise, Kraftwerksfilter, Moderne Hochöfen
+- [x] **Forschung Schritt 1** (23.10.): Universität (ab 6.000 Einw. seit 31.10., vorher 8.000; + 70 % Schule), Forschungsinstitut, Budget-Regler, Gold je Projekt, Forschungsfenster, Durchbruch-Karte, sichtbare Wirkung (Rauch, Modelle). Projekte: Tiefbau, Effiziente Bauweise, Kraftwerksfilter, Moderne Hochöfen
 - [ ] **Forschung Schritt 2 – Energie** (zugleich „Erneuerbare Energien“, Konzept 31.10.; **fertig 31.10.**: Tag/Nacht, Biomasse, Solarfeld, Batterie, Wasserkraft, Pumpspeicher, Salzspeicher):
   - **Solarfeld** (nur tagsüber, braucht Fläche), **Wasserkraft** (nur an Fluss/See, teuer)
   - **Biomasse** (Nutzerwunsch): günstig, ~60 MW, verbrennt Holz aus dem Lager (konkurriert mit dem Sägewerk, sonst teurer Zukauf → braucht Holzfäller + Baumschule), Abgas ≈ halbe Kohle-Verschmutzung mit sichtbarem Rauch; Raubbau am Wald senkt den Grünfilter
   - **Speicher** in Forschungsstufen: Batterie (klein, teuer, Stahl + Gold) → Pumpspeicher (groß, nur Hang + Wasser) → **Salzspeicher** (Nutzeridee; Flüssigsalz-Wärmespeicher wie in Solarthermie-Kraftwerken bzw. Carnot-Batterie: sehr groß, günstig, alte Kohlekraftwerke umrüstbar statt Abriss; Sand + Stahl + Gold). Speicher nehmen Überschuss von Wind/Sonne auf und liefern nachts/bei Flaute
-- [ ] **Forschung Schritt 3 – Stadt**: Hochhäuser (Wohnen Stufe 4), Bürotürme (Gewerbe Stufe 4), **Hightech-Industrie** (Nutzerwunsch: eigenes Zonen-Werkzeug, gleiche Kategorie wie Industrie, wenig Verschmutzung, braucht Akademiker), Verkehrsleitsystem (−20 % Stau), Beton (neuer Baustoff aus Stein + Sand)
+- [x] **Forschung Schritt 3 – Stadt** (31.10.): Hochhäuser (Wohnen Stufe 4), Bürotürme (Gewerbe Stufe 4), **Hightech-Industrie** (Nutzerwunsch: eigenes Zonen-Werkzeug, gleiche Kategorie wie Industrie, wenig Verschmutzung, braucht Akademiker), Verkehrsleitsystem (−20 % Stau), Beton (neuer Baustoff aus Stein + Sand)
 - [ ] Forschung später: Untertage/Tiefbau 2 (Geothermie, U-Bahn), weitere Projekte nach Bedarf; Balance (Dauer, Kosten) nach echtem Spielen nachjustieren
+- [ ] **Aufbau-Start** (Konzept 31.10., Nutzer: nicht zu Siedler-artig, keine Zelte, keine 3rd-Person): Start mit Rathaus + Lagerhof an einer Lichtung, erst Material sammeln (Holz/Stein), dann bauen; Gebäude entstehen als **Baustellen** (Gerüst, Materialstapel, steht still bei Mangel); Lagerhof zeigt den Vorrat als echte Stapel. **Bürgermeister-Figur** (Kit-Charakter) am Rathaus, läuft zu Baustellen/Problemorten und **verkündet dauerhaft die Meldungen** (Strom knapp, Unzufriedenheit …) per Sprechblase; Aufgabenliste als Einstieg. **Arbeiter/Träger laufen auch später sichtbar herum.** Offen: wie der Aufbau-Teil im späteren Spiel relevant bleibt (Abwägung nach Bot-Messung)
 - [ ] **Lieferverkehr**: Liefermengen als LKW-Fahrten zum Lager (Straßenlast, sichtbare Laster), Güterbahnhof für entfernte Minen, Lieferweg-Kosten
 - [ ] Untertage-Ebene, Tunnel zu Nachbarstädten, Handel mit fiktiven Bürgermeistern
 - [ ] **U-Bahn** (Untertage-Ebene, Stationen, kein Flächenverbrauch an der Oberfläche)
 - [ ] **Erweiterter Handel** mit Nachbarstädten: Verträge (Strom, Rohstoffe, Müll), Preise nach Angebot/Nachfrage, Beziehungen zu den Bürgermeistern
 - [ ] **Konflikte** mit Nachbarstädten (z.B. Streit um Wasser/Grenzen/Verschmutzung, Handelsembargo) – Ausgestaltung offen
+- [ ] **Easy Mode** (Nutzeridee 31.10.): Startoption mit mehr Startkapital, niedrigeren Schwellen (Uni, Baustoffe) und sanfterem Steuer-Abzug; normales Spiel bleibt die Herausforderung (Ziel: Forschung nach ~50–70 Spieljahren ≈ 70–95 min)
 - [ ] Budget-Fenster (Ressorts, **Kredite**, Jahresbilanz) – Nutzerwunsch: fehlt Geld für Bau + Material-Zukauf, Kredit aufnehmen statt nicht bauen
 - [x] Brände sichtbar (Flammen/Rauch/Ruinen), Feuerwehr-Einsätze mit Löschzügen, Meldungen mit Kamera-Sprung
 - [ ] Brand-Geräusche (Sirene, Knistern), evtl. Brandschutz-Ansicht (V)
