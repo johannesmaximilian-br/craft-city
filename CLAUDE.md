@@ -141,7 +141,8 @@ $G --path . -- --demo --cam=32,32,60 --screenshot=/pfad/bild.png          # Scre
   `SplashArt` (scripts/dev/splash_art.gd): `--loadfile=<megacity-kopie> --splash[=brick|grass|stone] --cam=64,64,70
   --screenshot=…` – 3D-Logo aus Spielblöcken (Pixel-Schrift, 2x2 Blöcke je Pixel, Stil brick = Nutzerwahl) in eigener
   SubViewport, schwebende Gebäudeblöcke, Tilt-Shift-Unschärfe der Stadt (CameraAttributesPractical), Lichthof,
-  Vignette, Schriftband. Nutzer-Feedback: bunte Flach-Würfel und Strahlenkranz passten nicht. Vollbild beim Start über `GraphicsSettings.apply_window()`, nie bei Läufen mit Dev-Flags.
+  Vignette, Schriftband, seit 31.10. **Bürgermeister** (Male_2, winkend, frei schwebend, eigene SubViewport rechts unten;
+  Nutzer: ohne Sprechblase/Sockel, darf das Logo nicht verdecken). Nutzer-Feedback: bunte Flach-Würfel und Strahlenkranz passten nicht. Vollbild beim Start über `GraphicsSettings.apply_window()`, nie bei Läufen mit Dev-Flags.
 - **Rohstoffe:** Map-Felder `ore` (Config.Ore) und `ore_amt` (Byte; 1 Punkt = `ORE_UNIT` Einheiten, Bruchteile in
   `Simulation._ore_used`, nicht gespeichert). Erzeugung `CityMap._generate_ores` (nach Höhe/Wassernähe + Rauschen).
   Abbau-Gebäude = Sonderbauten mit `"produce"` (bzw. `"storage"`), kein `"service"`. `Simulation._produce()` läuft in
@@ -256,15 +257,20 @@ $G --path . -- --demo --cam=32,32,60 --screenshot=/pfad/bild.png          # Scre
   um (Stufe aus Einwohnern + Gebautem, `construct` = 0, Rathaus per `best_site`, Lager per `_worst_gap`-Integralbild,
   notfalls Abriss; Ergebnis in `CityMigrate.last`, Meldung über `sim.message`). Spielstart ohne Dev-Flags ruft
   `main._new_city()`. **Dev-Läufe** setzen in `DevTools.run` `hall_level` auf die höchste Stufe (Demo/Tests bauen auf
-  leerer Karte mit allen Werkzeugen); `--buildstart` setzt über `_new_city()` zurück auf 1. Bot `HumanPlayer` startet mit
-  `START_MONEY` + höchster Stufe (überspringt Gründung; baut keine Lager → Ergebnisse über 2.000 Einw. nicht mehr mit
-  früheren vergleichbar, Bot-Ausbau für Gründung/Lager steht aus). `ToolController.special_for` ist static (Migration nutzt es).
+  leerer Karte mit allen Werkzeugen); `--buildstart` setzt über `_new_city()` zurück auf 1. Bot `HumanPlayer` spielt seit 31.10. den
+  echten Start (`CityStart.setup_build`, Spirale um das Rathaus, Blöcke mit Sonderbau werden übersprungen): Rohstoff-
+  Ketten `CHAIN` nach Bedarf der nächsten Rathaus-Stufe (`_ensure`, neuer Holzfäller wenn keiner mehr fördert),
+  Anschluss per Breitensuche (`_link_road` zum Rathaus-Straßennetz, `_link_power` zum nächsten Netz mit Kraftwerk –
+  Start-Tiles dürfen Zonen sein), Rathaus-Ausbau sobald `hall_next().ok`, Lagerhaus an `CityMigrate._worst_gap` ab
+  1.000 Einw.; gesperrte Werkzeuge werden ausgelassen. `--verbose` zeigt Leitungs-Suche + Monatsposten. Ergebnisse vor
+  dem 31.10. (Startkapital 20.000, alles frei) sind nicht vergleichbar. `ToolController.special_for` ist static (Migration nutzt es).
   Rathaus-Stufe `sim.hall_level` (1..5). Start:
   `CityStart.setup_build` (Rathaus `Special.CITYHALL` 3x3 mit `"storage"` + 30 MW, Lichtung, Straßenstück). Sperren über
   `ToolController.HALL_LEVEL` (Tool → Stufe) in `locked_reason`. Vor Stufe 2: `can_trade()` false (kein Zukauf, Werkzeuge
   verweigern bei fehlendem Material: `_no_trade_reason`), keine Steuern/kein Unterhalt (`_budget`), Sonderbauten
-  × `BUILD_FOUNDING_COST`, `founding_jobs()` statt Gewerbe/Industrie, RES ohne Pendel-Pflicht (`_can_grow`,
-  `growth_blockers`). Stufe-1-Material `BUILD_LV1_COST` über `growth_materials` (Wachstum 0→1 ruft `_use_materials`).
+  × `BUILD_FOUNDING_COST`, `founding_jobs()` statt Gewerbe/Industrie, RES ohne Pendel-Pflicht (`founding()` in `_can_grow`,
+  `growth_blockers`). **Übergang ab Stufe 2:** Gründungs-Jobs zählen weiter, bis Gewerbe + Industrie so viele Jobs haben
+  (`_founding_left`, in `_recount`) – vorher zog beim Ausbau die ganze Siedlung weg (Bot-Messung 31.10.). Stufe-1-Material `BUILD_LV1_COST` über `growth_materials` (Wachstum 0→1 ruft `_use_materials`).
   Rathaus-Fenster: HUD-Popup "hall" (`_fill_hall`), Ausbau `sim.upgrade_hall()`.
 - **Baustellen/Lager-Netz:** Map-Feld `construct` (halbe Monate, Sonderbau am Anker). `residents`/
   `jobs_at`/`_recount` zählen Baustellen nicht, `special_powered` ist false und Kraftwerke liefern 0, `_producers` überspringt.
@@ -327,6 +333,18 @@ $G --path . -- --demo --cam=32,32,60 --screenshot=/pfad/bild.png          # Scre
 
 - Bahnhofs-Kapazität ist umgesetzt (Aufschlag + hartes Limit 150 %). Gleis-Kapazität (`RAIL_CAPACITY`) wirkt weiter nur
   weich. Pendler, die nirgends hinkommen, zählen nur als `unreachable_workers` (kein Wachstums-Malus) — ggf. später.
+- **Aufbau-Balance (Bot 31.10.):** Nutzer-Grundsätze: Handel teuer in beide Richtungen (`IMPORT_FACTOR` =
+  `EXPORT_FACTOR` = 3), **jede Rathaus-Stufe muss ohne Zukauf erreichbar sein** (Ketten prüfen, wenn Werke/Stufen
+  geändert werden – die Ziegelei brauchte Kohle, die erst die Mine auf Stufe 3 liefert = Sackgasse; jetzt `fuel_alt`
+  Holz bei 70 %), Kredit später (Roadmap). Dorf: Werke 30 % (`VILLAGE_WORKS_COST`), Polizei/Feuerwehr erst ab Stufe 3
+  (`SERVICE_HALL`, `service_expected()`). Holz ist der Engpass: Holzfäller roden ihren Kreis in wenigen Jahren leer →
+  Baumschule daneben (Bot macht das jetzt). Stahlwerk auf Stufe 3 vorgezogen (Stufe 4 verlangt Stahl).
+  Bot baut dicht (Nutzer: Wohnen/Gewerbe-Zonen max. 4×3, nah beieinander, Industrie abseits): Raster `CW`×`CD` = 5×4
+  (4×3 Zone + geteilte Ringstraße), Wohnen/Gewerbe nach Nachfrage gemischt um das Rathaus, Industrie ab Block-Spalte
+  `IND_FROM` östlich mit freier Spalte als Grüngürtel. Große 6×6-Blöcke je Zonenart blockierten das Dorf (Wohnen ohne
+  erreichbare Jobs). Stand (3 Seeds × 50 J., Sim-Zufall nicht gesetzt → Läufe streuen): alle 3 Stufe 3 nach 10–15 J.,
+  ein Straßennetz, danach 1.000–1.500 Einw.; Stufe 4 nie (3.000 Einw. + Glas/Stahl). Ende-Ausgabe „Straßennetze an Wohnen“.
+  Rohstoff-Verkauf zu 3× ist im Dorf eine starke Geldquelle (beobachten).
 - **Balance ist Zwischenstand (23.10.):** nach Einbau der Forschung neu prüfen (`--freshrun`, `--econreport`): Früh-Spiel
   zu leicht (Geld bremst nie, nur Nachfrage), Startkapital ggf. 15.000; Spät-Spiel braucht Forschung als Geld-/Gold-Senke.
 - Nutzer-Spielstände analysieren: Datei nach Scratchpad **kopieren**, dann `--loadfile=<kopie>` (+ `--jamreport`, `--cartest`).

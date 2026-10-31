@@ -224,7 +224,9 @@ static func run(game: Node) -> void:
 	if value("--humanrun") != "":
 		# --humanrun=Jahre[,seed]: Neustart wie ein Mensch gespielt (Balance-Messung)
 		var hv := value("--humanrun").split(",")
-		HumanPlayer.new().run(game, int(hv[0]), int(hv[1]) if hv.size() > 1 else 1)
+		var hp := HumanPlayer.new()
+		hp.verbose = has("--verbose")
+		hp.run(game, int(hv[0]), int(hv[1]) if hv.size() > 1 else 1)
 	if has("--buildstart"):
 		await DevTests.buildstarttest(game)
 	if has("--mayortest"):

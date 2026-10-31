@@ -101,6 +101,7 @@ const MINE_RATE := {"coal": 15, "iron": 10, "gold": 3}
 # (IMPORT_FACTOR x Exportpreis); ohne Geld dafür stoppt das Wachstum.
 const MATERIAL_FROM_POP := 2000     # vorher 400: Kleinstädte steckten in der Armutsfalle (kein Geld -> kein Material -> kein Wachstum)
 const MATERIAL_DEBT := 2000.0      # Material-Zukauf beim Wachsen darf die Kasse bis zu so weit ins Minus drücken
+const EXPORT_FACTOR := 3.0         # Verkauf ebenso 3× Grundpreis (Nutzer 31.10.: Handel teuer, eigene Förderung lohnt)
 const IMPORT_FACTOR := 3.0         # Zukauf = 3× Exportpreis (bei 2× lohnten eigene Minen/Werke kaum: 4 % der Ausgaben)
 const MATERIAL_COST := {
 	Zone.RES: [{}, {}, {"planks": 4, "bricks": 4}, {"bricks": 8, "glass": 4, "steel": 3},
@@ -282,7 +283,8 @@ const SPECIALS := {
 	Special.SAWMILL:    {"name": "Sägewerk", "size": 2, "cost": 1500, "upgrade": 1500, "upkeep": 6.0, "power": 0, "use": 2,
 		"process": {"in": {"wood": 10}, "out": {"planks": 10}}},
 	Special.BRICKWORKS: {"name": "Ziegelei", "size": 2, "cost": 1800, "upgrade": 1800, "upkeep": 7.0, "power": 0, "use": 3,
-		"process": {"in": {"clay": 10, "coal": 2}, "out": {"bricks": 10}}, "pollution": [1.0, 3]},
+		"process": {"in": {"clay": 10, "coal": 2}, "out": {"bricks": 10}, "fuel_alt": {"wood": 4, "eff": 0.7}},
+		"pollution": [1.0, 3]},   # ohne Kohle: Holz-Brennofen mit 70 % Ausstoß (Dorf hat noch keine Mine)
 	Special.GLASSWORKS: {"name": "Glashütte", "size": 2, "cost": 2500, "upgrade": 2500, "upkeep": 9.0, "power": 0, "use": 4,
 		"process": {"in": {"sand": 10, "coal": 3}, "out": {"glass": 8}}, "pollution": [1.5, 4]},
 	Special.STEELWORKS: {"name": "Stahlwerk", "size": 2, "cost": 4000, "upgrade": 4000, "upkeep": 14.0, "power": 0, "use": 6,
@@ -356,10 +358,11 @@ const SERVICES := {
 	"fire": ["Feuerwehr", 300, 0.08],
 	"education": ["Schule", 1000, 0.12],      # vorher 600 (zu früh für eine kleine Kasse)
 	"health": ["Krankenhaus", 1000, 0.12],
-	"culture": ["Kultur", 1500, 0.08],
+	"culture": ["Kultur", 1500, 0.08],     # erwartet ab Einwohnerzahl UND Rathaus-Stufe (SERVICE_HALL)
 	"venue": ["Großkultur", 4000, 0.08],
 	"university": ["Hochschule", 6000, 0.04],
 }
+const SERVICE_HALL := {"police": 3, "fire": 3}   # Dorf (Stufe 2) erwartet noch keine Polizei/Feuerwehr (Bot 31.10.: unbezahlbar)
 const HAPPY_BASE := 0.55
 # Belegung / Leerstand
 const OCC_DROP := 12                    # Belegung sinkt je Monat bei Verfall (%-Punkte): kein Strom/Straße/Erreichbarkeit
@@ -414,6 +417,7 @@ const HALL_STORE_RADIUS := 18                     # ... und Rathaus-Hof
 const STORE_SLOW := 2                             # Baustelle außerhalb eines Lager-Kreises: so viel langsamer
 const FOUNDING_JOBS_HALL := 30.0                  # Gründung: Arbeitsplätze am Rathaus ...
 const FOUNDING_JOBS_PRODUCER := 15.0              # ... und je Abbau-Betrieb mit Strom (Gewerbe/Industrie erst ab Stufe 2)
+const VILLAGE_WORKS_COST := 0.3                   # Dorf (Stufe 2): Abbau, Werke, Lager kosten 30 % (sonst unerreichbar)
 const BUILD_FOUNDING_COST := 0.1                  # Gründung (Rathaus-Stufe 1): Sonderbauten kosten 10 % des Geldpreises, kein Unterhalt
 const BUILD_LV1_COST := {Zone.RES: {"wood": 3}, Zone.COM: {"wood": 3}, Zone.IND: {"wood": 3, "stone": 2}}
 # Rathaus-Stufen: Ausbau braucht Einwohner + Material aus dem Lager. Freischaltungen je Werkzeug: ToolController.HALL_LEVEL.
@@ -421,11 +425,15 @@ const BUILD_LV1_COST := {Zone.RES: {"wood": 3}, Zone.COM: {"wood": 3}, Zone.IND:
 const HALL_LEVELS := [
 	{},
 	{"name": "Gründung"},
-	{"name": "Dorf", "pop": 200, "mats": {"wood": 150, "stone": 150}},
-	{"name": "Kleinstadt", "pop": 1000, "mats": {"planks": 200, "bricks": 300}},
+	{"name": "Dorf", "pop": 200, "mats": {"wood": 150, "stone": 150}, "grant": 2000},       # Stadtrechte-Zuschuss
+	{"name": "Kleinstadt", "pop": 1000, "mats": {"planks": 200, "bricks": 300}, "grant": 3000},
 	{"name": "Stadt", "pop": 3000, "mats": {"bricks": 400, "glass": 150, "steel": 100}},
 	{"name": "Großstadt", "pop": 6000, "mats": {"bricks": 600, "glass": 300, "steel": 300, "gold": 50}},
 ]
+# Verkauf ab Rathaus-Stufe 2 (Handel): Überschuss über der Reserve wird monatlich zum Exportpreis verkauft. Reserve =
+# Bedarf der nächsten Rathaus-Stufe + SELL_EXTRA, mindestens SELL_KEEP × Lagerkapazität. (Später: Handel mit Bürgermeistern.)
+const SELL_KEEP := 0.25
+const SELL_EXTRA := 50
 const CHEAT_MONEY := 50000.0          # Strg/Cmd + Shift + G
 const START_YEAR := 1980
 

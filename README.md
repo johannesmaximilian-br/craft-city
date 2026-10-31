@@ -73,17 +73,27 @@ Es gibt nur noch einen Spielmodus, den **Aufbau-Start** (Spielstart bzw. Menü �
   Gemessen: Megacity-Backup → Stufe 5, Rathaus + 8 Lager, nichts abgerissen; Stand des Nutzers (51k) → Rathaus + 6 Lager,
   1 Gebäude abgerissen, 9 Gebäude bleiben außerhalb.
 - **Start** (31.10., Schritt 1): Start mit dem **Rathaus + Lagerhof** (3×3, nicht abreißbar, Lager für alle Rohstoffe, Notstrom 30 MW) an einer Lichtung mit einem Stück Straße, **3.000 $ Gründungskasse**, 200 Holz, 150 Stein.
-  - **Gründung (Stufe 1):** keine Steuern, kein Unterhalt, **kein Zukauf** – Material muss selbst gesammelt werden (Holzfäller, Steinbruch, Grube; Straße zum Rathaus-Lager nötig). Sonderbauten kosten nur 10 % ihres Geldpreises (+ Material). Häuser brauchen schon auf Stufe 1 etwas Holz (Gewerbe/Industrie später Holz + Stein). Arbeit gibt es am Rathaus (30) und in Abbau-Betrieben mit Strom (je 15), Häuser brauchen noch keinen Pendelweg.
+  - **Gründung (Stufe 1):** keine Steuern, kein Unterhalt, **kein Zukauf** – Material muss selbst gesammelt werden (Holzfäller, Steinbruch, Grube; Straße zum Rathaus-Lager nötig). Sonderbauten kosten nur 10 % ihres Geldpreises (+ Material). Häuser brauchen schon auf Stufe 1 etwas Holz (Gewerbe/Industrie später Holz + Stein). Arbeit gibt es am Rathaus (30) und in Abbau-Betrieben mit Strom (je 15), Häuser brauchen noch keinen Pendelweg. Nach dem Ausbau auf Stufe 2 bleiben diese Jobs (und die Regel ohne Pendelweg) als Übergang, bis Gewerbe und Industrie mindestens so viele Arbeitsplätze bieten.
   - **Rathaus-Fenster** (Knopf oben): Stufe, Bedingungen der nächsten (Einwohner + Material mit Häkchen), „Rathaus ausbauen“, was neu freigeschaltet wird. Gesperrte Werkzeuge nennen die nötige Stufe.
 
 | Stufe | Name | Ausbau braucht | Schaltet frei |
 |---|---|---|---|
 | 1 | Gründung | – | Straßen, Wohnen, Strom (Windrad), Holzfäller, Steinbruch, Grube, Lager |
-| 2 | Dorf | 200 Einw. + 150 Holz, 150 Stein | **Steuern + Zukauf**, Gewerbe, Industrie, Parks, Sägewerk, Ziegelei, Feuerwehr, Polizei, Baumschule, Biomasse |
-| 3 | Kleinstadt | 1.000 Einw. + 200 Bretter, 300 Ziegel | Schule, Krankenhaus, Bus, Kohlekraftwerk, Glashütte, Mine |
-| 4 | Stadt | 3.000 Einw. + 400 Ziegel, 150 Glas, 100 Stahl | Bahn, Bibliothek, Kino, Bürgerhaus, Stahlwerk, Recyclinghof, Prospektor, Betonwerk |
+| 2 | Dorf | 200 Einw. + 150 Holz, 150 Stein | **Steuern, Zukauf + Verkauf**, Zuschuss 2.000 $, Gewerbe, Industrie, Parks, Sägewerk, Ziegelei, Feuerwehr, Polizei, Baumschule, Biomasse |
+| 3 | Kleinstadt | 1.000 Einw. + 200 Bretter, 300 Ziegel | Zuschuss 3.000 $, Schule, Krankenhaus, Bus, Kohlekraftwerk, Glashütte, Mine, Stahlwerk |
+| 4 | Stadt | 3.000 Einw. + 400 Ziegel, 150 Glas, 100 Stahl | Bahn, Bibliothek, Kino, Bürgerhaus, Recyclinghof, Prospektor, Betonwerk |
 | 5 | Großstadt | 6.000 Einw. + 600 Ziegel, 300 Glas, 300 Stahl, 50 Gold | Universität, Institut, Theater, Stadion, Hightech, Solar/Speicher/Wasserkraft (+ Forschung) |
 
+- **Stadtrechte-Zuschuss + Verkauf** (31.10.): Ausbau auf Stufe 2 bringt 2.000 $, auf Stufe 3 3.000 $ – bewusst
+  knapp, Handel gehört dazu: ab Stufe 2 wird Überschuss jeden Monat verkauft (Posten „Rohstoff-Export“). **Handel ist
+  teuer in beide Richtungen:** Zukauf kostet 3× Grundpreis, Verkauf bringt 3× Grundpreis (`EXPORT_FACTOR`) – eigene
+  Förderung lohnt sich, Holzfäller + Baumschule sind eine (langsame) Geldquelle. Behalten wird der Bedarf der nächsten Rathaus-Stufe + 50, mindestens ein Viertel der
+  Lagerkapazität (`SELL_KEEP`, `SELL_EXTRA`). Vorher wurde nur verkauft, was nicht mehr ins Lager passte.
+- **Dorf (Stufe 2) bewusst entlastet** (31.10.): Abbau-Betriebe, Werke und Lager kosten 30 % (`VILLAGE_WORKS_COST`);
+  Polizei und Feuerwehr werden erst ab Stufe 3 erwartet (`SERVICE_HALL`, vorher schon ab 300 Einw. – unbezahlbar).
+- **Kette ohne Zukauf:** Jede Rathaus-Stufe ist mit eigener Förderung erreichbar (Stufe 2: Holz/Stein, Stufe 3: Bretter
+  + Ziegel – Ziegelei brennt ohne Kohle mit Holz, Stufe 4: Glas/Stahl mit der Mine ab Stufe 3). Werke kaufen ab Stufe 2
+  fehlende Kohle als Brennstoff zu (3× Preis), wenn kein Ersatz-Brennstoff möglich ist.
 - **Baustellen** (Schritt 2): Wächst ein Haus, ist es erst eine Baustelle (Holzgerüst, Materialstapel, ab Stufe 3 Kran) – Bauzeit Stufe 1/2/3+ = 1/2/3 Monate, solange wohnt/arbeitet dort niemand. Auch Sonderbauten sind erst Baustelle (1×1 = 1, 2×2 = 2, 3×3 = 3 Monate) und liefern solange nichts (kein Strom, keine Förderung, kein Dienst).
 - **Lager-Netz:** Rathaus-Hof (18 Tiles) und Lagerhäuser (14 / 20 / 26 Tiles je Stufe) haben einen Einzugskreis. Baustellen außerhalb dauern **doppelt so lange**; ab 2.000 Einwohnern verfallen Gebäude außerhalb leichter (Instandhaltung kommt schlecht an). Info-Karte: „Baustelle: fertig in ~N Monaten (langsam)“, „Kein Lager in Reichweite“; Bau-Vorschau des Lagerhauses zeigt den Kreis.
 - **Bürgermeister** (Schritt 3): Figur vor der Rathaus-Front (ohne Rathaus: an der Straße nahe dem Wohn-Schwerpunkt). Er **verkündet jede Warnung** per Sprechblase über dem Kopf (Stromengpass, Unzufriedenheit, Brände, Leerstand …) und **läuft zum Ort**, wenn er höchstens 40 Tiles entfernt ist (schüttelt dort den Kopf bzw. nickt bei guten Nachrichten, dann zurück); fernere Orte sagt er nur an und winkt. **Klick auf ihn** oder Knopf oben (Figur) öffnet den **Berater**: die wichtigsten Probleme der Stadt mit Ort und auf Rathaus-Stufe 1–2 eine Aufgabenliste für die ersten Schritte. Zwischen hohen Häusern kann er verdeckt sein – die Sprechblase bleibt sichtbar.
@@ -244,7 +254,7 @@ Werte und Reichweiten: `scripts/config.gd` (Abschnitte *Standortregeln*, *Zonen-
 | Werk (Werkzeuggruppe Verarbeitung, 2×2, Strom) | Bedarf je Monat | Ergebnis | Verschmutzung |
 |---|---|---|---|
 | Sägewerk | 10 Holz | 10 Bretter | – |
-| Ziegelei | 10 Ton + 2 Kohle | 10 Ziegel | leicht |
+| Ziegelei | 10 Ton + 2 Kohle – ohne Kohle: 4 Holz bei 70 % Ausstoß | 10 Ziegel (7 mit Holz) | leicht |
 | Glashütte | 10 Sand + 3 Kohle | 8 Glas | mittel |
 | Stahlwerk | 10 Eisen + 5 Kohle | 8 Stahl | stark |
 
@@ -470,10 +480,11 @@ python3 tools/audio/gen_audio.py sfx ambient  # nur Effekte + Loops (~3 s)
 - [ ] **Lieferverkehr**: Liefermengen als LKW-Fahrten zum Lager (Straßenlast, sichtbare Laster), Güterbahnhof für entfernte Minen, Lieferweg-Kosten
 - [ ] Untertage-Ebene, Tunnel zu Nachbarstädten, Handel mit fiktiven Bürgermeistern
 - [ ] **U-Bahn** (Untertage-Ebene, Stationen, kein Flächenverbrauch an der Oberfläche)
+- [ ] **Handel mit anderen Bürgermeistern** (Nutzer 31.10., ersetzt den automatischen Verkauf): Kontakt zu Bürgermeistern der Nachbarstädte aufnehmen, Angebote/Aufträge aushandeln (was sie brauchen, was sie liefern), Preise nach Beziehung + Angebot/Nachfrage; nötig, damit ein Dorf mit knappem Zuschuss wachsen kann.
 - [ ] **Erweiterter Handel** mit Nachbarstädten: Verträge (Strom, Rohstoffe, Müll), Preise nach Angebot/Nachfrage, Beziehungen zu den Bürgermeistern
 - [ ] **Konflikte** mit Nachbarstädten (z.B. Streit um Wasser/Grenzen/Verschmutzung, Handelsembargo) – Ausgestaltung offen
 - [ ] **Easy Mode** (Nutzeridee 31.10.): Startoption mit mehr Startkapital, niedrigeren Schwellen (Uni, Baustoffe) und sanfterem Steuer-Abzug; normales Spiel bleibt die Herausforderung (Ziel: Forschung nach ~50–70 Spieljahren ≈ 70–95 min)
-- [ ] Budget-Fenster (Ressorts, **Kredite**, Jahresbilanz) – Nutzerwunsch: fehlt Geld für Bau + Material-Zukauf, Kredit aufnehmen statt nicht bauen
+- [ ] Budget-Fenster (Ressorts, **Kredite**, Jahresbilanz) – Nutzerwunsch: fehlt Geld für Bau + Material-Zukauf, Kredit aufnehmen statt nicht bauen; Kredit verzinst (31.10.: eher für ungeduldige Spieler, Handel bleibt teuer)
 - [x] Brände sichtbar (Flammen/Rauch/Ruinen), Feuerwehr-Einsätze mit Löschzügen, Meldungen mit Kamera-Sprung
 - [ ] Brand-Geräusche (Sirene, Knistern), evtl. Brandschutz-Ansicht (V)
 - [ ] Bewohner/Tiere aus dem Kit (Characters/Animals) als Leben in der Stadt

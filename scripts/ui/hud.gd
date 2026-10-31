@@ -1019,7 +1019,9 @@ func _hall_unlocks(lv: int) -> String:
 	if lv == 1:
 		names.append("Straßen, Wohnen, Strom, Abbau, Lager")
 	if lv == 2:
-		names.append("Steuern + Zukauf")
+		names.append("Steuern, Zukauf + Verkauf von Überschuss")
+	if int(Config.HALL_LEVELS[lv].get("grant", 0)) > 0:
+		names.append("Zuschuss %s $" % _fmt(int(Config.HALL_LEVELS[lv]["grant"])))
 	for t: int in ToolController.HALL_LEVEL:
 		if int(ToolController.HALL_LEVEL[t]) == lv:
 			names.append(str(ToolController.TOOLS[t]["name"]))
@@ -1295,7 +1297,7 @@ func _refresh_stock() -> void:
 			("\nVerbaut beim Wachsen: %d" % int(built)) if built > 0.0 else ""
 				+ (("\nKraftwerke: %d aus dem Lager (Werke haben Vorrang)" % int(sim.coal_burned)) if r == "coal" and sim.coal_burned > 0.0 else ""),
 			("\nZugekauft: %d (-$%d)" % [int(imp), roundi(imp * float(Config.RESOURCES[r]["price"]) * Config.IMPORT_FACTOR)]) if imp > 0.0 else "",
-			("\nLager voll: %d exportiert (+$%d)" % [int(exp), roundi(exp * float(Config.RESOURCES[r]["price"]))]) if exp > 0.0 else ""]
+			("\nVerkauft: %d (+$%d)" % [int(exp), roundi(exp * float(Config.RESOURCES[r]["price"]) * Config.EXPORT_FACTOR)]) if exp > 0.0 else ""]
 	_stock_card.visible = any and not _hud_hidden()
 
 

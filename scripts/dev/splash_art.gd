@@ -3,6 +3,8 @@ extends CanvasLayer
 ## Startbild (nur für die Erzeugung von assets/app/splash.png, Flag --splash[=stil]):
 ## 3D-Logo aus echten Spielblöcken (Pixel-Schrift, Minecraft-Stil) über der Stadt, schwebende Spielblöcke ums Logo,
 ## Tilt-Shift-Unschärfe der Stadt (Miniatur-Look), weicher Lichthof, Vignette, Funkeln und ein Schriftband.
+## Bürgermeister-Figur groß rechts unten (Nutzer 31.10.: „einen von den cuten Bürgermeistern prominent“), winkend und
+## frei schwebend (ohne Sprechblase/Sockel – Nutzerwunsch).
 ## Stile: brick (Ziegel, Standard – Nutzerwahl), grass (Gras/Erde), stone (Stein + Gold). Nutzer: Farbwürfel/Strahlen passten nicht.
 
 const GLYPHS := {          # 5x7, "#" = Block
@@ -85,6 +87,25 @@ func setup(lib: BlockLibrary, kind: String, city_cam: Camera3D) -> void:
 	l.add_theme_color_override("font_color", UiTheme.TEXT)
 	band.add_child(l)
 	band.rotation_degrees = -2.0
+	# Bürgermeister rechts unten, frei schwebend (eigene 3D-Szene, Schatten wie beim Logo)
+	var mvp := _render_mayor(lib)
+	for k in 2:
+		var m := TextureRect.new()
+		m.texture = mvp.get_texture()
+		m.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		m.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		m.anchor_left = 0.64
+		m.anchor_right = 0.99
+		m.anchor_top = 0.42
+		m.anchor_bottom = 0.98
+		if k == 0:
+			m.modulate = Color(0.05, 0.03, 0.1, 0.55)
+			m.offset_left = 12
+			m.offset_right = 12
+			m.offset_top = 12
+			m.offset_bottom = 12
+		m.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		root.add_child(m)
 
 
 ## Logo als BlockBatch in eigener SubViewport-Welt, Kamera leicht von unten (wirkt mächtig).
@@ -119,6 +140,49 @@ func _render_logo(lib: BlockLibrary) -> SubViewport:
 	cam.fov = 30
 	var center := Vector3(width * 0.5, 7.0, -1.0)
 	cam.look_at_from_position(center + Vector3(0.0, 24.0, 94.0), center, Vector3.UP)    # leicht von oben: Oberseiten sichtbar
+	vp.add_child(cam)
+	return vp
+
+
+## Bürgermeister (Kit-Charakter wie im Spiel) winkend, frei schwebend und leicht geneigt.
+func _render_mayor(lib: BlockLibrary) -> SubViewport:
+	var vp := SubViewport.new()
+	vp.size = Vector2i(900, 1000)
+	vp.transparent_bg = true
+	vp.own_world_3d = true
+	vp.msaa_3d = Viewport.MSAA_4X
+	add_child(vp)
+	var env := Environment.new()
+	env.background_mode = Environment.BG_CLEAR_COLOR
+	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+	env.ambient_light_color = Color(0.85, 0.85, 0.95)
+	env.ambient_light_energy = 0.9
+	env.tonemap_mode = Environment.TONE_MAPPER_ACES
+	env.adjustment_enabled = true
+	env.adjustment_saturation = 1.2
+	var we := WorldEnvironment.new()
+	we.environment = env
+	vp.add_child(we)
+	var sun := DirectionalLight3D.new()
+	sun.rotation_degrees = Vector3(-40, 30, 0)
+	sun.light_energy = 1.3
+	sun.shadow_enabled = true
+	vp.add_child(sun)
+	var model := (load("res://assets/characters/Character_Male_2.gltf") as PackedScene).instantiate() as Node3D
+	Mayor.nearest_filter(model)
+	model.rotation_degrees = Vector3(0, -25, -8)   # zur Bildmitte gedreht, leicht geneigt (schwebt)
+	vp.add_child(model)
+	var anim := model.find_child("AnimationPlayer", true, false) as AnimationPlayer
+	if anim != null:
+		for a in anim.get_animation_list():
+			if a.to_lower().ends_with("wave"):
+				anim.play(a)
+				anim.seek(0.55, true)             # Arm oben
+				anim.pause()
+	var cam := Camera3D.new()
+	cam.fov = 32
+	var center := Vector3(0.45, 1.35, 0)        # etwas nach rechts: Platz für die winkende Hand
+	cam.look_at_from_position(center + Vector3(-1.0, 0.4, 6.6), center, Vector3.UP)
 	vp.add_child(cam)
 	return vp
 

@@ -95,6 +95,7 @@ var last_maint := {}                # Instandhaltung: Bedarf je Material im letz
 var maint_recycled := 0.0           # davon von Recyclinghöfen zurückgeholt (Einheiten)
 var maint_short := 0.0              # Anteil Instandhaltung, der mangels Geld ausblieb (0..1) -> Verfall
 var store_cover := PackedByteArray()   # Lager-Netz: 1 = Tile im Einzugskreis eines Lagers (Aufbau-Start)
+var _founding_left := 0.0           # Übergangs-Jobs nach der Gründung (s. founding_jobs)
 var hall_level := 1                 # Rathaus-Stufe 1..5 (Config.HALL_LEVELS)
 var interest_cost := 0.0            # Schuldzinsen im letzten Monat
 var admin_cost := 0.0               # Verwaltungskosten im letzten Monat
@@ -1649,6 +1650,7 @@ func _recount() -> void:
 	jobs_ind = roundi(ind_f)
 	jobs_hightech = roundi(ht_f)
 	traffic_control = tech("traffic")
+	_founding_left = founding_jobs() if hall_level >= 2 else 0.0
 
 
 func _update_demand() -> void:
@@ -1701,7 +1703,7 @@ func growth_blockers(i: int) -> PackedStringArray:
 	if powered.size() > i and powered[i] == 0:
 		out.append("Kein Strom")
 	if _src(i) >= 0:
-		if map.zone[i] == Config.Zone.RES and hall_level < 2:
+		if map.zone[i] == Config.Zone.RES and founding():
 			pass                        # Gründung: Siedler arbeiten am Rathaus/im Abbau
 		elif map.zone[i] == Config.Zone.RES:
 			if not _reaches(i, true):
@@ -1756,7 +1758,7 @@ func _can_grow(i: int) -> bool:
 	if _src(i) < 0 or powered[i] == 0:
 		return false
 	if map.zone[i] == Config.Zone.RES:
-		if hall_level < 2:
+		if founding():
 			return true             # Gründung: Siedler arbeiten am Rathaus/im Abbau, kein Pendelweg nötig
 		return _reaches(i, true) and tile_commute(i) <= LONG_COMMUTE
 	return _reaches(i, false)
@@ -2131,7 +2133,7 @@ func _compute_services() -> void:
 		for cat: String in Config.SERVICES:
 			var spec: Array = Config.SERVICES[cat]
 			var cov: float = (coverage[cat] as PackedFloat32Array)[i]
-			var sv := float(spec[2]) * (2.0 * cov - 1.0) if population >= int(spec[1]) \
+			var sv := float(spec[2]) * (2.0 * cov - 1.0) if service_expected(cat) \
 				else float(spec[2]) * cov * 0.5            # versorgt +, unversorgt -; vorher kleiner Bonus
 			h += sv
 			part_svc[cat] += sv * p
@@ -2169,7 +2171,7 @@ func _compute_services() -> void:
 	# Bürgerwünsche: einmalige Meldung, wenn die Stadt eine Größe erreicht und der Dienst fehlt
 	for cat: String in Config.SERVICES:
 		var spec: Array = Config.SERVICES[cat]
-		if population >= int(spec[1]) and not has_cat.has(cat) and not _needs_announced.has(cat):
+		if service_expected(cat) and not has_cat.has(cat) and not _needs_announced.has(cat):
 			_needs_announced[cat] = true
 			message.emit("Die Bürger verlangen nach: %s" % spec[0])
 
@@ -2771,11 +2773,22 @@ func _advance_construction() -> void:
 			map.notify_changed(Rect2i(i % map.size, i / map.size, s, s), map.special[i] != Config.Special.NONE)
 
 
-## Gründung (Aufbau-Start, Stufe 1): Arbeitsplätze am Rathaus und in Abbau-Betrieben mit Strom (es gibt noch kein
-## Gewerbe/keine Industrie). Sonst 0.
+## Gründung (Stufe 1): Arbeitsplätze am Rathaus und in Abbau-Betrieben mit Strom (es gibt noch kein Gewerbe/keine
+## Industrie). Ab Stufe 2 nur noch als Übergang, bis Gewerbe + Industrie so viele Jobs bieten (sonst zöge beim Ausbau
+## die ganze Siedlung weg, weil Gewerbe/Industrie erst ab Stufe 2 gebaut werden können).
 func founding_jobs() -> float:
+	var jobs := _founding_raw()
 	if hall_level >= 2:
-		return 0.0
+		jobs = maxf(jobs - float(jobs_com + jobs_ind), 0.0)
+	return jobs
+
+
+## Gründungs-Phase: Siedler brauchen keinen Pendelweg (Stufe 1 bzw. Übergang, s. founding_jobs). Gezählt in _recount.
+func founding() -> bool:
+	return hall_level < 2 or _founding_left > 0.0
+
+
+func _founding_raw() -> float:
 	var jobs := 0.0
 	for a in map.size * map.size:
 		if map.anchor[a] != a or map.special[a] == Config.Special.NONE:
@@ -2819,7 +2832,10 @@ func upgrade_hall() -> String:
 		if map.anchor[a] == a and map.special[a] == Config.Special.CITYHALL:
 			map.slevel[a] = mini(hall_level, 3)
 			map.notify_changed(Rect2i(a % map.size, a / map.size, 3, 3), false)
-	message.emit("Rathaus ausgebaut: Stufe %d (%s)" % [hall_level, nxt["name"]])
+	var grant := float(Config.HALL_LEVELS[hall_level].get("grant", 0))
+	money += grant
+	message.emit("Rathaus ausgebaut: Stufe %d (%s)%s" % [hall_level, nxt["name"],
+		(" - Zuschuss %d $" % int(grant)) if grant > 0.0 else ""])
 	stats_changed.emit()
 	return ""
 
@@ -3060,7 +3076,7 @@ func _process_goods() -> void:
 		imported[r] = 0.0
 	var anchor := map.anchor
 	var special := map.special
-	# Erst die Werke (sie können nichts zukaufen), dann die Kohlekraftwerke mit dem Rest (+ Zukauf)
+	# Erst die Werke (Rohstoffe nicht zukaufbar, nur Brennstoff Kohle ab Stufe 2), dann die Kohlekraftwerke mit dem Rest (+ Zukauf)
 	var plants := PackedInt32Array()
 	var bio := PackedInt32Array()
 	for a in map.size * map.size:
@@ -3077,6 +3093,17 @@ func _process_goods() -> void:
 			continue
 		var proc: Dictionary = def["process"]
 		var lv := map.special_level(a)
+		var eff := 1.0
+		if proc.has("fuel_alt") and float(stock.get("coal", 0.0)) < float(proc["in"]["coal"]) * lv * furnace:
+			# keine eigene Kohle: Ersatz-Brennstoff (weniger Ausstoß) statt Zukauf
+			var alt: Dictionary = proc["fuel_alt"]
+			var fin: Dictionary = (proc["in"] as Dictionary).duplicate()
+			fin.erase("coal")
+			for r: String in alt:
+				if r != "eff":
+					fin[r] = alt[r]
+			proc = {"in": fin, "out": proc["out"]}
+			eff = float(alt["eff"])
 		if not special_powered(a):
 			producer_info[a] = {"out": {}, "in": {}, "issue": "Kein Strom - steht still"}
 			continue
@@ -3087,6 +3114,8 @@ func _process_goods() -> void:
 		var share := 1.0
 		var lacking := PackedStringArray()
 		for r: String in proc["in"]:
+			if r == "coal" and can_trade():
+				continue                    # Brennstoff: fehlende Kohle wird zugekauft (wie beim Kohlekraftwerk)
 			var need := float(proc["in"][r]) * lv * (furnace if r == "coal" else 1.0)
 			var f := float(stock.get(r, 0.0)) / need
 			if f < 1.0:
@@ -3095,15 +3124,22 @@ func _process_goods() -> void:
 		share = clampf(share, 0.0, 1.0)
 		var used := {}
 		var made := {}
+		var bought := 0.0
 		for r: String in proc["in"]:
 			used[r] = float(proc["in"][r]) * lv * share * (furnace if r == "coal" else 1.0)
-			stock[r] = float(stock.get(r, 0.0)) - float(used[r])
+			var take := minf(float(stock.get(r, 0.0)), float(used[r]))
+			stock[r] = float(stock.get(r, 0.0)) - take
+			if take < float(used[r]):
+				bought = float(used[r]) - take
+				_buy(r, bought)
 		for r: String in proc["out"]:
-			made[r] = float(proc["out"][r]) * lv * share
+			made[r] = float(proc["out"][r]) * lv * share * eff
 			stock[r] = float(stock.get(r, 0.0)) + float(made[r])
 			production[r] = float(production.get(r, 0.0)) + float(made[r])
-		producer_info[a] = {"out": made, "in": used, "issue": "" if lacking.is_empty() else
-			"Zu wenig %s (%d%% Auslastung)" % [", ".join(lacking), roundi(share * 100.0)]}
+		var issue := "" if lacking.is_empty() else "Zu wenig %s (%d%% Auslastung)" % [", ".join(lacking), roundi(share * 100.0)]
+		if issue == "" and bought > 0.0:
+			issue = "Kohle zugekauft: %d (eigene Mine spart Geld)" % ceili(bought)
+		producer_info[a] = {"out": made, "in": used, "issue": issue}
 	for a in plants:
 		var need := float(Config.COAL_PLANT_USE)
 		var have := minf(float(stock.get("coal", 0.0)), need)
@@ -3128,12 +3164,18 @@ func _process_goods() -> void:
 func _export_surplus() -> void:
 	var cap := float(stock_capacity())
 	export_income = 0.0
+	var nxt := hall_next()
 	for res: String in stock:
-		var over := float(stock[res]) - cap
+		var keep := cap
+		if can_trade():
+			# Handel: Überschuss über der Reserve verkaufen (Reserve = Bedarf der nächsten Rathaus-Stufe + Puffer)
+			var need := float((nxt.get("mats", {}) as Dictionary).get(res, 0.0)) if not nxt.is_empty() else 0.0
+			keep = minf(cap, maxf(need + Config.SELL_EXTRA, cap * Config.SELL_KEEP))
+		var over := float(stock[res]) - keep
 		if over > 0.0:
 			exported[res] = over
-			export_income += over * float(Config.RESOURCES[res]["price"])
-			stock[res] = cap
+			export_income += over * float(Config.RESOURCES[res]["price"]) * Config.EXPORT_FACTOR
+			stock[res] = keep
 
 
 ## Zukauf (Ausgabe am Monatsende im Budget).
@@ -3295,11 +3337,16 @@ func _service_tiles(a: int) -> PackedInt32Array:
 	return out
 
 
+## Erwarten die Bürger diesen Dienst schon? Ab Einwohnerzahl (SERVICES) und Rathaus-Stufe (SERVICE_HALL).
+func service_expected(cat: String) -> bool:
+	return population >= int(Config.SERVICES[cat][1]) and hall_level >= int(Config.SERVICE_HALL.get(cat, 0))
+
+
 func missing_services(i: int) -> PackedStringArray:
 	var out := PackedStringArray()
 	for cat: String in Config.SERVICES:
 		var spec: Array = Config.SERVICES[cat]
-		if population >= int(spec[1]) and coverage.has(cat) and (coverage[cat] as PackedFloat32Array)[i] < 0.3:
+		if service_expected(cat) and coverage.has(cat) and (coverage[cat] as PackedFloat32Array)[i] < 0.3:
 			out.append(spec[0])
 	return out
 

@@ -237,7 +237,8 @@ const HALL_LEVEL := {
 	Tool.COM: 2, Tool.IND: 2, Tool.PARK: 2, Tool.SAWMILL: 2, Tool.BRICKWORKS: 2, Tool.FIRE: 2, Tool.POLICE: 2,
 	Tool.NURSERY: 2, Tool.BIOMASS: 2,
 	Tool.SCHOOL: 3, Tool.HOSPITAL: 3, Tool.BUS_STOP: 3, Tool.COAL: 3, Tool.GLASSWORKS: 3, Tool.MINE: 3,
-	Tool.RAIL: 4, Tool.STATION: 4, Tool.LIBRARY: 4, Tool.CINEMA: 4, Tool.TOWNHALL: 4, Tool.STEELWORKS: 4,
+	Tool.STEELWORKS: 3,      # Stufe 4 verlangt Stahl -> muss vorher selbst herstellbar sein (Regel: ohne Zukauf erreichbar)
+	Tool.RAIL: 4, Tool.STATION: 4, Tool.LIBRARY: 4, Tool.CINEMA: 4, Tool.TOWNHALL: 4,
 	Tool.RECYCLER: 4, Tool.PROSPECTOR: 4, Tool.CONCRETE: 4,
 	Tool.UNIVERSITY: 5, Tool.INSTITUTE: 5, Tool.THEATER: 5, Tool.STADIUM: 5, Tool.HIGHTECH: 5,
 	Tool.SOLAR: 5, Tool.BATTERY: 5, Tool.HYDRO: 5, Tool.PUMPED: 5, Tool.SALT: 5,
@@ -460,6 +461,8 @@ func tile_cost(t: Vector2i) -> int:
 			var price: int = Config.SPECIALS[sp]["cost"]
 			if sim.hall_level < 2:
 				price = maxi(roundi(price * Config.BUILD_FOUNDING_COST), 1)   # Gründung: Material ist die Währung
+			elif sim.hall_level == 2 and _village_works(sp):
+				price = roundi(price * Config.VILLAGE_WORKS_COST)            # Dorf: Selbstversorgung erreichbar
 			return price if t == hover else 0
 		Tool.BULLDOZE:
 			if special and map.special[i] == Config.Special.CITYHALL:
@@ -1006,3 +1009,9 @@ func _update_preview() -> void:
 			col = suitability_color(sim.suitability(i, zn))
 		mm.set_instance_color(k, col)
 	preview_cost_changed.emit(total, valid)
+
+
+## Abbau, Werke und Lager (im Dorf vergünstigt).
+static func _village_works(sp: int) -> bool:
+	var def: Dictionary = Config.SPECIALS[sp]
+	return def.has("produce") or def.has("process") or def.has("storage")
