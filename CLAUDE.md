@@ -236,18 +236,32 @@ $G --path . -- --demo --cam=32,32,60 --screenshot=/pfad/bild.png          # Scre
   bewohntem Gebäude ab Stufe 2 (ab `MATERIAL_FROM_POP`), Recycling im Kreis (`RECYCLE_MAINT`, Kapazität `RECYCLE_CAP`),
   Rest Lager/Zukauf; ohne Geld `maint_short` → sanfter Auszug in `_grow_rows`. Recyclinghof-Kreis über `radius_mul` 3
   (`recycler_covers(i)`; Abriss-Rückgabe hängt am Tile, `recycle(zn, lv, tile)`).
+- **Bürgermeister** (`render/mayor.gd`, Node „Mayor“ in main, `hud.mayor`): `Hud.notify()` ruft `mayor.say(text, tile, good)` –
+  jede Warnung läuft also automatisch über ihn. Heimatplatz `_find_home()` alle 5 s/bei `tiles_changed`: vor der Rathaus-Front
+  (gleiche Seitenwahl wie `WorldRenderer._front_angle`; „nächste Straße“ lag oft hinter dem Rathaus = verdeckt), ohne
+  Rathaus Straße am Wohn-Schwerpunkt. Sprechblase zeichnet das HUD (`_update_bubble`, `cam.unproject_position(mayor.head())`).
+  Kit-Charaktere haben einen **eigenen** 32-px-Atlas → nicht `BlockLibrary.fix_node_materials` (tauscht ihn gegen den
+  Block-Atlas), nur Nearest-Filter (`_nearest`). Modell ist bei Skala 1 schon 2,66 Blöcke hoch.
 - **Speichern:** neue Map-Felder in `CityMap.SAVE_FIELDS` eintragen; fehlende Felder alter Saves werden genullt.
   `SaveManager.save` rotiert vorher Sicherungen (`<slot>.bak1..3`, nur Spieler-Slots). Tests, die Spieler-Slots
   benutzen wollen, stellen `SaveManager.dir` auf einen eigenen Ordner um (siehe `savetest`).
 
-- **Spielmodus:** `sim.game_mode` ("classic" | "build", gespeichert; alte Saves = classic), `sim.hall_level`. Aufbau-Start:
+- **Nur ein Spielmodus (31.10., Nutzer):** kein „klassischer“ Modus mehr, `sim.game_mode` ist weg (gespeichert wird
+  `"game_mode": "build"` nur noch als Marker). Alte Saves ohne Marker rechnet `CityMigrate.run` in `SaveManager.load_file`
+  um (Stufe aus Einwohnern + Gebautem, `construct` = 0, Rathaus per `best_site`, Lager per `_worst_gap`-Integralbild,
+  notfalls Abriss; Ergebnis in `CityMigrate.last`, Meldung über `sim.message`). Spielstart ohne Dev-Flags ruft
+  `main._new_city()`. **Dev-Läufe** setzen in `DevTools.run` `hall_level` auf die höchste Stufe (Demo/Tests bauen auf
+  leerer Karte mit allen Werkzeugen); `--buildstart` setzt über `_new_city()` zurück auf 1. Bot `HumanPlayer` startet mit
+  `START_MONEY` + höchster Stufe (überspringt Gründung; baut keine Lager → Ergebnisse über 2.000 Einw. nicht mehr mit
+  früheren vergleichbar, Bot-Ausbau für Gründung/Lager steht aus). `ToolController.special_for` ist static (Migration nutzt es).
+  Rathaus-Stufe `sim.hall_level` (1..5). Start:
   `CityStart.setup_build` (Rathaus `Special.CITYHALL` 3x3 mit `"storage"` + 30 MW, Lichtung, Straßenstück). Sperren über
   `ToolController.HALL_LEVEL` (Tool → Stufe) in `locked_reason`. Vor Stufe 2: `can_trade()` false (kein Zukauf, Werkzeuge
   verweigern bei fehlendem Material: `_no_trade_reason`), keine Steuern/kein Unterhalt (`_budget`), Sonderbauten
   × `BUILD_FOUNDING_COST`, `founding_jobs()` statt Gewerbe/Industrie, RES ohne Pendel-Pflicht (`_can_grow`,
   `growth_blockers`). Stufe-1-Material `BUILD_LV1_COST` über `growth_materials` (Wachstum 0→1 ruft `_use_materials`).
   Rathaus-Fenster: HUD-Popup "hall" (`_fill_hall`), Ausbau `sim.upgrade_hall()`.
-- **Baustellen/Lager-Netz (nur Aufbau-Start):** Map-Feld `construct` (halbe Monate, Sonderbau am Anker). `residents`/
+- **Baustellen/Lager-Netz:** Map-Feld `construct` (halbe Monate, Sonderbau am Anker). `residents`/
   `jobs_at`/`_recount` zählen Baustellen nicht, `special_powered` ist false und Kraftwerke liefern 0, `_producers` überspringt.
   `_advance_construction()` (abschluss, vor `_recount`) zieht im Lager-Kreis 2, sonst 1 ab und meldet fertige Tiles einzeln;
   `_compute_store_cover()` → `store_cover`. Start der Bauzeit: `_grow_rows` (Stufe hoch) bzw. `ToolController._place_special`.
@@ -288,7 +302,8 @@ $G --path . -- --demo --cam=32,32,60 --screenshot=/pfad/bild.png          # Scre
   kam daher.
 - Export: Vorlage enthält nur `universal`, und `textures/vram_compression/import_etc2_astc` muss an sein.
 - **Performance-Änderungen an der Simulation** immer mit `--loadfile=build/backups/megacity_2026-10-12.citysave --determinism`
-  vorher/nachher vergleichen (Prüfsummen müssen gleich bleiben). Fester Zufall braucht `seed()` **vor** jeder
+  vorher/nachher vergleichen (Prüfsummen müssen gleich bleiben; seit 31.10. inkl. Umrechnung beim Laden – Stand vom 31.10.:
+  Einw. nach 12 Monaten 15333, `level 3670374623`). Fester Zufall braucht `seed()` **vor** jeder
   Neuberechnung und leere Vorgeschichte (`congestion`, `station_use`), sonst streut das Ergebnis.
 - `notify_changed` mit Rechteck = ganze Karte bedeutet für `FireDept` „neue Karte geladen“ (Einsätze weg) → nie Sammel-Rechtecke über die Karte melden.
 - GDScript-Lambdas fangen lokale Variablen **als Kopie** (`var n := 0; sig.connect(func(): n += 1)` zählt nicht) → Array nutzen.

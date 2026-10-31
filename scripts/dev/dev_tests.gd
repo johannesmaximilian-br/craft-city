@@ -1072,7 +1072,7 @@ static func buildstarttest(game: Node) -> void:
 	var map: CityMap = game.map
 	var sim: Simulation = game.sim
 	var tools: ToolController = game.tools
-	game._new_city("build")
+	game._new_city()
 	var hall := -1
 	for a in map.size * map.size:
 		if map.anchor[a] == a and map.special[a] == Config.Special.CITYHALL:
@@ -2263,3 +2263,29 @@ static func _mouse_btn(p: Vector2, pressed: bool) -> InputEventMouseButton:
 	e.position = p
 	e.global_position = p
 	return e
+
+
+## Bürgermeister: Meldung mit nahem Ort -> hinlaufen, kurz stehen, zurück; ferner Ort -> nur ansagen; HUD-Sprechblase.
+static func mayortest(game: Node) -> void:
+	var map: CityMap = game.map
+	var mayor: Mayor = game.get_node("Mayor")
+	game._new_city()
+	mayor._find_home()
+	mayor.position = mayor._home
+	mayor._state = "home"
+	var home := mayor._home
+	var ht := Vector2i(int(home.x / Config.TILE_BLOCKS), int(home.z / Config.TILE_BLOCKS))
+	var near := Vector2i(clampi(ht.x + 6, 0, map.size - 1), ht.y)
+	game.hud.notify("Test: Problem in der Nähe", near)
+	var states := [mayor._state]
+	var bubble: bool = mayor.text != ""
+	for f in 600:
+		await game.get_tree().process_frame
+		if states[states.size() - 1] != mayor._state:
+			states.append(mayor._state)
+		if mayor._state == "home" and states.size() > 1:
+			break
+	print("mayortest nah: Zustände %s, Sprechblase %s, zurück %s" % [states, bubble, mayor.position.distance_to(home) < 0.6])
+	var far := Vector2i(clampi(ht.x + Mayor.WALK_MAX + 10, 0, map.size - 1), clampi(ht.y + Mayor.WALK_MAX, 0, map.size - 1))
+	game.hud.notify("Test: Problem weit weg", far)
+	print("mayortest fern: Zustand %s (erwartet home), Text '%s'" % [mayor._state, mayor.text])

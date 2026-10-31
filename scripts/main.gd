@@ -101,6 +101,11 @@ func _ready() -> void:
 	hud = Hud.new()
 	add_child(hud)
 	hud.setup(sim, tools, map, icons, fire_dept)
+	var mayor := Mayor.new()
+	mayor.name = "Mayor"
+	add_child(mayor)
+	mayor.setup(map, sim)
+	hud.mayor = mayor
 	hud.focus_requested.connect(func(t: Vector2i): cam.focus_tile(t, map.h(t.x, t.y)))
 	sim.stats_changed.connect(func():
 		renderer.sim_speed = sim.speed
@@ -139,6 +144,8 @@ func _ready() -> void:
 	fire_dept.alert.connect(func(_t, _p): Audio.sfx("notify", 0.0))
 	sim.alert.connect(func(_t, _p): Audio.sfx("notify", 0.0))
 
+	if OS.get_cmdline_user_args().is_empty():
+		_new_city()                     # Spielstart: Rathaus-Gründung (Laden geht über das Menü)
 	DevTools.run(self)
 
 
@@ -181,17 +188,14 @@ func _load(slot: String) -> void:
 		else ("Slot ist leer" if err == ERR_FILE_NOT_FOUND else "Laden fehlgeschlagen: %s" % error_string(err)))
 
 
-func _new_city(mode := "classic") -> void:
+func _new_city() -> void:
 	map.generate(randi())
 	sim.reset()
 	current_slot = ""
 	hud._current_slot_hint = ""
-	if mode == "build":
-		var spot := CityStart.setup_build(map, sim)
-		cam.focus_tile(spot + Vector2i(1, 1), map.h(spot.x, spot.y))
-		hud.show_message("Aufbau-Start: erst Holz und Stein sammeln - Holzfäller am Wald, Steinbruch am Fels")
-	else:
-		hud.show_message("Neue Stadt gegründet")
+	var spot := CityStart.setup_build(map, sim)
+	cam.focus_tile(spot + Vector2i(1, 1), map.h(spot.x, spot.y))
+	hud.show_message("Neue Stadt: erst Holz und Stein sammeln - Holzfäller am Wald, Steinbruch am Fels")
 
 
 func _setup_environment() -> void:

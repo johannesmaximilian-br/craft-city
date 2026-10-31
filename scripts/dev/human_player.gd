@@ -33,6 +33,7 @@ func run(g: Node, years: int, seed_value: int) -> void:
 	DemoCity.generate_map(map)
 	sim.reset()
 	sim.money = Config.START_MONEY
+	sim.hall_level = Config.HALL_LEVELS.size() - 1     # Bot überspringt Gründung/Rathaus-Ausbau (misst Wirtschaft ab Startkapital)
 	map.notify_changed(Rect2i(0, 0, map.size, map.size))
 	sim.refresh()
 	c = map.size / 2

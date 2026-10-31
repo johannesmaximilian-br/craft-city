@@ -144,11 +144,11 @@ func _content(icon_name: String) -> Node3D:
 			for x in 9:
 				b.put("marking", Vector3(x + 0.375, 2.0, 4.375))
 		"res_wood", "res_stone", "res_sand", "res_clay", "res_coal", "res_iron", "res_gold", \
-				"res_planks", "res_bricks", "res_glass", "res_steel":
+				"res_planks", "res_bricks", "res_glass", "res_steel", "res_concrete":
 			# Rohstoff-Symbol: ein Block des Materials
 			b.put({"res_wood": "log", "res_stone": "stone", "res_sand": "sand", "res_clay": "clay", "res_coal": "coal",
 				"res_iron": "iron_block", "res_gold": "gold_block", "res_planks": "wood", "res_bricks": "brick",
-				"res_glass": "ice", "res_steel": "metal"}[icon_name], Vector3.ZERO)
+				"res_glass": "ice", "res_steel": "metal", "res_concrete": "square"}[icon_name], Vector3.ZERO)
 		"coal":
 			_ground(b, 6)
 			StructureGenerator.coal(b, Vector3(0, 1, 0))

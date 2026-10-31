@@ -193,7 +193,7 @@ func _special_for_tool() -> int:
 	return special_for(tool)
 
 
-func special_for(t: Tool) -> int:
+static func special_for(t: Tool) -> int:
 	match t:
 		Tool.COAL: return Config.Special.COAL
 		Tool.WIND: return Config.Special.WIND
@@ -249,7 +249,7 @@ func locked_reason(t: Tool) -> String:
 	tool = t
 	var sp := _special_for_tool()
 	tool = prev
-	if sim.game_mode == "build" and sim.hall_level < int(HALL_LEVEL.get(t, 1)):
+	if sim.hall_level < int(HALL_LEVEL.get(t, 1)):
 		var lv: int = HALL_LEVEL[t]
 		return "Erst Rathaus Stufe %d (%s) - Rathaus-Fenster oben" % [lv, Config.HALL_LEVELS[lv]["name"]]
 	if t == Tool.HIGHTECH and not sim.tech("hightech"):
@@ -458,7 +458,7 @@ func tile_cost(t: Vector2i) -> int:
 			if water or special or building or rail or map.road[i] != 0: return -1
 			if t == hover and site_reason(sp, hover) != "": return -1
 			var price: int = Config.SPECIALS[sp]["cost"]
-			if sim.game_mode == "build" and sim.hall_level < 2:
+			if sim.hall_level < 2:
 				price = maxi(roundi(price * Config.BUILD_FOUNDING_COST), 1)   # Gründung: Material ist die Währung
 			return price if t == hover else 0
 		Tool.BULLDOZE:
@@ -755,9 +755,8 @@ func _place_special(tiles: Array[Vector2i]) -> void:
 		map.special[i] = sp
 		map.anchor[i] = a
 	map.slevel[a] = 1
-	if sim.game_mode == "build":
-		# Baustelle: Bauzeit nach Grundfläche, außerhalb eines Lager-Kreises länger (s. _advance_construction)
-		map.construct[a] = Config.BUILD_MONTHS_SPECIAL[clampi(int(Config.SPECIALS[sp]["size"]), 1, 3)] * 2
+	# Baustelle: Bauzeit nach Grundfläche, außerhalb eines Lager-Kreises länger (s. _advance_construction)
+	map.construct[a] = Config.BUILD_MONTHS_SPECIAL[clampi(int(Config.SPECIALS[sp]["size"]), 1, 3)] * 2
 
 
 ## Gibt das geänderte Rechteck zurück (Sonderbauten können größer sein).

@@ -62,10 +62,17 @@ Dev-Flags (nach `--`, funktionieren auch mit der App: `"build/Cube City.app/Cont
 
 ## Spielmodi
 
-Menü → **„Neue Stadt: Aufbau“** oder **„Neue Stadt: Klassisch“**. Alte Spielstände laufen als Klassisch.
+Es gibt nur noch einen Spielmodus, den **Aufbau-Start** (Spielstart bzw. Menü → **„Neue Stadt“**). Den früheren
+„klassischen“ Modus (20.000 $, alles nach Einwohnerzahl) gibt es seit 31.10. nicht mehr (Nutzerentscheidung).
 
-- **Klassisch:** 20.000 $ Startkapital, alles nach Einwohnerzahl freigeschaltet (bisheriges Spiel).
-- **Aufbau-Start** (31.10., Schritt 1): Start mit dem **Rathaus + Lagerhof** (3×3, nicht abreißbar, Lager für alle Rohstoffe, Notstrom 30 MW) an einer Lichtung mit einem Stück Straße, **3.000 $ Gründungskasse**, 200 Holz, 150 Stein.
+- **Alte Spielstände** werden beim Laden umgerechnet (die Datei bleibt, beim nächsten Speichern neues Format): Rathaus-Stufe
+  aus Einwohnern (Stufen-Schwellen, Material wird erlassen), mindestens so hoch, dass nichts Gebautes gesperrt ist (Forschung
+  begonnen ⇒ Stufe 5); alle Gebäude sind fertig (keine Baustellen). Das **Rathaus** kommt auf die günstigste flache Fläche
+  nahe dem Bebauungs-Schwerpunkt an einer Straße, dazu **Lagerhäuser (Stufe 3)** dort, wo die meisten Gebäude außerhalb
+  jedes Lager-Kreises stehen – bevorzugt auf freiem Land, notfalls wird dafür abgerissen. Meldung: „Spielstand umgestellt …“.
+  Gemessen: Megacity-Backup → Stufe 5, Rathaus + 8 Lager, nichts abgerissen; Stand des Nutzers (51k) → Rathaus + 6 Lager,
+  1 Gebäude abgerissen, 9 Gebäude bleiben außerhalb.
+- **Start** (31.10., Schritt 1): Start mit dem **Rathaus + Lagerhof** (3×3, nicht abreißbar, Lager für alle Rohstoffe, Notstrom 30 MW) an einer Lichtung mit einem Stück Straße, **3.000 $ Gründungskasse**, 200 Holz, 150 Stein.
   - **Gründung (Stufe 1):** keine Steuern, kein Unterhalt, **kein Zukauf** – Material muss selbst gesammelt werden (Holzfäller, Steinbruch, Grube; Straße zum Rathaus-Lager nötig). Sonderbauten kosten nur 10 % ihres Geldpreises (+ Material). Häuser brauchen schon auf Stufe 1 etwas Holz (Gewerbe/Industrie später Holz + Stein). Arbeit gibt es am Rathaus (30) und in Abbau-Betrieben mit Strom (je 15), Häuser brauchen noch keinen Pendelweg.
   - **Rathaus-Fenster** (Knopf oben): Stufe, Bedingungen der nächsten (Einwohner + Material mit Häkchen), „Rathaus ausbauen“, was neu freigeschaltet wird. Gesperrte Werkzeuge nennen die nötige Stufe.
 
@@ -79,9 +86,9 @@ Menü → **„Neue Stadt: Aufbau“** oder **„Neue Stadt: Klassisch“**. Alt
 
 - **Baustellen** (Schritt 2): Wächst ein Haus, ist es erst eine Baustelle (Holzgerüst, Materialstapel, ab Stufe 3 Kran) – Bauzeit Stufe 1/2/3+ = 1/2/3 Monate, solange wohnt/arbeitet dort niemand. Auch Sonderbauten sind erst Baustelle (1×1 = 1, 2×2 = 2, 3×3 = 3 Monate) und liefern solange nichts (kein Strom, keine Förderung, kein Dienst).
 - **Lager-Netz:** Rathaus-Hof (18 Tiles) und Lagerhäuser (14 / 20 / 26 Tiles je Stufe) haben einen Einzugskreis. Baustellen außerhalb dauern **doppelt so lange**; ab 2.000 Einwohnern verfallen Gebäude außerhalb leichter (Instandhaltung kommt schlecht an). Info-Karte: „Baustelle: fertig in ~N Monaten (langsam)“, „Kein Lager in Reichweite“; Bau-Vorschau des Lagerhauses zeigt den Kreis.
-- Nur im Aufbau-Start (klassische Spiele unverändert).
+- **Bürgermeister** (Schritt 3): Figur vor der Rathaus-Front (ohne Rathaus: an der Straße nahe dem Wohn-Schwerpunkt). Er **verkündet jede Warnung** per Sprechblase über dem Kopf (Stromengpass, Unzufriedenheit, Brände, Leerstand …) und **läuft zum Ort**, wenn er höchstens 40 Tiles entfernt ist (schüttelt dort den Kopf bzw. nickt bei guten Nachrichten, dann zurück); fernere Orte sagt er nur an und winkt. **Klick auf ihn** oder Knopf oben (Figur) öffnet den **Berater**: die wichtigsten Probleme der Stadt mit Ort und auf Rathaus-Stufe 1–2 eine Aufgabenliste für die ersten Schritte. Zwischen hohen Häusern kann er verdeckt sein – die Sprechblase bleibt sichtbar.
 
-Test `--buildstart [--bsmonths=N]` (Gründung, Sperren, Abbau, Baustellen, Lager-Kreis, Wachstum, Ausbau), Screenshot-Flag `--construct`.
+Test `--buildstart [--bsmonths=N]` (Gründung, Sperren, Abbau, Baustellen, Lager-Kreis, Wachstum, Ausbau), `--mayortest` (Bürgermeister läuft zum nahen Ort und zurück, ferner Ort nur Ansage), Screenshot-Flags `--construct`, `--mayorcam` (Kamera auf den Bürgermeister).
 
 ## Regeln (Kurz)
 
@@ -118,7 +125,7 @@ Dev-Werkzeuge liegen getrennt vom Spielcode in `scripts/dev/` und laufen nur mit
 
 - `dev_tools.gd` — wertet Flags aus: `--demo`, `--cam=x,z,dist`, `--ignite=x,z[,sek]` (Gebäude anzünden, Brand vorspulen, Kamera hin), `--ruin=x,z` (sofort abbrennen), `--overlay[=1..5]`, `--popup=view|happy`, `--menu`, `--flyout`, `--screenshot=pfad`, `--quit`
 - `demo_city.gd` — reproduzierbare Teststadt (Zonen, Strom, ÖPNV, 4-spurige Straße mit Verjüngung)
-- `dev_tests.gd` — `--selftest` (Timing, Speichern/Laden, Audio), `--dragtest` (echtes Maus-Ziehen), `--lanetest` (Rechtsverkehr auf Hauptstraßen), `--widetest` (Hauptstraßen-Erkennung), `--profile[=Sek,Tempo]` (Frame-Zeiten + Ruckler-Ursachen), `--gfx=0..2`, `--nowarmup`, `--servicetest`, `--tool=<name>`, `--traffictest` (Korridor: Straße/Parallelstraße/Hauptstraße/Bus/Bahn), `--pickcheck`, `--firetest` (Brand an der Wache gelöscht, ohne Wache abgebrannt + Ruine), `--bustest` (Vorstadt mit eigenem Straßennetz bekommt Busse), `--happytest` (Aufschlüsselung, Warnung bei Steuer hoch / Polizei weg), `--cheattest` (Geld-Cheat per Tastenereignis), `--greentest` (Grüngürtel gegen Verschmutzung, Terraforming reißt Straße ab), `--venuetest` (Stadion/Theater: Besucherverkehr, Kundschaft), `--zonetest` (Ladenzeile, Ballung, Nachbarschaft), `--taxtest` (Steuern je Zone, ÖPNV-Tarif), `--cartest` (Autos/Busse je Tarif, Diagnose ÖPNV, Bahnhofs-Auslastung), `--cardrift=Sek`, `--jamreport` (meistbelastete Straßen), `--loadfile=pfad` (Spielstand-Kopie laden), `--focus=x,z` (Kamera auf Tile), `--fronttest`, `--hover=x,z [--detail]`, `--notify`, `--hidehud`, `--fpstest`, `--mutetest`, `--savetest`, `--uiscale=f`, `--zoomtest`, `--rangetest`, `--appicon=pfad.png` (App-Icon rendern), `--splash[=brick|grass|stone]` (+ `--loadfile`, `--cam`, `--screenshot`: Startbild mit 3D-Block-Logo, Tilt-Shift), `--menu --asksave=slot`, `--gpumeasure=Sek,fps [--pause]`, `--popup=view|happy|log`, `--loadreport` (Auslastung der Dienste + Brände in 12 Monaten), `--powertest`, `--bigcity` (ganze Karte bebauen), `--buildtest` (Bau-Klick-Zeit, Pendler synchron/Hintergrund), `--restest`, `--processtest`, `--renewtest`, `--treereport`, `--researchtest`, `--resbuild`, `--freshrun=Jahre` (Neustart mit Startkapital: Startviertel + jährlicher Ausbau nach Kassenlage, Haushalt je Jahr, Wachstumsblocker), `--econreport` (Haushalt nach Posten, mit `--loadfile`)
+- `dev_tests.gd` — `--selftest` (Timing, Speichern/Laden, Audio), `--dragtest` (echtes Maus-Ziehen), `--lanetest` (Rechtsverkehr auf Hauptstraßen), `--widetest` (Hauptstraßen-Erkennung), `--profile[=Sek,Tempo]` (Frame-Zeiten + Ruckler-Ursachen), `--gfx=0..2`, `--nowarmup`, `--servicetest`, `--tool=<name>`, `--traffictest` (Korridor: Straße/Parallelstraße/Hauptstraße/Bus/Bahn), `--pickcheck`, `--firetest` (Brand an der Wache gelöscht, ohne Wache abgebrannt + Ruine), `--bustest` (Vorstadt mit eigenem Straßennetz bekommt Busse), `--happytest` (Aufschlüsselung, Warnung bei Steuer hoch / Polizei weg), `--cheattest` (Geld-Cheat per Tastenereignis), `--greentest` (Grüngürtel gegen Verschmutzung, Terraforming reißt Straße ab), `--venuetest` (Stadion/Theater: Besucherverkehr, Kundschaft), `--zonetest` (Ladenzeile, Ballung, Nachbarschaft), `--taxtest` (Steuern je Zone, ÖPNV-Tarif), `--cartest` (Autos/Busse je Tarif, Diagnose ÖPNV, Bahnhofs-Auslastung), `--cardrift=Sek`, `--jamreport` (meistbelastete Straßen), `--loadfile=pfad` (Spielstand-Kopie laden, alte Stände werden umgerechnet; `--nomigrate` = ohne Umrechnung zum Vergleich), `--focus=x,z` (Kamera auf Tile), `--fronttest`, `--hover=x,z [--detail]`, `--notify`, `--hidehud`, `--fpstest`, `--mutetest`, `--savetest`, `--uiscale=f`, `--zoomtest`, `--rangetest`, `--appicon=pfad.png` (App-Icon rendern), `--splash[=brick|grass|stone]` (+ `--loadfile`, `--cam`, `--screenshot`: Startbild mit 3D-Block-Logo, Tilt-Shift), `--menu --asksave=slot`, `--gpumeasure=Sek,fps [--pause]`, `--popup=view|happy|log`, `--loadreport` (Auslastung der Dienste + Brände in 12 Monaten), `--powertest`, `--bigcity` (ganze Karte bebauen), `--buildtest` (Bau-Klick-Zeit, Pendler synchron/Hintergrund), `--restest`, `--processtest`, `--renewtest`, `--treereport`, `--researchtest`, `--resbuild`, `--freshrun=Jahre` (Neustart mit Startkapital: Startviertel + jährlicher Ausbau nach Kassenlage, Haushalt je Jahr, Wachstumsblocker), `--econreport` (Haushalt nach Posten, mit `--loadfile`)
 
 ```bash
 /Applications/Godot.app/Contents/MacOS/Godot --path . -- --demo --selftest --dragtest --traffictest --quit
@@ -419,6 +426,7 @@ python3 tools/audio/gen_audio.py sfx ambient  # nur Effekte + Loops (~3 s)
 | `render/traffic.gd` / `trains.gd` | Autos+Busse / Züge (rein visuell) |
 | `render/map_overlay.gd` | Karten-Ansichten (V: Verkehr, Verschmutzung, Bodenwert, Kriminalität, Zufriedenheit, ÖPNV, Strom) + Versorgungsansicht der Dienste |
 | `render/status_markers.gd` | Blitz-Marker (kein Strom) |
+| `render/mayor.gd` | Bürgermeister-Figur (Kit-Charakter): Heimatplatz, Laufen zu Meldungsorten, Animationen |
 | `render/fire_fx.gd` | Flammen, Rauch, Wasserstrahl, Löschzüge mit Blaulicht, Rauch über Ruinen |
 | `render/graphics_settings.gd` / `shader_warmup.gd` | Grafikstufen / Shader vorkompilieren |
 | `ui/hud.gd` / `ui_theme.gd` / `icon_factory.gd` | HUD, Stil, aus Modellen gerenderte Icons |
@@ -444,14 +452,14 @@ python3 tools/audio/gen_audio.py sfx ambient  # nur Effekte + Loops (~3 s)
   - **Speicher** in Forschungsstufen: Batterie (klein, teuer, Stahl + Gold) → Pumpspeicher (groß, nur Hang + Wasser) → **Salzspeicher** (Nutzeridee; Flüssigsalz-Wärmespeicher wie in Solarthermie-Kraftwerken bzw. Carnot-Batterie: sehr groß, günstig, alte Kohlekraftwerke umrüstbar statt Abriss; Sand + Stahl + Gold). Speicher nehmen Überschuss von Wind/Sonne auf und liefern nachts/bei Flaute
 - [x] **Forschung Schritt 3 – Stadt** (31.10.): Hochhäuser (Wohnen Stufe 4), Bürotürme (Gewerbe Stufe 4), **Hightech-Industrie** (Nutzerwunsch: eigenes Zonen-Werkzeug, gleiche Kategorie wie Industrie, wenig Verschmutzung, braucht Akademiker), Verkehrsleitsystem (−20 % Stau), Beton (neuer Baustoff aus Stein + Sand)
 - [ ] Forschung später: Untertage/Tiefbau 2 (Geothermie, U-Bahn), weitere Projekte nach Bedarf; Balance (Dauer, Kosten) nach echtem Spielen nachjustieren
-- [ ] **Aufbau-Start** (Konzept 31.10., entschieden; Nutzer: nicht zu Siedler-artig, keine Zelte, keine 3rd-Person) – Startoption neben „Klassisch“ (und später Easy Mode):
+- [ ] **Aufbau-Start** (Konzept 31.10., entschieden; Nutzer: nicht zu Siedler-artig, keine Zelte, keine 3rd-Person) – seit 31.10. der einzige Spielmodus (später Easy Mode):
   - **Gründungskasse** (~3.000 $ für Straßen), Start mit **Rathaus + Lagerhof** an einer Lichtung; erst Material sammeln (Holzfäller, Steinbruch, Grube), Häuser brauchen schon auf Stufe 1 etwas Holz; Steuern erst ab Rathaus-Stufe 2.
   - **Rathaus-Stufen als roter Faden** (Ausbau kostet Material, schaltet frei – ersetzt teils die Einwohner-Schwellen). Entwurf: 1 Gründung (Straßen, Wohnen, Abbau, Lager, Windrad) · 2 Dorf (Steuern, Gewerbe, Industrie, Sägewerk, Ziegelei, Feuer/Polizei, Parks) · 3 Kleinstadt (Schule, Krankenhaus, Bus, Kohle, Glashütte, Mine) · 4 Stadt (Bahn, Kultur, Stahlwerk, Recycling, Prospektor) · 5 Großstadt (Universität/Forschung, Großkultur) · 6+ Metropole (U-Bahn, Wasserleitungen, Flughafen …). **Jede künftige Großfunktion wird an eine Rathaus-Stufe gebunden.**
   - **Baustellen mit kurzer Bauzeit** (1–3 Monate, auch im späteren Spiel): Gerüst + Materialstapel, steht bei Mangel still.
   - **Lager-Netz:** Lagerhäuser mit Einzugskreis; Baustellen und Instandhaltung außerhalb werden langsamer beliefert → verteilte Lager nötig.
   - **Bürgermeister-Figur** am Rathaus: verkündet dauerhaft alle Meldungen per Sprechblase und läuft zum Ort; Klick = Berater (wichtigste Baustellen der Stadt) und anfangs Aufgabenliste.
   - **Arbeiter-Figuren** laufen dauerhaft sichtbar (Lager ↔ Baustellen/Werke); später Lieferwagen (Lieferverkehr).
-  - Umsetzung in Schritten: **1 Spielmodus + Rathaus-Stufen + Gründung (fertig 31.10.)** · **2 Baustellen + Lager-Netz (fertig 31.10.)** · 3 Bürgermeister + Sprechblasen + Berater · 4 Arbeiter-Figuren
+  - Umsetzung in Schritten: **1 Spielmodus + Rathaus-Stufen + Gründung (fertig 31.10.)** · **2 Baustellen + Lager-Netz (fertig 31.10.)** · **3 Bürgermeister + Sprechblasen + Berater (fertig 31.10.)** · 4 Arbeiter-Figuren
 - [ ] **Lieferverkehr**: Liefermengen als LKW-Fahrten zum Lager (Straßenlast, sichtbare Laster), Güterbahnhof für entfernte Minen, Lieferweg-Kosten
 - [ ] Untertage-Ebene, Tunnel zu Nachbarstädten, Handel mit fiktiven Bürgermeistern
 - [ ] **U-Bahn** (Untertage-Ebene, Stationen, kein Flächenverbrauch an der Oberfläche)

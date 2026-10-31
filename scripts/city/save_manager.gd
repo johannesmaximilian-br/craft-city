@@ -75,6 +75,8 @@ static func load_file(file: String, map: CityMap, sim: Simulation) -> Error:
 	if not map.from_dict(data["map"]):
 		return ERR_INVALID_DATA
 	sim.from_dict(data["sim"])
+	if CityMigrate.needed(data["sim"]):
+		CityMigrate.run(map, sim)       # Spielstand von vor dem Aufbau-Start
 	return OK
 
 

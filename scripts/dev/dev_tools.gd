@@ -43,6 +43,8 @@ static func value(prefix: String) -> String:
 static func run(game: Node) -> void:
 	if OS.get_cmdline_user_args().is_empty():
 		return
+	# Tests/Demo bauen auf leerer Karte mit allem freigeschaltet (höchste Rathaus-Stufe); --buildstart startet echt
+	game.sim.hall_level = Config.HALL_LEVELS.size() - 1
 	# Tests/Demo-Aufbau rechnen Pendler synchron (deterministisch, Ergebnis sofort lesbar)
 	game.sim.async_commute = false
 	# Automatische Läufe (Tests/Screenshots) nehmen keinen Tastaturfokus: sonst landen Tastendrücke
@@ -57,9 +59,23 @@ static func run(game: Node) -> void:
 	if has("--demo"):
 		DemoCity.build(game)
 	if value("--loadfile") != "":
+		CityMigrate.disabled = has("--nomigrate")
 		# --loadfile=/pfad/datei.citysave: Spielstand-Kopie laden (Slots bleiben unberührt)
 		var err := SaveManager.load_file(value("--loadfile"), game.map, game.sim)
-		print("loadfile %s: %s, Einw. %d" % [value("--loadfile"), error_string(err), game.sim.population])
+		print("loadfile %s: %s, Einw. %d, Rathaus Stufe %d, Gebäude außerhalb Lager %d" % [value("--loadfile"),
+			error_string(err), game.sim.population, game.sim.hall_level, CityMigrate.uncovered(game.map, game.sim)])
+		if not CityMigrate.last.is_empty():
+			print("loadfile umgerechnet: %s" % CityMigrate.last)
+		var dark := 0
+		for i in game.map.size * game.map.size:
+			if game.map.zone[i] != Config.Zone.NONE and game.map.level[i] > 0 and game.sim.powered[i] == 0:
+				dark += 1
+		var cap := 0.0
+		var dem := 0.0
+		for net: Dictionary in game.sim.power_nets:
+			cap += float(net["capacity"])
+			dem += float(net["demand"])
+		print("loadfile Strom: Leistung %.0f, Bedarf %.0f, Gebäude ohne Strom %d" % [cap, dem, dark])
 	if has("--bigcity"):
 		DevTests.bigcity(game)
 	var cam_arg := value("--cam")
@@ -211,6 +227,8 @@ static func run(game: Node) -> void:
 		HumanPlayer.new().run(game, int(hv[0]), int(hv[1]) if hv.size() > 1 else 1)
 	if has("--buildstart"):
 		await DevTests.buildstarttest(game)
+	if has("--mayortest"):
+		await DevTests.mayortest(game)
 	if has("--citytechtest"):
 		await DevTests.citytechtest(game)
 	if has("--energytest"):
@@ -380,6 +398,16 @@ static func run(game: Node) -> void:
 		if value("--asksave") != "":
 			game.hud._ask_save(value("--asksave"))     # nur Abfrage zeigen, nichts speichern
 
+	if has("--mayorcam"):
+		# Kamera auf den Bürgermeister (Screenshot)
+		game.get_node("Mayor")._find_home()
+		game.get_node("Mayor").position = game.get_node("Mayor")._home
+		var mp: Vector3 = game.get_node("Mayor").position
+		var mt := Vector2i(int(mp.x / Config.TILE_BLOCKS), int(mp.z / Config.TILE_BLOCKS))
+		print("mayorcam Bürgermeister bei Tile %s" % mt)
+		game.cam.position = Vector3(mp.x, mp.y, mp.z)
+		game.cam._dist = 34.0
+		game.cam._target_dist = 34.0
 	var shot := value("--screenshot")
 	if shot != "":
 		for i in 90:

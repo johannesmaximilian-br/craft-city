@@ -1,11 +1,10 @@
 class_name CityStart
 extends RefCounted
-## Neue Stadt im Aufbau-Start: Rathaus mit Lagerhof (3x3) auf freiem Land nahe der Kartenmitte, Lichtung ringsum,
+## Neue Stadt: Rathaus mit Lagerhof (3x3) auf freiem Land nahe der Kartenmitte, Lichtung ringsum,
 ## kurzes Straßenstück, Gründungskasse und etwas Holz/Stein im Lager. Rathaus-Stufe 1, Steuern/Handel erst ab Stufe 2.
 
 
 static func setup_build(map: CityMap, sim: Simulation) -> Vector2i:
-	sim.game_mode = "build"
 	sim.hall_level = 1
 	sim.money = Config.BUILD_START_MONEY
 	for r: String in Config.BUILD_START_STOCK:
