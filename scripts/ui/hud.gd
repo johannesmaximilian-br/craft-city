@@ -5,6 +5,7 @@ extends CanvasLayer
 signal save_requested(slot: String)
 signal load_requested(slot: String)
 signal new_city_requested
+signal quit_requested(save_slot: String)   # "" = ohne Speichern
 signal overlay_selected(mode: int)   # MapOverlay.Mode
 signal graphics_changed
 signal focus_requested(tile: Vector2i)
@@ -69,6 +70,9 @@ var _fit_frame := -1
 var _fit_count := 0
 var _power_dark := 0                  # Gebäude ohne Strom (letzte Berechnung)
 var _power_night_shown := false       # Stromanzeige zeigt gerade die Nachtbilanz
+var _quit_card: PanelContainer        # Abfrage "Spiel beenden?"
+var _quit_speed := 1
+var _current_slot_hint := ""          # vom Spiel: zuletzt benutzter Speicherplatz
 var _research_open := {}              # Forschungsfenster: Bereich -> aufgeklappt
 var _popup_btn: Button               # Knopf, unter dem das offene Popover hängt
 var _popup_scroll: ScrollContainer   # Popover scrollt, wenn es höher als der Bildschirm wäre
@@ -500,6 +504,7 @@ func _build_menu(root: Control) -> void:
 	var bottom := _row(col, 8)
 	_text_button(bottom, "Neue Stadt", func(): new_city_requested.emit(); toggle_menu(), "Neue Karte, Startkapital").custom_minimum_size.x = 160
 	_text_button(bottom, "Weiter", toggle_menu, "").custom_minimum_size.x = 120
+	_text_button(bottom, "Beenden", func(): ask_quit(_current_slot_hint), "Spiel beenden (fragt nach dem Speichern)").custom_minimum_size.x = 130
 	_text_button(bottom, "Spielstand-Ordner öffnen", UserData.open_saves_folder,
 		ProjectSettings.globalize_path("user://saves")).custom_minimum_size.x = 300
 	var hint := _label(col, 16, UiTheme.TEXT_DIM)
@@ -575,6 +580,43 @@ static func slot_name(slot: String) -> String:
 		return SLOT_NAMES[slot]
 	var p := slot.split(".bak")
 	return "%s, Sicherung %s" % [SLOT_NAMES.get(p[0], p[0]), p[1] if p.size() > 1 else "?"]
+
+
+## Abfrage beim Beenden (Menü-Knopf, Fenster schließen, Cmd+Q): Speichern und beenden / ohne Speichern / abbrechen.
+func ask_quit(slot: String) -> void:
+	_current_slot_hint = slot
+	if _quit_card != null:
+		return
+	_quit_speed = sim.speed
+	_set_speed(0)
+	var target := slot if slot != "" else "quick"
+	_quit_card = _card(_root, 16, 18)
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 12)
+	_quit_card.add_child(col)
+	PopUI.label(col, "Spiel beenden?", 22, UiTheme.TEXT, true)
+	PopUI.label(col, "Nicht gespeicherte Fortschritte gehen sonst verloren.", 16, UiTheme.TEXT_DIM)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 10)
+	col.add_child(row)
+	var sb := _text_button(row, "Speichern (%s) und beenden" % slot_name(target), func() -> void:
+		quit_requested.emit(target), "Alte Version des Platzes wird als Sicherung behalten")
+	sb.custom_minimum_size.x = 340
+	_text_button(row, "Ohne Speichern beenden", func() -> void: quit_requested.emit(""), "").custom_minimum_size.x = 280
+	_text_button(row, "Abbrechen", _close_quit, "").custom_minimum_size.x = 140
+	_quit_card.modulate.a = 0.0
+	await RenderingServer.frame_pre_draw
+	if is_instance_valid(_quit_card):
+		_quit_card.reset_size()
+		_quit_card.position = (_ui_size() - _quit_card.size) * 0.5
+		_quit_card.modulate.a = 1.0
+
+
+func _close_quit() -> void:
+	if _quit_card != null:
+		_quit_card.queue_free()
+		_quit_card = null
+	_set_speed(_quit_speed if _quit_speed > 0 else 1)
 
 
 ## Speichern im Menü: belegter Platz -> erst nachfragen.
@@ -1563,6 +1605,12 @@ func _refresh_inner() -> void:
 		inc.append("  davon Forschung  $%d" % roundi(sim.research_spent))
 	if sim.interest_cost > 0.0:
 		inc.append("  davon Schuldzinsen  $%d  (1 %% je Monat auf das Minus)" % roundi(sim.interest_cost))
+	if not sim.last_maint.is_empty():
+		var mt := 0.0
+		for r: String in sim.last_maint:
+			mt += float(sim.last_maint[r])
+		inc.append("  Instandhaltung: %d Material/Monat (Recycling %d)%s" % [roundi(mt), roundi(sim.maint_recycled),
+			"  - Geld fehlt, Gebäude verfallen!" if sim.maint_short > 0.0 else ""])
 	if sim.admin_cost > 0.0:
 		inc.append("  davon Verwaltung  $%d  (ab %s Einw., steigt mit der Größe)" % [roundi(sim.admin_cost), _fmt(Config.ADMIN_FROM)])
 	if sim.import_cost > 0.0:
@@ -1684,8 +1732,11 @@ func _on_hover(t: Vector2i) -> void:
 					add.call("Dienst", "Zuletzt gefunden: %s" % str(sim.last_found.get(a, "noch nichts")))
 					add.call("Dienst", "Nur auf freien Hügeln (2+ über Wasser): Kohle, höher Eisen/Gold")
 				"recycle":
-					summary = "Abriss gibt %d%% statt %d%% der Baustoffe zurück" % [roundi(Config.RECYCLE_SHARE_YARD * 100.0),
-						roundi(Config.RECYCLE_SHARE * 100.0)]
+					summary = "Einzugskreis %d Tiles: Abriss gibt %d%% statt %d%% zurück" % [sim.service_radius(a),
+						roundi(Config.RECYCLE_SHARE_YARD * 100.0), roundi(Config.RECYCLE_SHARE * 100.0)]
+					add.call("Dienst", "Instandhaltung im Kreis: %d %% zurück, höchstens %d je Monat (Stufe %d)" % [
+						roundi(Config.RECYCLE_MAINT * 100.0), int(Config.RECYCLE_CAP[lv]), lv])
+					add.call("Dienst", "Stadtweit zurückgeholt letzter Monat: %d" % roundi(sim.maint_recycled))
 			if not sim.special_powered(i):
 				problems.append("x Kein Strom - arbeitet nicht")
 			add.call("Dienst", "Unterhalt $%d/Monat  ·  Strom %d MW" % [int(def["upkeep"] * Config.UPKEEP_LEVEL[lv]),

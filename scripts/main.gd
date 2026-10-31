@@ -13,9 +13,12 @@ var hud: Hud
 var environment: Environment
 var sun: DirectionalLight3D
 var day_night: DayNight
+var current_slot := ""          # zuletzt geladener/gespeicherter Platz (für "Speichern und beenden")
 
 
 func _ready() -> void:
+	# Fenster schließen / Cmd+Q beendet nicht sofort, sondern fragt (Speichern / ohne Speichern / Abbrechen)
+	get_tree().set_auto_accept_quit(false)
 	_setup_environment()
 
 	lib = BlockLibrary.new()
@@ -118,6 +121,7 @@ func _ready() -> void:
 			cat = "transit"        # ÖPNV-Ansicht: Busnetz blau, Gebäude mit/ohne Anschluss
 		overlay.set_service(cat))
 	hud.save_requested.connect(_save)
+	hud.quit_requested.connect(_quit)
 	hud.load_requested.connect(_load)
 	hud.new_city_requested.connect(_new_city)
 	hud.graphics_changed.connect(apply_graphics)
@@ -145,7 +149,23 @@ func _on_tool_applied(t: ToolController.Tool) -> void:
 		_: Audio.sfx("place")
 
 
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_WM_CLOSE_REQUEST:
+		if DevTools.automated or hud == null:
+			get_tree().quit()
+		else:
+			hud.ask_quit(current_slot)
+
+
+func _quit(save_slot: String) -> void:
+	if save_slot != "":
+		_save(save_slot)
+	get_tree().quit()
+
+
 func _save(slot: String) -> void:
+	current_slot = slot
+	hud._current_slot_hint = slot
 	var existed := not SaveManager.meta(slot).is_empty()
 	var err := SaveManager.save(slot, map, sim)
 	hud.show_message(("Gespeichert (%s)%s" % [Hud.slot_name(slot), " - alte Version gesichert" if existed else ""])
@@ -154,6 +174,9 @@ func _save(slot: String) -> void:
 
 func _load(slot: String) -> void:
 	var err := SaveManager.load_slot(slot, map, sim)
+	if err == OK:
+		current_slot = slot.get_slice(".bak", 0)     # aus einer Sicherung geladen -> deren Platz
+		hud._current_slot_hint = current_slot
 	hud.show_message("Geladen (%s)" % Hud.slot_name(slot) if err == OK
 		else ("Slot ist leer" if err == ERR_FILE_NOT_FOUND else "Laden fehlgeschlagen: %s" % error_string(err)))
 

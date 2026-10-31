@@ -741,12 +741,12 @@ func _apply_tile(t: Vector2i) -> Rect2i:
 		Tool.BULLDOZE:
 			if map.special[i] != Config.Special.NONE:
 				var sa := map.anchor[i]
-				var back_sp: Dictionary = sim.recycle_special(map.special[sa], map.special_level(sa))
+				var back_sp: Dictionary = sim.recycle_special(map.special[sa], map.special_level(sa), sa)
 				for res: String in back_sp:
 					_recycled[res] = float(_recycled.get(res, 0.0)) + float(back_sp[res])
 				r = _remove_special(i)
 			elif map.zone[i] != Config.Zone.NONE and map.level[i] >= 2:
-				var back: Dictionary = sim.recycle(map.zone[i], map.level[i])
+				var back: Dictionary = sim.recycle(map.zone[i], map.level[i], i)
 				for res: String in back:
 					_recycled[res] = float(_recycled.get(res, 0.0)) + float(back[res])
 			_clear(i)
@@ -824,7 +824,7 @@ func range_preview(t: Vector2i) -> Dictionary:
 						if map.in_bounds(x, z) and (absi(x - t.x) == rr or absi(z - t.y) == rr):
 							ring[map.idx(x, z)] = RANGE_AREA
 				return ring
-			if sp == Config.Special.NONE or not Config.SPECIALS[sp].has("service"):
+			if sp == Config.Special.NONE or not (Config.SPECIALS[sp].has("service") or sp == Config.Special.RECYCLER):
 				return out
 			var up := _upgrade_target()
 			var lv := mini(map.special_level(up) + 1, 3) if up >= 0 else 1

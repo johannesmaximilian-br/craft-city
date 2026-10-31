@@ -229,6 +229,13 @@ $G --path . -- --demo --cam=32,32,60 --screenshot=/pfad/bild.png          # Scre
   ohne Hochschul-Abdeckung (`_uni_cover`). Renderer `BuildingGenerator._hightech`, kein Rauch.
 - **Verkehrsleitsystem:** `traffic_control` (in `_recount` aus `tech("traffic")`, steht in `COMMUTE_IN`, weil der
   Pendler-Worker keine Forschung kennt) teilt die Straßenkapazität durch `TRAFFIC_CONTROL`.
+- **Beenden:** `main.gd` setzt `set_auto_accept_quit(false)` und fängt `NOTIFICATION_WM_CLOSE_REQUEST` ab → `Hud.ask_quit(slot)`
+  (Testläufe: sofort beenden). Signal `quit_requested(save_slot)` → `main._quit` speichert ggf. und beendet.
+  `main.current_slot` = zuletzt geladener/gespeicherter Platz (auch an `hud._current_slot_hint` für den Menü-Knopf).
+- **Instandhaltung:** `Simulation._maintenance()` (abschluss, nach `_process_goods`): `MAINT_RATE` × MATERIAL_COST je
+  bewohntem Gebäude ab Stufe 2 (ab `MATERIAL_FROM_POP`), Recycling im Kreis (`RECYCLE_MAINT`, Kapazität `RECYCLE_CAP`),
+  Rest Lager/Zukauf; ohne Geld `maint_short` → sanfter Auszug in `_grow_rows`. Recyclinghof-Kreis über `radius_mul` 3
+  (`recycler_covers(i)`; Abriss-Rückgabe hängt am Tile, `recycle(zn, lv, tile)`).
 - **Speichern:** neue Map-Felder in `CityMap.SAVE_FIELDS` eintragen; fehlende Felder alter Saves werden genullt.
   `SaveManager.save` rotiert vorher Sicherungen (`<slot>.bak1..3`, nur Spieler-Slots). Tests, die Spieler-Slots
   benutzen wollen, stellen `SaveManager.dir` auf einen eigenen Ordner um (siehe `savetest`).

@@ -50,6 +50,8 @@ Dev-Flags (nach `--`, funktionieren auch mit der App: `"build/Cube City.app/Cont
 
 ## Oberfläche
 
+**Spiel beenden:** Menü → „Beenden“, Fenster schließen oder Cmd+Q öffnen dieselbe Abfrage (Spiel pausiert): „Speichern (zuletzt benutzter Platz, sonst Schnellspeicher) und beenden“ · „Ohne Speichern beenden“ · „Abbrechen“. Vorher beendete das Schließen-Kreuz das Spiel sofort ohne Nachfrage.
+
 **Popover-Gestaltung (23.10.):** Ansicht, Zufriedenheit, Meldungen, Forschung und Info-Karte nutzen einheitliche Bausteine (`scripts/ui/pop_ui.gd`): Kopf mit Icon/Titel/Kennzahl, Abschnitte mit farbiger Überschrift + Linie, Zeilen „Bezeichnung | Wert“ (Wert fett/farbig), Balken (Zufriedenheit um eine Mitte: rot links/grün rechts), Plaketten (ERFORSCHT/LÄUFT/BEREIT/GESPERRT), roter Problemkasten, Listeneinträge (Ansicht: ganze Zeile klickbar, aktiv grün). Feste Breite 440 px mit Umbruch, höher als der Bildschirm → scrollen. Die Info-Karte zerlegt ihre Textzeilen automatisch an „·“ und „:“ bzw. der ersten Zahl in Bezeichnung/Wert.
 
 - **Info-Karte** (Maus über Tile): kompakt = Titel, eine Kernzeile (Einwohner/Jobs, Auslastung, Pendler …) und **nur Probleme** in Rot (Verfall mit Grund, kein Strom, Brand, Überlastung). Mit **I** alle Details nach Abschnitten; die Wahl bleibt erhalten.
@@ -221,6 +223,7 @@ Werte und Reichweiten: `scripts/config.gd` (Abschnitte *Standortregeln*, *Zonen-
 | Gewerbe | 3 Bretter, 3 Ziegel, 2 Glas | 4 Ziegel, 8 Glas, 6 Stahl |
 | Industrie | 4 Bretter, 4 Ziegel | 6 Ziegel, 8 Stahl |
 
+- **Instandhaltung (31.10.):** ab 2.000 Einwohnern verbraucht jedes bewohnte Gebäude ab Stufe 2 monatlich **1 %** seines Baumaterials (Renovierung ≈ alle 8 Jahre; zuerst 0,5 %, auf Nutzerwunsch erhöht) – sonst brauchte eine fertig gebaute Stadt nie wieder Material und ein Werk je Sorte reichte für immer. Aus dem Lager, sonst Zukauf; reicht auch das Geld nicht (Kasse unter −2.000 $), verfallen Gebäude langsam. Haushalts-Tooltip: „Instandhaltung: x Material/Monat“. Messung bei 1 %: Megacity ≈ 140 Einheiten/Monat (61 Ziegel, 34 Glas, 39 Stahl) → etwa 4–6 Werke je Sorte (Stufe 1) oder Zukauf; Neustarts (Bot, 50 J.) 3.100–4.300 Einwohner, wachsen weiter.
 - Fehlt Material, wird es **zugekauft** (3× Exportpreis, Ausgabe am Monatsende; bis 23.10. 2× – eigene Minen/Werke lohnten sich kaum). Ohne Geld dafür wächst nichts („Baustoffe fehlen …, Zukauf $x zu teuer“). Info-Karte (Details): Bedarf der nächsten Stufe und ob es im Lager ist.
 - **Baumaterial beim Bauen**: Straßen, Gleise, Leitungen, Haltestellen, Bahnhöfe, Parks und alle Sonderbauten kosten neben Geld auch Rohstoffe/Baustoffe. Sie kommen aus dem Lager; was fehlt, wird **sofort zugekauft** (3× Exportpreis) und ist im angezeigten Preis enthalten. Kostenblase am Cursor: Gesamtpreis, Material („50 Ziegel (50 fehlt)“), „davon Zukauf $x“; Werkzeug-Tooltip nennt das Material. Reicht das Geld nicht für Bau + Zukauf, wird nicht gebaut. Zonen kosten kein Material (erst ihr Wachstum). Ausbau eines Sonderbaus: halbes Baumaterial × aktuelle Stufe.
 
@@ -252,7 +255,7 @@ Werte und Reichweiten: `scripts/config.gd` (Abschnitte *Standortregeln*, *Zonen-
 |---|---|---|
 | **Baumschule** (1×1) | pflanzt 2 Bäume je Monat und Stufe auf freiem Gras im Umkreis 4 (nächste Tiles zuerst), **bis der Umkreis zur Hälfte Wald ist** → mit Holzfäller nachhaltiges Holz | 400 $ / 3 $ |
 | **Prospektor** (1×1) | findet mit 8 % je Monat und Stufe eine neue Ader (3–6 Tiles) auf freien Hügeln im Umkreis 8: Kohle ab 2, Eisen ab 4, Gold ab 5 Blöcken über Wasser. Funde sind **Restadern** (400–1.200 Einheiten je Tile, kleiner als Startvorkommen). Meldung mit Ort | 1.500 $ / 10 $ |
-| **Recyclinghof** (2×2, kein Ausbau) | Abriss eines Gebäudes ab Stufe 2 gibt **80 %** statt 40 % der verbauten Baustoffe zurück ins Lager | 2.000 $ / 8 $ |
+| **Recyclinghof** (2×2, ausbaubar) | **Einzugskreis 18 / 27 / 36 Tiles** (3× Polizei): Abriss im Kreis gibt **80 %** statt 40 % der Baustoffe zurück; holt 30 % des Instandhaltungs-Materials im Kreis zurück (höchstens 40 / 100 / 200 je Monat) – große Städte brauchen mehrere | 2.000 $ / 8 $ |
 
 - **Wald erholt sich von selbst, breitet sich aber nicht aus**: nur Lücken mit 5+ Bäumen ringsum (von 8, inkl. Diagonalen) wachsen mit 1 % je Monat zu – gerodete Stellen schließen sich langsam von den Ecken her, Waldränder wandern nicht ins offene Land. Ab 25 % bewaldetem Land wächst gar nichts mehr von selbst. Nie auf Zonen, Straßen, Strand. (Bis 23.10. reichten 2 Nachbarn → nach Jahrhunderten war die Karte zugewachsen.)
 - **Adern regenerieren** sehr langsam: Fels/Erz/Ton unter der Startmenge (1.200) +10 Einheiten je Tile alle ~2 Jahre (erschöpfte Adern kommen also wieder, bleiben aber knapp). Sand regeneriert nicht (ohnehin reichlich).

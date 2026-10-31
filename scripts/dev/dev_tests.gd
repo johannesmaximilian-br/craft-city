@@ -1749,6 +1749,19 @@ static func econreport(game: Node) -> void:
 		roundi(sim.line_count * Config.UPKEEP_POWERLINE), roundi(sim.special_upkeep), roundi(sim.rail_count * Config.UPKEEP_RAIL),
 		roundi(sim.bus_stop_count * Config.UPKEEP_BUS_STOP), roundi(sim.station_count * Config.UPKEEP_STATION), roundi(sim.import_cost), roundi(sim.admin_cost)])
 	print("econreport Zufriedenheit Anteile %s" % sim.happy_parts)
+	var mat := PackedStringArray()
+	for r: String in ["wood", "planks", "bricks", "glass", "steel", "concrete", "stone", "coal"]:
+		mat.append("%s: +%d / verbaut %d / zugekauft %d / Lager %d" % [Config.RESOURCES[r]["name"], roundi(float(sim.production.get(r, 0.0))),
+			roundi(float(sim.last_materials.get(r, 0.0))), roundi(float(sim.imported.get(r, 0.0))), roundi(float(sim.stock.get(r, 0.0)))])
+	print("econreport Material je Monat: %s" % " | ".join(mat))
+	var works := {}
+	for a in sim.map.size * sim.map.size:
+		if sim.map.anchor[a] == a and sim.map.special[a] != Config.Special.NONE:
+			var d: Dictionary = Config.SPECIALS[sim.map.special[a]]
+			if d.has("process") or d.has("produce") or d.has("renew") or d.has("storage"):
+				var nm := "%s St.%d" % [d["name"], sim.map.special_level(a)]
+				works[nm] = int(works.get(nm, 0)) + 1
+	print("econreport Werke: %s" % works)
 	print("econreport je Einwohner: Einnahmen $%.2f, Ausgaben $%.2f / Monat" % [sim.last_income / maxf(sim.population, 1),
 		sim.last_expense / maxf(sim.population, 1)])
 

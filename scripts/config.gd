@@ -166,9 +166,13 @@ const NURSERY_TREES := 2           # Bäume je Monat und Stufe
 const ORE_REGROW := 1.0 / 24.0     # Chance je Monat und Vorkommen-Tile (unter Startmenge): +1 Punkt (= ORE_UNIT)
 const PROSPECT_RANGE := 8
 const PROSPECT_CHANCE := 0.08
-const PROSPECT_MIN := 40            # gefundene Restadern: 40..ORE_MIN Einheiten je Tile (kleiner als Startvorkommen)      # je Monat und Stufe: neue Ader (Kohle/Eisen/Gold, 3-6 Tiles) gefunden
+const PROSPECT_MIN := 40            # gefundene Restadern: 40..ORE_MIN Einheiten je Tile (kleiner als Startvorkommen)
 const RECYCLE_SHARE := 0.4         # Anteil der verbauten Baustoffe, der beim Abriss zurückkommt ...
-const RECYCLE_SHARE_YARD := 0.8    # ... mit Recyclinghof
+const RECYCLE_SHARE_YARD := 0.8     # ... bei Abriss im Einzugskreis eines Recyclinghofs
+const RECYCLE_MAINT := 0.3          # Recyclinghof holt so viel des Instandhaltungs-Materials im Kreis zurück ...
+const RECYCLE_CAP := [0, 40, 100, 200]   # ... höchstens so viele Einheiten je Monat und Stufe
+# Instandhaltung: Gebäude ab Stufe 2 verbrauchen monatlich MAINT_RATE ihres Baumaterials (ab MATERIAL_FROM_POP Einw.)
+const MAINT_RATE := 0.01            # = Renovierung etwa alle 8 Jahre (31.10. von 0,5 % erhöht); sonst braucht eine fertige Stadt nie Material
 const LOCAL_BUFFER := 50           # eigener Vorrat je Stufe für Abbau ohne Straße zum Lager
 const ORE_MIN := 120               # Startmenge je Vorkommen-Tile (bis 255) ...
 const ORE_UNIT := 10               # ... je Punkt 10 Einheiten Rohstoff (eine Ader hält Jahrzehnte)
@@ -270,8 +274,8 @@ const SPECIALS := {
 		"renew": "trees"},
 	Special.PROSPECTOR: {"name": "Prospektor", "size": 1, "cost": 1500, "upgrade": 1500, "upkeep": 10.0, "power": 0, "use": 1,
 		"renew": "prospect"},
-	Special.RECYCLER:   {"name": "Recyclinghof", "size": 2, "cost": 2000, "upkeep": 8.0, "power": 0, "use": 2,
-		"renew": "recycle"},
+	Special.RECYCLER:   {"name": "Recyclinghof", "size": 2, "cost": 2000, "upgrade": 2000, "upkeep": 8.0, "power": 0, "use": 2,
+		"renew": "recycle", "radius_mul": 3.0},   # Einzugskreis 18/27/36 Tiles (3x Polizei – Nutzer: nicht so viele nötig)
 	Special.SAWMILL:    {"name": "Sägewerk", "size": 2, "cost": 1500, "upgrade": 1500, "upkeep": 6.0, "power": 0, "use": 2,
 		"process": {"in": {"wood": 10}, "out": {"planks": 10}}},
 	Special.BRICKWORKS: {"name": "Ziegelei", "size": 2, "cost": 1800, "upgrade": 1800, "upkeep": 7.0, "power": 0, "use": 3,

@@ -91,6 +91,9 @@ var _inst_levels := 0
 var research_spent := 0.0           # Forschungsausgaben im letzten Monat
 var traffic_control := false        # Forschung Verkehrsleitsystem (Kopie für den Pendler-Worker, s. COMMUTE_IN)
 var jobs_hightech := 0              # davon Hightech-Jobs (höhere Steuer)
+var last_maint := {}                # Instandhaltung: Bedarf je Material im letzten Monat
+var maint_recycled := 0.0           # davon von Recyclinghöfen zurückgeholt (Einheiten)
+var maint_short := 0.0              # Anteil Instandhaltung, der mangels Geld ausblieb (0..1) -> Verfall
 var interest_cost := 0.0            # Schuldzinsen im letzten Monat
 var admin_cost := 0.0               # Verwaltungskosten im letzten Monat
 var build_imports := 0.0           # Sofort-Zukauf von Baumaterial beim Bauen (Summe seit Spielstart, nicht gespeichert)
@@ -368,6 +371,7 @@ func _tick_stage(stage: String) -> void:
 			_renew()
 			_produce()
 			_process_goods()
+			_maintenance()
 			_export_surplus()
 			_research()
 			_budget()
@@ -1811,7 +1815,8 @@ func _grow_rows(z_from: int, z_to: int) -> void:
 				# hart: unzufrieden, kein Strom/Straße/Erreichbarkeit -> Leerstand möglich
 				# sanft: zu groß für die Lage / Villenlage weg (Abstieg auf kleinere Stufe) und keine Nachfrage
 				hard = (zn == Config.Zone.RES and happiness[i] < Config.HAPPY_LEAVE) or not ok
-				if hard or demand < -0.25 or new_lv > mx \
+				var unmaintained := new_lv >= 2 and maint_short > 0.0 and _rng.randf() < maint_short * 0.5
+				if hard or demand < -0.25 or new_lv > mx or unmaintained \
 						or (zn == Config.Zone.RES and new_lv == 3 and map.villa[i] == 1 and villa_lost(i)):
 					worn = 1
 			# Belegung: bei Verfall Auszug, sonst Zuzug; 0 % = Leerstand, nach VACANT_MONTHS Abriss
@@ -2444,8 +2449,9 @@ func _prospect(a: int, free: Callable) -> Array[int]:
 	return out
 
 
-## Abriss eines Gebäudes der Stufe lv: Anteil der verbauten Baustoffe zurück ins Lager. Rückgabe: zurückgewonnene Mengen.
-func recycle(zn: int, lv: int) -> Dictionary:
+## Abriss eines Gebäudes der Stufe lv: Anteil der verbauten Baustoffe zurück ins Lager (tile: im Einzugskreis eines
+## Recyclinghofs mehr). Rückgabe: zurückgewonnene Mengen.
+func recycle(zn: int, lv: int, tile := -1) -> Dictionary:
 	var mats := {}
 	if not Config.MATERIAL_COST.has(zn):
 		return mats
@@ -2453,23 +2459,23 @@ func recycle(zn: int, lv: int) -> Dictionary:
 		var cost: Dictionary = Config.MATERIAL_COST[zn][k]
 		for r: String in cost:
 			mats[r] = float(mats.get(r, 0.0)) + float(cost[r])
-	return recycle_materials(mats)
+	return recycle_materials(mats, tile)
 
 
 ## Abriss eines Sonderbaus: Anteil des Baumaterials (inkl. Ausbaustufen) zurück ins Lager.
-func recycle_special(sp: int, lv: int) -> Dictionary:
+func recycle_special(sp: int, lv: int, tile := -1) -> Dictionary:
 	var base: Dictionary = Config.SPECIAL_MATERIALS.get(sp, {})
 	var f := 1.0
 	for k in range(1, lv):
 		f += Config.UPGRADE_MATERIALS * k
-	return recycle_materials(scale_materials(base, f))
+	return recycle_materials(scale_materials(base, f), tile)
 
 
-func recycle_materials(mats: Dictionary) -> Dictionary:
+func recycle_materials(mats: Dictionary, tile := -1) -> Dictionary:
 	var back := {}
 	if mats.is_empty():
 		return back
-	var share := Config.RECYCLE_SHARE_YARD if has_recycler() else Config.RECYCLE_SHARE
+	var share := Config.RECYCLE_SHARE_YARD if (recycler_covers(tile) if tile >= 0 else has_recycler()) else Config.RECYCLE_SHARE
 	for r: String in mats:
 		back[r] = float(mats[r]) * share
 		stock[r] = float(stock.get(r, 0.0)) + float(back[r])
@@ -2743,6 +2749,88 @@ func use_build_materials(mats: Dictionary) -> float:
 		build_imports += price
 		spend(price)
 	return price
+
+
+## Liegt Tile i im Einzugskreis eines Recyclinghofs mit Strom?
+func recycler_covers(i: int) -> bool:
+	var x := i % map.size
+	var z := i / map.size
+	for a in _recyclers():
+		var r := service_radius(a) + 1
+		if Vector2(x - a % map.size - 0.5, z - a / map.size - 0.5).length() <= r:
+			return true
+	return false
+
+
+func _recyclers() -> PackedInt32Array:
+	var out := PackedInt32Array()
+	for a in map.size * map.size:
+		if map.special[a] == Config.Special.RECYCLER and map.anchor[a] == a and special_powered(a):
+			out.append(a)
+	return out
+
+
+## Instandhaltung (monatlich, Etappe "abschluss" nach den Werken): Gebäude ab Stufe 2 verbrauchen MAINT_RATE ihres
+## Baumaterials. Recyclinghöfe holen im Einzugskreis RECYCLE_MAINT davon zurück (Kapazität je Stufe). Fehlendes wird
+## zugekauft; reicht auch das Geld nicht (MATERIAL_DEBT), steigt maint_short -> Gebäude verfallen langsam (_grow_rows).
+func _maintenance() -> void:
+	last_maint = {}
+	maint_recycled = 0.0
+	maint_short = 0.0
+	if population < Config.MATERIAL_FROM_POP:
+		return
+	var n := map.size * map.size
+	var recs := _recyclers()
+	var covered := PackedByteArray()
+	covered.resize(n)
+	var cap := 0.0
+	for a in recs:
+		cap += Config.RECYCLE_CAP[map.special_level(a)]
+		var r := service_radius(a) + 1
+		var ax := a % map.size
+		var az := a / map.size
+		for z in range(maxi(az - r, 0), mini(az + r + 2, map.size)):
+			for x in range(maxi(ax - r, 0), mini(ax + r + 2, map.size)):
+				if Vector2(x - ax - 0.5, z - az - 0.5).length() <= r:
+					covered[z * map.size + x] = 1
+	var need := {}
+	var in_reach := 0.0
+	var zone := map.zone
+	var level := map.level
+	var bf := build_factor()
+	for i in n:
+		var lv := level[i]
+		if lv < 2 or zone[i] == Config.Zone.NONE or map.empty[i] >= 100:
+			continue
+		var cost: Dictionary = Config.MATERIAL_COST[zone[i]][lv]
+		for r: String in cost:
+			var q := float(cost[r]) * Config.MAINT_RATE * bf
+			need[r] = float(need.get(r, 0.0)) + q
+			if covered[i] == 1:
+				in_reach += q * Config.RECYCLE_MAINT
+	# Recycling deckt einen Teil (gleichmäßig über alle Materialien)
+	var total := 0.0
+	for r: String in need:
+		total += float(need[r])
+	maint_recycled = minf(in_reach, cap)
+	var cover := maint_recycled / total if total > 0.0 else 0.0
+	var unpaid_val := 0.0
+	var total_val := 0.0
+	for r: String in need:
+		var q := float(need[r]) * (1.0 - cover)
+		var take := minf(q, float(stock.get(r, 0.0)))
+		stock[r] = float(stock.get(r, 0.0)) - take
+		var miss := q - take
+		var price := miss * float(Config.RESOURCES[r]["price"]) * Config.IMPORT_FACTOR
+		total_val += q * float(Config.RESOURCES[r]["price"])
+		if miss > 0.0:
+			if money - _import_pending - price >= -Config.MATERIAL_DEBT:
+				_buy(r, miss)
+			else:
+				unpaid_val += miss * float(Config.RESOURCES[r]["price"])
+		last_maint[r] = float(need[r])
+		materials_used[r] = float(materials_used.get(r, 0.0)) + q
+	maint_short = clampf(unpaid_val / total_val, 0.0, 1.0) if total_val > 0.0 else 0.0
 
 
 func has_recycler() -> bool:

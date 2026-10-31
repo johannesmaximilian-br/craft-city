@@ -134,6 +134,8 @@ static func run(game: Node) -> void:
 		DevTests.decaytest()
 	if has("--worn"):
 		DevTests.mark_worn(game)
+	if has("--askquit"):
+		game.hud.ask_quit("2")        # Screenshot der Beenden-Abfrage
 	if has("--lv4"):
 		# Screenshot: Wohnen/Gewerbe Stufe 3 -> 4, Industrie -> Hightech (nur Optik)
 		var mp: CityMap = game.map
