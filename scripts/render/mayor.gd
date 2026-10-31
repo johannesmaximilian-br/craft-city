@@ -29,7 +29,7 @@ func setup(city_map: CityMap, simulation: Simulation) -> void:
 	map = city_map
 	sim = simulation
 	_model = (load("res://assets/characters/Character_Male_2.gltf") as PackedScene).instantiate()
-	_nearest(_model)
+	nearest_filter(_model)
 	_model.scale = Vector3.ONE * SCALE
 	add_child(_model)
 	_anim = _model.find_child("AnimationPlayer", true, false) as AnimationPlayer
@@ -161,7 +161,7 @@ func _process(dt: float) -> void:
 
 
 ## Eigener 32-px-Atlas der Figur bleibt (BlockLibrary.fix_node_materials würde ihn gegen den Block-Atlas tauschen).
-func _nearest(n: Node) -> void:
+static func nearest_filter(n: Node) -> void:
 	if n is MeshInstance3D and (n as MeshInstance3D).mesh != null:
 		var mesh := (n as MeshInstance3D).mesh
 		for s in mesh.get_surface_count():
@@ -169,7 +169,7 @@ func _nearest(n: Node) -> void:
 			if mat != null:
 				mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
 	for c in n.get_children():
-		_nearest(c)
+		nearest_filter(c)
 
 
 func _wave() -> void:

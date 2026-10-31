@@ -106,6 +106,10 @@ func _ready() -> void:
 	add_child(mayor)
 	mayor.setup(map, sim)
 	hud.mayor = mayor
+	var workers := Workers.new()
+	workers.name = "Workers"
+	add_child(workers)
+	workers.setup(map, sim, lib)
 	hud.focus_requested.connect(func(t: Vector2i): cam.focus_tile(t, map.h(t.x, t.y)))
 	sim.stats_changed.connect(func():
 		renderer.sim_speed = sim.speed

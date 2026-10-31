@@ -2289,3 +2289,29 @@ static func mayortest(game: Node) -> void:
 	var far := Vector2i(clampi(ht.x + Mayor.WALK_MAX + 10, 0, map.size - 1), clampi(ht.y + Mayor.WALK_MAX, 0, map.size - 1))
 	game.hud.notify("Test: Problem weit weg", far)
 	print("mayortest fern: Zustand %s (erwartet home), Text '%s'" % [mayor._state, mayor.text])
+
+
+## Arbeiter: nach dem Aufbau-Start laufen Figuren Lager -> Baustelle bzw. Werk -> Lager über die Straßen.
+## cam = Kamera auf einen laufenden Arbeiter (Screenshot).
+static func workertest(game: Node, cam: bool) -> void:
+	var workers: Workers = game.get_node("Workers")
+	var seen := {}
+	var states := {}
+	var t0 := Time.get_ticks_usec()
+	var focus := false
+	for f in 900:
+		await game.get_tree().process_frame
+		for w in workers._pool:
+			if w["state"] != "free":
+				seen[w["node"]] = true
+				states[w["kind"] + ":" + w["state"]] = int(states.get(w["kind"] + ":" + w["state"], 0)) + 1
+				if cam and not focus and w["state"] == "go" and (w["kind"] == "build" or f > 300):
+					var p: Vector3 = (w["node"] as Node3D).position
+					game.cam.position = p
+					game.cam._dist = 20.0
+					game.cam._target_dist = 20.0
+					focus = true
+		if cam and focus:
+			break
+	print("workertest Figuren unterwegs %d (gerade aktiv %d), Zustände %s, %.1f s" % [seen.size(), workers.active_count(),
+		states, (Time.get_ticks_usec() - t0) / 1e6])

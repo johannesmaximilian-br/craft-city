@@ -87,8 +87,13 @@ Es gibt nur noch einen Spielmodus, den **Aufbau-Start** (Spielstart bzw. Menü �
 - **Baustellen** (Schritt 2): Wächst ein Haus, ist es erst eine Baustelle (Holzgerüst, Materialstapel, ab Stufe 3 Kran) – Bauzeit Stufe 1/2/3+ = 1/2/3 Monate, solange wohnt/arbeitet dort niemand. Auch Sonderbauten sind erst Baustelle (1×1 = 1, 2×2 = 2, 3×3 = 3 Monate) und liefern solange nichts (kein Strom, keine Förderung, kein Dienst).
 - **Lager-Netz:** Rathaus-Hof (18 Tiles) und Lagerhäuser (14 / 20 / 26 Tiles je Stufe) haben einen Einzugskreis. Baustellen außerhalb dauern **doppelt so lange**; ab 2.000 Einwohnern verfallen Gebäude außerhalb leichter (Instandhaltung kommt schlecht an). Info-Karte: „Baustelle: fertig in ~N Monaten (langsam)“, „Kein Lager in Reichweite“; Bau-Vorschau des Lagerhauses zeigt den Kreis.
 - **Bürgermeister** (Schritt 3): Figur vor der Rathaus-Front (ohne Rathaus: an der Straße nahe dem Wohn-Schwerpunkt). Er **verkündet jede Warnung** per Sprechblase über dem Kopf (Stromengpass, Unzufriedenheit, Brände, Leerstand …) und **läuft zum Ort**, wenn er höchstens 40 Tiles entfernt ist (schüttelt dort den Kopf bzw. nickt bei guten Nachrichten, dann zurück); fernere Orte sagt er nur an und winkt. **Klick auf ihn** oder Knopf oben (Figur) öffnet den **Berater**: die wichtigsten Probleme der Stadt mit Ort und auf Rathaus-Stufe 1–2 eine Aufgabenliste für die ersten Schritte. Zwischen hohen Häusern kann er verdeckt sein – die Sprechblase bleibt sichtbar.
+- **Arbeiter** (Schritt 4, rein optisch): bis zu 18 kleine Figuren laufen auf dem rechten Gehweg über die Straßen – vom
+  nächsten Lager (Rathaus-Hof/Lagerhaus) mit einer **Kiste** zur **Baustelle**, hämmern dort kurz und gehen zurück; von
+  **Abbau-Betrieben/Werken** mit Förderung tragen sie einen **Block des Rohstoffs** (Stamm, Stein, Sand, Ziegel …) zum Lager.
+  Baustellen haben Vorrang, 2×2-Baustellen bekommen zwei Arbeiter. Ohne Straßenverbindung oder bei mehr als 70 Tiles Weg
+  läuft niemand. Laufen mit dem Spieltempo, stehen bei Pause.
 
-Test `--buildstart [--bsmonths=N]` (Gründung, Sperren, Abbau, Baustellen, Lager-Kreis, Wachstum, Ausbau), `--mayortest` (Bürgermeister läuft zum nahen Ort und zurück, ferner Ort nur Ansage), Screenshot-Flags `--construct`, `--mayorcam` (Kamera auf den Bürgermeister).
+Test `--buildstart [--bsmonths=N]` (Gründung, Sperren, Abbau, Baustellen, Lager-Kreis, Wachstum, Ausbau), `--mayortest` (Bürgermeister läuft zum nahen Ort und zurück, ferner Ort nur Ansage), `--workertest` (Arbeiter-Zyklen zählen, mit `--buildstart` oder `--loadfile`), Screenshot-Flags `--construct`, `--mayorcam` (Kamera auf den Bürgermeister), `--workercam` (Kamera auf einen laufenden Arbeiter).
 
 ## Regeln (Kurz)
 
@@ -426,6 +431,7 @@ python3 tools/audio/gen_audio.py sfx ambient  # nur Effekte + Loops (~3 s)
 | `render/traffic.gd` / `trains.gd` | Autos+Busse / Züge (rein visuell) |
 | `render/map_overlay.gd` | Karten-Ansichten (V: Verkehr, Verschmutzung, Bodenwert, Kriminalität, Zufriedenheit, ÖPNV, Strom) + Versorgungsansicht der Dienste |
 | `render/status_markers.gd` | Blitz-Marker (kein Strom) |
+| `render/workers.gd` | Arbeiter-Figuren: Lager ↔ Baustellen/Werke über Straßen (rein visuell) |
 | `render/mayor.gd` | Bürgermeister-Figur (Kit-Charakter): Heimatplatz, Laufen zu Meldungsorten, Animationen |
 | `render/fire_fx.gd` | Flammen, Rauch, Wasserstrahl, Löschzüge mit Blaulicht, Rauch über Ruinen |
 | `render/graphics_settings.gd` / `shader_warmup.gd` | Grafikstufen / Shader vorkompilieren |
@@ -459,7 +465,8 @@ python3 tools/audio/gen_audio.py sfx ambient  # nur Effekte + Loops (~3 s)
   - **Lager-Netz:** Lagerhäuser mit Einzugskreis; Baustellen und Instandhaltung außerhalb werden langsamer beliefert → verteilte Lager nötig.
   - **Bürgermeister-Figur** am Rathaus: verkündet dauerhaft alle Meldungen per Sprechblase und läuft zum Ort; Klick = Berater (wichtigste Baustellen der Stadt) und anfangs Aufgabenliste.
   - **Arbeiter-Figuren** laufen dauerhaft sichtbar (Lager ↔ Baustellen/Werke); später Lieferwagen (Lieferverkehr).
-  - Umsetzung in Schritten: **1 Spielmodus + Rathaus-Stufen + Gründung (fertig 31.10.)** · **2 Baustellen + Lager-Netz (fertig 31.10.)** · **3 Bürgermeister + Sprechblasen + Berater (fertig 31.10.)** · 4 Arbeiter-Figuren
+  - Umsetzung in Schritten: **1 Spielmodus + Rathaus-Stufen + Gründung (fertig 31.10.)** · **2 Baustellen + Lager-Netz (fertig 31.10.)** · **3 Bürgermeister + Sprechblasen + Berater (fertig 31.10.)** · **4 Arbeiter-Figuren (fertig 31.10.)**
+- [ ] **Eigene Block-Figuren** (Idee 31.10., später): Bürgermeister/Arbeiter Minecraft-artig aus Pixel-Blocks (Würfel-Kopf/-Körper/-Glieder, Laufen über schwingende Glieder) statt der abgerundeten Kit-Charaktere – passt besser zu Gelände/Gebäuden. Größe bleibt bewusst übertrieben (Lesbarkeit).
 - [ ] **Lieferverkehr**: Liefermengen als LKW-Fahrten zum Lager (Straßenlast, sichtbare Laster), Güterbahnhof für entfernte Minen, Lieferweg-Kosten
 - [ ] Untertage-Ebene, Tunnel zu Nachbarstädten, Handel mit fiktiven Bürgermeistern
 - [ ] **U-Bahn** (Untertage-Ebene, Stationen, kein Flächenverbrauch an der Oberfläche)

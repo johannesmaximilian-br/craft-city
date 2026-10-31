@@ -241,7 +241,12 @@ $G --path . -- --demo --cam=32,32,60 --screenshot=/pfad/bild.png          # Scre
   (gleiche Seitenwahl wie `WorldRenderer._front_angle`; „nächste Straße“ lag oft hinter dem Rathaus = verdeckt), ohne
   Rathaus Straße am Wohn-Schwerpunkt. Sprechblase zeichnet das HUD (`_update_bubble`, `cam.unproject_position(mayor.head())`).
   Kit-Charaktere haben einen **eigenen** 32-px-Atlas → nicht `BlockLibrary.fix_node_materials` (tauscht ihn gegen den
-  Block-Atlas), nur Nearest-Filter (`_nearest`). Modell ist bei Skala 1 schon 2,66 Blöcke hoch.
+  Block-Atlas), nur Nearest-Filter (`Mayor.nearest_filter`, auch für Arbeiter). Modell ist bei Skala 1 schon 2,66 Blöcke hoch.
+- **Arbeiter** (`render/workers.gd`, Node „Workers“ in main, rein visuell): fester Pool (`MAX_WORKERS` Kit-Charaktere,
+  Skala 0.75, `Walk_Hold`/`Punch`). `_assign()` jede Sekunde: Baustellen (`construct > 0`) vor Werken (fertig, Strom, Förderung
+  laut `sim.producer_info` bzw. `"process"`), höchstens 2 Wegsuchen je Sekunde (Breitensuche nur über Straßen, `MAX_PATH`).
+  Zustände go → work/drop → return → free. Getragener Block = `lib.meshes[key]` + `lib.norm[key]` am Modell
+  (`CARRY_KEY` je Rohstoff). Ohne Lager (z. B. Demo) keine Arbeiter. Test `--workertest`, Bild `--workercam`.
 - **Speichern:** neue Map-Felder in `CityMap.SAVE_FIELDS` eintragen; fehlende Felder alter Saves werden genullt.
   `SaveManager.save` rotiert vorher Sicherungen (`<slot>.bak1..3`, nur Spieler-Slots). Tests, die Spieler-Slots
   benutzen wollen, stellen `SaveManager.dir` auf einen eigenen Ordner um (siehe `savetest`).

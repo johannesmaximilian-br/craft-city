@@ -408,6 +408,8 @@ static func run(game: Node) -> void:
 		game.cam.position = Vector3(mp.x, mp.y, mp.z)
 		game.cam._dist = 34.0
 		game.cam._target_dist = 34.0
+	if has("--workertest") or has("--workercam"):
+		await DevTests.workertest(game, has("--workercam"))
 	var shot := value("--screenshot")
 	if shot != "":
 		for i in 90:
