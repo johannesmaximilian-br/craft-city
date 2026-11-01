@@ -10,7 +10,8 @@ extends RefCounted
 
 const CW := 5                          # Block-Raster: 4x3 Zone + Straße (Straßen werden mit dem Nachbarblock geteilt)
 const CD := 4
-const IND_FROM := 4                    # Industrie erst ab dieser Block-Spalte östlich (>= 20 Tiles), Wohnen/Gewerbe bis 2
+const MAX_OWN := {"wood": 6, "bricks": 6, "clay": 6}   # Holz/Ziegel: Häuser + Instandhaltung verbrauchen am meisten
+const BUFFER := 1                      # Blöcke Abstand zwischen Industrie und Wohnen/Gewerbe (Verschmutzung)
 const T := ToolController.Tool
 
 var game: Node
@@ -21,13 +22,17 @@ var rng := RandomNumberGenerator.new()
 var c := 64
 var cz := 64                           # Rasterursprung z (Rathaus-Mitte)
 var cells: Array[Vector2i] = []        # Ausbau-Reihenfolge Wohnen/Gewerbe (nach Abstand)
-var ind_cells: Array[Vector2i] = []    # ... Industrie-Viertel
-var next_cell := 0
-var next_ind := 0
+var skipped := {}                      # Blöcke mit Wasser/Sonderbau (nie bebaubar)
 var built_cells := {}                  # Vector2i -> Zone
 var log_lines: Array[String] = []
 var verbose := false
 var milestones: Array[String] = []
+var rail_lines := 0
+var trade_answers := {}                # Verbraucher, für die gefragt wurde (Diagnose)
+var saving := false                    # spart gerade für einen Betrieb
+var gold_wait := 0                     # Monate, in denen ein Projekt auf Gold wartete
+var gold_bought := 0.0
+var gold_mined := 0.0
 var producers := {}                   # Rohstoff -> Array[int] (Anker der eigenen Abbau-Betriebe/Werke)
 var hall := Vector2i(-1, -1)
 ## Rohstoff -> [Werkzeug, Ort: "tree" | Config.Ore | Eingangs-Rohstoff (Werk)]
@@ -47,25 +52,32 @@ func run(g: Node, years: int, seed_value: int) -> void:
 	sim = g.sim
 	tools = g.tools
 	rng.seed = seed_value
-	DemoCity.generate_map(map)
-	sim.reset()
-	hall = CityStart.setup_build(map, sim)
+	# reproduzierbar: Zufall der Simulation (Wachstum, Brände, Erneuerung) und globaler Zufall fest
+	seed(seed_value)
+	sim._rng.seed = seed_value
+	game.fire_dept._rng.seed = seed_value
+	var loaded := DevTools.value("--loadfile") != ""      # mit --loadfile: auf dem geladenen Stand weiterspielen
+	if loaded:
+		for a in map.size * map.size:
+			if map.anchor[a] == a and map.special[a] == Config.Special.CITYHALL:
+				hall = Vector2i(a % map.size, a / map.size)
+	else:
+		DemoCity.generate_map(map)
+		sim.reset()
+		hall = CityStart.setup_build(map, sim)
+	sim.trade_request.connect(_on_trade)
 	c = hall.x + 1
 	cz = hall.y + 1
 	for j in range(-16, 17):
 		for i in range(-14, 15):
-			if i <= IND_FROM - 2:
-				cells.append(Vector2i(i, j))
-			elif i >= IND_FROM:
-				ind_cells.append(Vector2i(i, j))     # Spalte dazwischen bleibt frei (Grüngürtel)
-	var by_dist := func(a: Vector2i, b: Vector2i) -> bool:
-		return Vector2(a.x * CW, a.y * CD).length_squared() < Vector2(b.x * CW, b.y * CD).length_squared()
-	cells.sort_custom(by_dist)
-	ind_cells.sort_custom(by_dist)
+			cells.append(Vector2i(i, j))
+	cells.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:
+		return Vector2(a.x * CW, a.y * CD).length_squared() < Vector2(b.x * CW, b.y * CD).length_squared())
 	# Gründung: Holzfäller + Steinbruch anschließen, ein Wohnblock
-	_ensure("wood")
-	_ensure("stone")
-	_build_cell(Config.Zone.RES)
+	if not loaded:
+		_ensure("wood")
+		_ensure("stone")
+		_build_cell(Config.Zone.RES)
 	print("humanrun Start %d: Kasse $%d, Holz %d, Stein %d nach Gründung, Betriebe %s" % [sim.year, int(sim.money),
 		int(sim.stock["wood"]), int(sim.stock["stone"]), _special_counts()])
 	var zt := 0
@@ -84,9 +96,11 @@ func run(g: Node, years: int, seed_value: int) -> void:
 		var inc := 0.0
 		var exp := 0.0
 		for m in 12:
+			seed(seed_value * 100000 + sim.year * 12 + m)    # globaler Zufall je Monat fest
 			sim.tick_month()
 			game.fire_dept.advance(12.0)           # Löschzüge fahren (im Spiel Echtzeit)
 			inc += sim.last_income
+			gold_mined += float(sim.production.get("gold", 0.0))
 			exp += sim.last_expense
 			if m % 3 == 2:
 				_think()
@@ -99,6 +113,7 @@ func run(g: Node, years: int, seed_value: int) -> void:
 			sim.year, int(sim.money), sim.population, roundi(inc - exp), roundi(sim.city_happiness * 100.0),
 			sim.power_demand, sim.power_supply, roundi(float(sim.tax[Config.Zone.RES]) * 100.0), sim.hall_level,
 			"-" if nx.is_empty() else ",".join(nx["missing"]), CityMigrate.uncovered(map, sim), sim.research_done.size(), res])
+		print(_diag())
 		if verbose:
 			var inc_s := PackedStringArray()
 			for k: String in sim.income_parts:
@@ -114,6 +129,14 @@ func run(g: Node, years: int, seed_value: int) -> void:
 						sim.producer_info.get(pa, "keine Info"), r, int(sim.stock.get(r, 0.0))])
 	for m in milestones:
 		print("humanrun Meilenstein: %s" % m)
+	print("humanrun Gebäude: %s" % _special_counts())
+	print("humanrun Zukauf-Freigaben: %s, gefragt für %s" % [sim.trade_allow.keys(), trade_answers.keys()])
+	var mines := 0
+	for a in map.size * map.size:
+		if map.anchor[a] == a and map.special[a] == Config.Special.MINE:
+			mines += 1
+	print("humanrun Gold: gefördert %d, für Forschung zugekauft %d, Wartezeit auf Gold %d Monate, Lager %d, Minen %d, erforscht %d/%d" % [
+		int(gold_mined), int(gold_bought), gold_wait, int(sim.stock.get("gold", 0.0)), mines, sim.research_done.size(), Config.RESEARCH.size()])
 	var blockers := {}
 	var zones := {}
 	for i in map.size * map.size:
@@ -154,17 +177,32 @@ func _think() -> void:
 		sim.upgrade_hall()
 		milestones.append("%d: Rathaus Stufe %d (%s), Einw. %d" % [sim.year, sim.hall_level, nx["name"], sim.population])
 		nx = sim.hall_next()
-	# Material: Holz + Stein immer selbst, dazu was der nächsten Rathaus-Stufe fehlt (+ Bretter/Ziegel für das Wachsen)
-	var want: Array[String] = ["wood", "stone"]
+	# Sparmodus bei Schulden (ein Mensch zieht die Notbremse): überzählige Kraftwerke abreißen, Reserve aus, damit
+	# Überschuss wieder verkauft wird
+	var broke := sim.money < 0.0 and sim.last_income < sim.last_expense
+	if broke:
+		_austerity()
+	# Rathaus-Reserve: sobald die Einwohner für die nächste Stufe fast reichen, Material zurücklegen
+	sim.hall_reserve = not broke and not nx.is_empty() and sim.population >= int(nx["pop"]) * 0.9
+	# Material: Ziel-Lagerstand je Rohstoff = Bedarf der nächsten Rathaus-Stufe + Vorrat fürs Wachsen der Häuser
+	var want := {"wood": 150.0, "stone": 100.0}
+	if sim.hall_level >= 2:
+		want["planks"] = 150.0
+		want["bricks"] = 200.0
+	if sim.hall_level >= 3:
+		want["glass"] = 80.0
+		want["steel"] = 60.0
 	if not nx.is_empty():
 		for r: String in (nx["mats"] as Dictionary):
-			if float(sim.stock.get(r, 0.0)) < float(nx["mats"][r]):
-				want.append(r)
-	if sim.population > 600:
-		want.append_array(["planks", "bricks"] as Array[String])
-	for r in want:
-		if _chance(0.7):
-			_ensure(r)
+			want[r] = float(want.get(r, 0.0)) + float(nx["mats"][r])
+	if sim.institute_levels() > 0:
+		want["gold"] = 400.0                # Gold = Forschungswährung
+	saving = broke
+	for r: String in want:
+		if broke and float(sim.stock.get(r, 0.0)) > 0.0:
+			continue                        # in der Krise keine neuen Betriebe für Vorrat
+		if _chance(0.8) and _ensure(r, float(want[r])):
+			saving = true                   # Geld fehlt für einen Betrieb -> keine neuen Blöcke, erst sparen
 	# Lager-Netz: Lagerhaus, wo die meisten Gebäude außerhalb jedes Lager-Kreises stehen
 	if sim.population > 1000 and sim.money > 3000 and CityMigrate.uncovered(map, sim) > 25 and _chance(0.6):
 		var p := _place_at(T.WAREHOUSE, CityMigrate._worst_gap(map, sim))
@@ -174,49 +212,112 @@ func _think() -> void:
 	var t_res := float(sim.tax[Config.Zone.RES])
 	if sim.money < 1500 and t_res < 0.105:
 		sim.tax[Config.Zone.RES] = t_res + 0.01
-	elif (sim.money > 30000 or (sim.city_happiness < 0.4 and sim.money > 4000)) and t_res > Config.TAX_NEUTRAL[Config.Zone.RES]:
+	elif (sim.money > 30000 or (sim.city_happiness < 0.6 and sim.money > 3000)) and t_res > Config.TAX_NEUTRAL[Config.Zone.RES]:
 		sim.tax[Config.Zone.RES] = t_res - 0.01
 	# Strom: Netze ohne Kraftwerk anschließen (Leitung), neues Kraftwerk nur bei echtem Leistungsmangel
 	for net: Dictionary in sim.power_nets:
 		if int(net["plants"]) == 0 and int(net["unserved"]) > 0 and int(net["dark"]) >= 0 and _chance(0.8):
 			_connect(int(net["dark"]))
-	var short := sim.power_demand > sim.power_supply * 0.85
-	for net: Dictionary in sim.power_nets:
-		if int(net["plants"]) > 0 and int(net["unserved"]) > 0:
-			short = true
-	if short and _chance(0.8):
+	# Netz mit Kraftwerk, aber unterversorgt: erst mit einem Netz mit Überschuss verbinden, nur bei echtem
+	# Gesamtmangel neu bauen (vorher: neues Kraftwerk landete in einem anderen Netz -> 4x Überkapazität)
+	var short := sim.power_demand > sim.power_supply * 0.9
+	for ni in sim.power_nets.size():
+		var net: Dictionary = sim.power_nets[ni]
+		if int(net["plants"]) > 0 and int(net["unserved"]) > 0 and int(net["dark"]) >= 0:
+			if not _link_to_surplus(int(net["dark"]), ni, float(net["demand"]) - float(net["capacity"])):
+				short = true
+			break                           # je Blick eine Verbindung (refresh nummeriert die Netze neu)
+	if short and _chance(0.8) and not broke:     # in der Krise nicht neu bauen (sonst Abriss-Neubau-Schleife)
 		if sim.tech("hydro") and sim.money > 12000:
 			_power_plant(T.HYDRO)
 		elif sim.money > 5000 and sim.population > 1500 and tools.locked_reason(T.COAL) == "":
 			_power_plant(T.COAL)
 		elif sim.money > 1800 and sim.population > 800 and tools.locked_reason(T.BIOMASS) == "" \
-				and float(sim.stock["wood"]) > 400:      # Biomasse verheizt Holz -> nur bei Überschuss
+				and float(sim.stock["wood"]) > 400 and _count(Config.Special.BIOMASS) < 3:   # verheizt Holz -> nur bei Überschuss
 			_power_plant(T.BIOMASS)
 		else:
 			_power_plant(T.WIND)
-	# Dienste: fehlend -> bauen, überlastet -> ausbauen
+	# Dienste: erst vorhandene ausbauen (größerer Kreis, mehr Kapazität), neu nur wenn alle auf Stufe 3 sind
 	for pair: Array in [[T.FIRE, "fire"], [T.POLICE, "police"], [T.SCHOOL, "education"], [T.HOSPITAL, "health"],
 			[T.LIBRARY, "culture"]]:
 		var cat: String = pair[1]
-		var spec: Array = Config.SERVICES[cat]
-		if sim.population < int(spec[1]) or not _chance(0.6) or tools.locked_reason(pair[0]) != "":
+		if not sim.service_expected(cat) or not _chance(0.6) or tools.locked_reason(pair[0]) != "":
 			continue
-		var upgraded := false
-		for a: int in sim.service_load:
-			if map.anchor[a] == a and map.special[a] != Config.Special.NONE \
-					and str(Config.SPECIALS[map.special[a]].get("service", "")) == cat \
-					and float(sim.service_load[a]) > 1.0 and map.special_level(a) < 3 and sim.money > 4000:
+		var own: Array[int] = []
+		var over := -1
+		var low := -1
+		for a in map.size * map.size:
+			if map.anchor[a] != a or map.special[a] == Config.Special.NONE \
+					or str(Config.SPECIALS[map.special[a]].get("service", "")) != cat:
+				continue
+			own.append(a)
+			if map.special_level(a) < 3:
+				if float(sim.service_load.get(a, 0.0)) > 1.0 and over < 0:
+					over = a
+				if low < 0 or map.special_level(a) < map.special_level(low):
+					low = a
+		var cov := float(sim.city_coverage.get(cat, 0.0))
+		var pick := over if over >= 0 else (low if cov < 0.7 else -1)
+		if pick >= 0:
+			var sp: int = map.special[pick]
+			if sim.money > float(Config.SPECIALS[sp]["upgrade"]) * map.special_level(pick) + 1000.0:
 				tools.set_tool(pair[0])
-				tools.hover = Vector2i(a % map.size, a / map.size)
+				tools.hover = Vector2i(pick % map.size, pick / map.size)
 				tools._apply(tools._affected_tiles())
 				tools.set_tool(T.INSPECT)
-				upgraded = true
-				break
-		if not upgraded and float(sim.city_coverage.get(cat, 0.0)) < 0.7 and sim.money > 3000:
-			_place(pair[0], _least_covered(cat))
-	# Unzufrieden -> Park in Wohnnähe
-	if sim.city_happiness < 0.55 and sim.money > 1000 and _chance(0.6) and tools.locked_reason(T.PARK) == "":
-		_place(T.PARK, _least_covered("education"))
+			continue                        # lieber auf den Ausbau sparen als ein weiteres Gebäude
+		if (own.is_empty() and cov < 0.7) or (cov < 0.6 and low < 0):
+			if sim.money > float(Config.SPECIALS[ToolController.special_for(pair[0])]["cost"]) + 1000.0:
+				_place(pair[0], _least_covered(cat))
+	# Wohnen begutachten: wo bremst Bodenwert, wo Stau?
+	var low_land: Array[int] = []
+	var jammed: Array[int] = []
+	for i in map.size * map.size:
+		if map.zone[i] != Config.Zone.RES or map.level[i] == 0:
+			continue
+		for b: String in sim.growth_blockers(i):
+			if b.begins_with("Bodenwert"):
+				low_land.append(i)
+			elif b.begins_with("Arbeitsweg"):
+				jammed.append(i)
+	# Unzufrieden oder Bodenwert bremst -> Parks mitten ins Wohngebiet (heben Bodenwert + Zufriedenheit)
+	if tools.locked_reason(T.PARK) == "" and sim.money > 1500 and _chance(0.7) \
+			and (sim.city_happiness < 0.55 or low_land.size() > 15):
+		for k in mini(2, maxi(1, low_land.size() / 20)):
+			var at := _least_covered("education") if low_land.is_empty() else _tile(low_land[rng.randi() % low_land.size()])
+			_place(T.PARK, at)
+	# Stau -> verstopfte Straßenstücke verbreitern (Parallelstraße = Hauptstraße)
+	if sim.congestion.size() == map.size * map.size and sim.money > 2000 and _chance(0.7):
+		var hot: Array[int] = []
+		for i in map.size * map.size:
+			if map.road[i] != 0 and sim.congestion[i] > 1.2 and map.wide_partner(i % map.size, i / map.size) == Vector2i.ZERO:
+				hot.append(i)
+		hot.sort_custom(func(a: int, b: int) -> bool: return sim.congestion[a] > sim.congestion[b])
+		var extra: Array[Vector2i] = []
+		for i: int in hot.slice(0, 12):
+			var x := i % map.size
+			var z := i / map.size
+			var along_x := map.is_road(x - 1, z) or map.is_road(x + 1, z)
+			for side: Vector2i in ([Vector2i(0, 1), Vector2i(0, -1)] if along_x else [Vector2i(1, 0), Vector2i(-1, 0)]):
+				var q := Vector2i(x, z) + side
+				if map.in_bounds(q.x, q.y) and _free(map.idx(q.x, q.y)):
+					extra.append(q)
+					break
+		if not extra.is_empty():
+			_tool(T.ROAD, extra)
+	# Stau -> Bahn (ab Stadt): Linie vom verstopften Wohnviertel zur größten Arbeitsplatz-Ballung, Bahnhöfe unterwegs
+	if tools.locked_reason(T.RAIL) == "" and jammed.size() > 40 and sim.money > 8000 and rail_lines < 3 and _chance(0.6):
+		if _rail_line(jammed[rng.randi() % jammed.size()]):
+			rail_lines += 1
+			milestones.append("%d: Bahnlinie %d (Einw. %d, Stau-Tiles %d)" % [sim.year, rail_lines, sim.population, jammed.size()])
+	# Viel Geld: wie ein Spieler investieren – Steuern senken, Dienste/Parks/Lager ausbauen
+	if sim.money > 20000:
+		_spend_rich()
+	# Stau -> Bushaltestellen (ab Kleinstadt): an verstopften Wohnstraßen und im Industrie-Viertel
+	if tools.locked_reason(T.BUS_STOP) == "" and jammed.size() > 20 and sim.money > 2500 and sim.bus_stop_count < 16 \
+			and _chance(0.7):
+		_place(T.BUS_STOP, _tile(jammed[rng.randi() % jammed.size()]))
+
 	# Wachsen: Block nach Nachfrage – aber erst, wenn die vorhandenen Zonen größtenteils bebaut sind (ein Mensch sieht
 	# leere Flächen und wartet)
 	# je Zonenart prüfen (leeres Gewerbe soll neues Wohnen nicht blockieren)
@@ -230,7 +331,7 @@ func _think() -> void:
 				built[zn] = int(built.get(zn, 0)) + 1
 	var tries := 4 if sim.money > 15000 else 2
 	for k in tries:
-		if sim.money < (300 if sim.hall_level < 2 else 800) or not _chance(0.75):
+		if sim.money < (300 if sim.hall_level < 2 else 800) or not _chance(0.75) or (saving and sim.money < 6000):
 			break
 		var d := {Config.Zone.RES: sim.demand_res, Config.Zone.COM: sim.demand_com, Config.Zone.IND: sim.demand_ind}
 		var best := -1
@@ -258,9 +359,19 @@ func _think() -> void:
 			else (500.0 if sim.money > 8000 else 0.0)))
 		if sim.research_current == "":
 			for id: String in research_order:
-				if sim.research_blocker(id) == "" and sim.start_research(id) == "":
-					milestones.append("%d: Forschung gestartet: %s (Kasse $%d)" % [sim.year, Config.RESEARCH[id]["name"], int(sim.money)])
+				if sim.research_blocker(id) != "":
+					continue
+				var g := float(Config.RESEARCH[id]["gold"])
+				var gshort := maxf(g - float(sim.stock.get("gold", 0.0)), 0.0)
+				# ein Mensch wartet auf eigenes Gold, solange der Zukauf mehr als ein Viertel der Kasse kostet
+				if gshort > 0.0 and gshort * float(Config.RESOURCES["gold"]["price"]) * Config.IMPORT_FACTOR > sim.money * 0.25:
+					gold_wait += 3
 					break
+				if sim.start_research(id) == "":
+					gold_bought += gshort
+					milestones.append("%d: Forschung gestartet: %s (Gold %d, davon zugekauft %d, Kasse $%d)" % [sim.year,
+						Config.RESEARCH[id]["name"], int(g), int(gshort), int(sim.money)])
+				break
 	for id: String in sim.research_done:
 		var tag := "erforscht: " + str(Config.RESEARCH[id]["name"])
 		var known := false
@@ -279,9 +390,8 @@ func _chance(p: float) -> bool:
 ## über die Straße, 4x3-Zone innen.
 func _build_cell(zone: int) -> bool:
 	var ind := zone == Config.Zone.IND
-	var list: Array[Vector2i] = ind_cells if ind else cells
-	while (next_ind if ind else next_cell) < list.size():
-		var cell := list[next_ind if ind else next_cell]
+	var cell := _next_cell(ind)
+	while cell.x != 9999:
 		var x0 := c + cell.x * CW
 		var z0 := cz + cell.y * CD
 		var water := 0
@@ -293,14 +403,12 @@ func _build_cell(zone: int) -> bool:
 				elif map.special[map.idx(x, z)] != Config.Special.NONE:
 					blocked = true          # Rathaus/Betriebe nicht überbauen
 		if water > 3 or blocked:
-			if ind: next_ind += 1
-			else: next_cell += 1
+			skipped[cell] = true
+			cell = _next_cell(ind)
 			continue
 		# Gründung (kein Zukauf): Straßenring braucht Stein, Wohnhäuser Holz -> warten, bis das Lager reicht
 		if not sim.can_trade() and (float(sim.stock["stone"]) < (CW + CD) * 4 + 10 or float(sim.stock["wood"]) < 25):
 			return false
-		if ind: next_ind += 1
-		else: next_cell += 1
 		var road: Array[Vector2i] = []
 		for k in CW + 1:
 			road.append(Vector2i(x0 + k, z0))
@@ -326,6 +434,30 @@ func _build_cell(zone: int) -> bool:
 	return false
 
 
+## Nächster freier Block: Wohnen/Gewerbe so nah am Rathaus wie möglich, Industrie als Ring außen herum –
+## jeweils mit BUFFER Blöcken Abstand zur anderen Art (Verschmutzung). (9999, 0) = keiner.
+func _next_cell(ind: bool) -> Vector2i:
+	for cell in cells:
+		if built_cells.has(cell) or skipped.has(cell):
+			continue
+		var ok := true
+		var near_city := false
+		for other: Vector2i in built_cells:
+			var d := maxi(absi(other.x - cell.x), absi(other.y - cell.y))
+			var other_ind: bool = built_cells[other] == Config.Zone.IND
+			if d <= BUFFER and other_ind != ind:
+				ok = false
+				break
+			if d <= BUFFER + 1 and not other_ind:
+				near_city = true
+		if not ok:
+			continue
+		if ind and built_cells.size() > 0 and not near_city:
+			continue                      # Industrie nur direkt hinter dem Abstand zur Stadt (kurze Wege)
+		return cell
+	return Vector2i(9999, 0)
+
+
 func _tool(t: int, tiles: Array[Vector2i]) -> void:
 	tools.set_tool(t)
 	tools._apply(tiles)
@@ -334,7 +466,7 @@ func _tool(t: int, tiles: Array[Vector2i]) -> void:
 
 ## Kraftwerk am Stadtrand, mit Leitung Richtung Mitte bis zum nächsten Leiter.
 func _power_plant(t: int) -> void:
-	var r := maxi(2, int(sqrt(float(next_cell)))) * CW / 2 + 8
+	var r := maxi(2, int(sqrt(float(built_cells.size())))) * CW / 2 + 8
 	var dir := Vector2(1, 0).rotated(rng.randf() * TAU)
 	var target := Vector2i(c + int(dir.x * r), c + int(dir.y * r))
 	var p := _place_at(t, target)
@@ -451,48 +583,82 @@ func _least_covered(cat: String) -> Vector2i:
 
 
 ## Rohstoff r selbst herstellen: fehlt ein eigener Betrieb (oder fördert keiner mehr, z. B. Wald abgeholzt), einen
-## bauen und an Straße + Strom anschließen. Werke ziehen ihren Eingangs-Rohstoff mit (Kohle wird ab Stufe 2 zugekauft).
-func _ensure(r: String) -> void:
+## bauen und anschließen; liegt das Lager unter target, den kleinsten Betrieb ausbauen bzw. einen weiteren bauen.
+## Werke ziehen ihren Eingangs-Rohstoff mit. Rückgabe true = fehlt nur das Geld (Bot spart dann).
+func _ensure(r: String, target := 0.0) -> bool:
 	if not CHAIN.has(r):
-		return
+		return false
 	var t: int = CHAIN[r][0]
 	var src: Variant = CHAIN[r][1]
+	var poor := false
 	if src is String and src != "tree":
-		_ensure(str(src))
+		poor = _ensure(str(src), target)
 	var own: Array = []
 	for a: int in producers.get(r, []):
 		if map.anchor[a] == a and map.special[a] != Config.Special.NONE:
 			own.append(a)
 	producers[r] = own
-	var need := own.is_empty()
-	if not need and not (src is String and src != "tree"):
-		need = true                     # Abbau: neuer Betrieb, wenn keiner mehr fördert
+	var producing := false
+	for a: int in own:
+		var info: Dictionary = sim.producer_info.get(a, {})
+		var issue := str(info.get("issue", ""))
+		if issue.contains("Strom") or issue.contains("Straße"):
+			_link(Vector2i(a % map.size, a / map.size))
+		if issue.contains("Kein Wald") and tools.locked_reason(T.NURSERY) == "" and not _nursery_near(a):
+			var np := _place_at(T.NURSERY, Vector2i(a % map.size, a / map.size))   # nachpflanzen statt weiterziehen
+			if np.x >= 0:
+				_link(np)
+		if not (info.get("out", {}) as Dictionary).is_empty() or info.is_empty() or map.construct[a] > 0:
+			producing = true
+	if tools.locked_reason(t) != "":
+		return poor
+	var sp := ToolController.special_for(t)
+	var short := target > 0.0 and float(sim.stock.get(r, 0.0)) < target
+	if not own.is_empty() and producing and short:
+		# knapp: kleinsten Betrieb ausbauen (billiger als neu), sonst weiteren bauen
+		var low := -1
 		for a: int in own:
-			var info: Dictionary = sim.producer_info.get(a, {})
-			var issue := str(info.get("issue", ""))
-			if issue.contains("Strom") or issue.contains("Straße"):
-				_link(Vector2i(a % map.size, a / map.size))
-			if issue.contains("Kein Wald") and tools.locked_reason(T.NURSERY) == "" and not _nursery_near(a):
-				var np := _place_at(T.NURSERY, Vector2i(a % map.size, a / map.size))   # nachpflanzen statt weiterziehen
-				if np.x >= 0:
-					_link(np)
-			if not (info.get("out", {}) as Dictionary).is_empty() or info.is_empty() or map.construct[a] > 0:
-				need = false
-	if not need or own.size() >= 4 or tools.locked_reason(t) != "":
-		return
-	if sim.hall_level >= 3 and t != T.LUMBER and t != T.QUARRY and sim.money < 4000:
-		return                          # ab Kleinstadt Werke erst mit Geldpolster (im Dorf sind sie vergünstigt)
-	var target := Vector2i(c, c)
+			if map.special_level(a) < 3 and (low < 0 or map.special_level(a) < map.special_level(low)):
+				low = a
+		if low >= 0:
+			var up := float(Config.SPECIALS[sp]["upgrade"]) * map.special_level(low)
+			if sim.money < up + 500.0:
+				return true
+			tools.set_tool(t)
+			tools.hover = Vector2i(low % map.size, low / map.size)
+			tools._apply(tools._affected_tiles())
+			tools.set_tool(T.INSPECT)
+			return poor
+		if own.size() >= int(MAX_OWN.get(r, 4)) - 1:
+			return poor
+	elif not own.is_empty() and producing:
+		return poor
+	if own.size() >= int(MAX_OWN.get(r, 4)):
+		return poor
+	var price := float(Config.SPECIALS[sp]["cost"])
+	if sim.hall_level < 2:
+		price *= Config.BUILD_FOUNDING_COST
+	elif sim.hall_level == 2:
+		price *= Config.VILLAGE_WORKS_COST
+	if sim.money < price + 300.0:
+		return true
+	var at := Vector2i(c, cz)
 	if src is String and src == "tree":
-		target = _near_feature(Config.Feature.TREE)
+		at = _near_feature(Config.Feature.TREE)
 	elif src is int:
-		target = _near_ore(int(src))
-	var p := _place_at(t, target)
+		at = _near_ore(int(src))
+	else:
+		for cell: Vector2i in built_cells:
+			if built_cells[cell] == Config.Zone.IND:
+				at = Vector2i(c + cell.x * CW, cz + cell.y * CD)        # Werke neben die Industrie
+				break
+	var p := _place_at(t, at)
 	if p.x < 0:
-		return
+		return poor
 	own.append(map.idx(p.x, p.y))
 	producers[r] = own
 	_link(p)
+	return poor
 
 
 ## Sonderbau bei p an Straßennetz (Rathaus) und Strom anschließen.
@@ -629,3 +795,194 @@ func _nursery_near(a: int) -> bool:
 			if map.in_bounds(x, z) and map.special[map.idx(x, z)] == Config.Special.NURSERY:
 				return true
 	return false
+
+
+## Jahres-Diagnose: je Zone Tiles/bebaut/Stufen, häufigste Blocker, Baustoff-Lager.
+func _diag() -> String:
+	var zn_names := {Config.Zone.RES: "W", Config.Zone.COM: "G", Config.Zone.IND: "I"}
+	var tiles := {}
+	var lv := {}
+	var why := {}
+	for i in map.size * map.size:
+		var z := map.zone[i]
+		if z == Config.Zone.NONE:
+			continue
+		tiles[z] = int(tiles.get(z, 0)) + 1
+		var key := "%s%d" % [zn_names[z], map.level[i]]
+		lv[key] = int(lv.get(key, 0)) + 1
+		for b: String in sim.growth_blockers(i):
+			var k := b.substr(0, 28)
+			why[k] = int(why.get(k, 0)) + 1
+	var top := why.keys()
+	top.sort_custom(func(a, b): return int(why[a]) > int(why[b]))
+	var tb := PackedStringArray()
+	for k in top.slice(0, 4):
+		tb.append("%s %d" % [k, why[k]])
+	var levels := PackedStringArray()
+	for z in [Config.Zone.RES, Config.Zone.COM, Config.Zone.IND]:
+		var parts := PackedStringArray()
+		for l in 5:
+			var n := int(lv.get("%s%d" % [zn_names[z], l], 0))
+			if n > 0:
+				parts.append("%d:%d" % [l, n])
+		levels.append("%s[%s]" % [zn_names[z], " ".join(parts)])
+	var st := PackedStringArray()
+	for r in ["wood", "stone", "planks", "bricks", "glass", "steel", "gold"]:
+		st.append("%s %d" % [r.substr(0, 3), int(sim.stock.get(r, 0.0))])
+	return "humanrun    Zonen %s | Blocker: %s | Lager: %s" % [" ".join(levels), ", ".join(tb), " ".join(st)]
+
+
+func _tile(i: int) -> Vector2i:
+	return Vector2i(i % map.size, i / map.size)
+
+
+## Unterversorgtes Netz (Tile dark, Index ni) per Leitung mit einem anderen Netz verbinden, das deficit MW übrig hat.
+func _link_to_surplus(dark: int, ni: int, deficit: float) -> bool:
+	var ok_nets := {}
+	for k in sim.power_nets.size():
+		var n: Dictionary = sim.power_nets[k]
+		if k != ni and float(n["capacity"]) - float(n["demand"]) > maxf(deficit, 5.0):
+			ok_nets[k] = true
+	if ok_nets.is_empty():
+		return false
+	var start: Array[Vector2i] = [_tile(dark)]
+	var path := _bfs(start, func(i: int) -> bool: return _free(i) or map.road[i] != 0 or sim.power_net[i] == ni,
+		func(i: int) -> bool: return sim.power_net.size() > i and ok_nets.has(sim.power_net[i]), 60)
+	if path.size() < 2:
+		return false
+	var line: Array[Vector2i] = []
+	for q in path:
+		var qi := map.idx(q.x, q.y)
+		if _free(qi) or map.road[qi] != 0:
+			line.append(q)
+	_tool(T.POWERLINE, line)
+	sim.refresh()
+	return true
+
+
+## Bahnlinie: von einem Stau-Wohntile zum Schwerpunkt der Arbeitsplätze (Gewerbe + Industrie), Gleise über freies Land
+## und Straßen (kreuzen erlaubt), Bahnhöfe auf Gleis-Tiles ohne Straße alle >= 8 Tiles (Anfang, Mitte, Ende).
+func _rail_line(from: int) -> bool:
+	var sx := 0.0
+	var sz := 0.0
+	var w := 0.0
+	for i in map.size * map.size:
+		if (map.zone[i] == Config.Zone.IND or map.zone[i] == Config.Zone.COM) and map.level[i] > 0:
+			var f := float(map.jobs_at(i))
+			sx += (i % map.size) * f
+			sz += (i / map.size) * f
+			w += f
+	if w <= 0.0:
+		return false
+	var goal := Vector2i(int(sx / w), int(sz / w))
+	if _tile(from).distance_to(goal) < 10.0:
+		return false                      # zu kurz: Bahn lohnt nicht
+	var path := _bfs([_tile(from)] as Array[Vector2i],
+		func(i: int) -> bool: return _free(i) or map.road[i] != 0 or map.rail[i] != 0,
+		func(i: int) -> bool: return _tile(i).distance_to(goal) <= 2.0 and (_free(i) or map.rail[i] != 0), 90)
+	if path.size() < 10:
+		return false
+	path.pop_front()                      # Start ist ein Wohntile
+	var track: Array[Vector2i] = []
+	for q in path:
+		if _free(map.idx(q.x, q.y)) or map.road[map.idx(q.x, q.y)] != 0 or map.rail[map.idx(q.x, q.y)] != 0:
+			track.append(q)
+	var m0 := sim.money
+	_tool(T.RAIL, track)
+	if sim.money >= m0:
+		return false                      # nichts gebaut (Material/Geld)
+	var last := -100
+	var stations := 0
+	for k in track.size():
+		var q := track[k]
+		var qi := map.idx(q.x, q.y)
+		if map.rail[qi] == 0 or map.road[qi] != 0:
+			continue
+		if k - last >= 8 or k == track.size() - 1 or stations == 0:
+			_tool(T.STATION, [q] as Array[Vector2i])
+			if map.transit[qi] == Config.Transit.STATION:
+				last = k
+				stations += 1
+	sim.refresh()
+	return stations >= 2
+
+
+## Reiche Stadt: Steuern zurück auf neutral, Dienste bis 90 % Versorgung ausbauen, Parks bis die
+## Leute zufrieden sind, Lagerhäuser ausbauen.
+func _spend_rich() -> void:
+	for zn in [Config.Zone.RES, Config.Zone.COM, Config.Zone.IND]:
+		if float(sim.tax[zn]) > float(Config.TAX_NEUTRAL[zn]) + 0.001:
+			sim.tax[zn] = float(Config.TAX_NEUTRAL[zn])   # nur zurück auf neutral (Nutzer: Zufriedenheit über Planung, nicht Steuer)
+	for pair: Array in [[T.FIRE, "fire"], [T.POLICE, "police"], [T.SCHOOL, "education"], [T.HOSPITAL, "health"],
+			[T.LIBRARY, "culture"]]:
+		var cat: String = pair[1]
+		if not sim.service_expected(cat) or tools.locked_reason(pair[0]) != "" \
+				or float(sim.city_coverage.get(cat, 0.0)) >= 0.9 or sim.money < 15000:
+			continue
+		var low := -1
+		for a in map.size * map.size:
+			if map.anchor[a] == a and map.special[a] != Config.Special.NONE \
+					and str(Config.SPECIALS[map.special[a]].get("service", "")) == cat and map.special_level(a) < 3 \
+					and (low < 0 or map.special_level(a) < map.special_level(low)):
+				low = a
+		if low >= 0:
+			tools.set_tool(pair[0])
+			tools.hover = _tile(low)
+			tools._apply(tools._affected_tiles())
+			tools.set_tool(T.INSPECT)
+		else:
+			_place(pair[0], _least_covered(cat))
+	if sim.city_happiness < 0.8 and tools.locked_reason(T.PARK) == "" and sim.money > 15000:
+		for k in 3:
+			_place(T.PARK, _least_covered("education"))
+	for a in map.size * map.size:
+		if map.anchor[a] == a and map.special[a] == Config.Special.WAREHOUSE and map.special_level(a) < 3 \
+				and sim.money > 15000:
+			tools.set_tool(T.WAREHOUSE)
+			tools.hover = _tile(a)
+			tools._apply(tools._affected_tiles())
+			tools.set_tool(T.INSPECT)
+
+
+## Zukauf-Nachfrage des Bürgermeisters: Brennstoff bei genug Geld dauerhaft, Baustoffe nur, wenn der Preis klein gegen
+## die Kasse ist (einmalig), sonst ablehnen.
+func _on_trade(req: Dictionary) -> void:
+	for r: String in req:
+		var cost := float(req[r]["cost"])
+		if (r == "coal" or r == "wood") and sim.money > 5000.0:
+			sim.answer_trade(r, "always")
+		elif sim.money > cost * 3.0 + 3000.0:
+			sim.answer_trade(r, "once")
+		else:
+			sim.answer_trade(r, "no")
+		trade_answers[str(req[r].get("uses", ""))] = true
+
+
+func _count(sp: int) -> int:
+	var n := 0
+	for a in map.size * map.size:
+		if map.anchor[a] == a and map.special[a] == sp:
+			n += 1
+	return n
+
+
+## Sparmodus: solange die Leistung > 130 % des Bedarfs ist, je Blick ein Kraftwerk abreißen (Biomasse vor Wind vor Kohle).
+func _austerity() -> void:
+	if sim.power_supply <= sim.power_demand * 1.3:
+		return
+	for sp in [Config.Special.BIOMASS, Config.Special.WIND, Config.Special.COAL]:
+		for a in map.size * map.size:
+			if map.anchor[a] != a or map.special[a] != sp:
+				continue
+			var p := float(Config.SPECIALS[sp]["power"])
+			if sim.power_supply - p < sim.power_demand * 1.15:
+				return
+			tools.set_tool(T.BULLDOZE)
+			tools.hover = _tile(a)
+			tools._apply(tools._affected_tiles())
+			tools.set_tool(T.INSPECT)
+			sim.refresh()
+			var gone: bool = map.special[a] != sp
+			milestones.append("%d: Sparmodus - %s %s (Kasse $%d)" % [sim.year, Config.SPECIALS[sp]["name"],
+				"abgerissen" if gone else "Abriss fehlgeschlagen", int(sim.money)])
+			return

@@ -82,6 +82,11 @@ var _bubble_label: Label              # Forschungsfenster: Bereich -> aufgeklapp
 var _popup_btn: Button               # Knopf, unter dem das offene Popover hängt
 var _popup_scroll: ScrollContainer   # Popover scrollt, wenn es höher als der Bildschirm wäre
 var _breakthrough: PanelContainer     # Durchbruch-Karte (Forschung fertig)              # "view" / "happy" / "" = zu
+var _trade_card: PanelContainer                 # Zukauf-Nachfrage des Bürgermeisters
+var _hint_open := {}                            # aufgedeckte „Genauer?“-Tipps (Titel)
+var _goal_last := ""                            # zuletzt angesagter Ziel-Hinweis
+var _goal_month := -1
+var _goal_wait := 0
 var _menu: PanelContainer
 var _slot_labels := {}
 var _root: Control
@@ -172,6 +177,7 @@ func setup(simulation: Simulation, tool_ctrl: ToolController, city_map: CityMap,
 	# Warnungen (mit Verlauf + Ton) vs. Infos (kurz, klein, ohne Verlauf)
 	sim.message.connect(notify)
 	sim.research_finished.connect(_on_research_finished)
+	sim.trade_request.connect(_on_trade_request)
 	sim.alert.connect(notify)
 	fire_dept.alert.connect(notify)
 	tools.message.connect(show_message)
@@ -906,57 +912,183 @@ func _input(event: InputEvent) -> void:
 
 ## Berater: wichtigste Baustellen der Stadt (mit Tipp + Hinspringen), im Aufbau-Start zusätzlich die Aufgabenliste.
 func _fill_mayor() -> void:
-	PopUI.header(_popup_col, icons.get_icon("people"), "Bürgermeister", "", UiTheme.TEXT, "Was die Stadt gerade braucht")
+	PopUI.header(_popup_col, icons.get_icon("people"), "Bürgermeister", "", UiTheme.TEXT,
+		"Frag mich jederzeit - ich gebe Hinweise, die Lösung findest du selbst")
+	var goal := PopUI.section(_popup_col, "Nächstes Ziel")
+	for g: Array in mayor_goals():
+		_hint_item(goal, str(g[0]), str(g[1]), str(g[2]), UiTheme.TEXT, Vector2i(-1, -1))
 	var items := _mayor_problems()
-	var sec := PopUI.section(_popup_col, "Wichtigste Baustellen")
+	var sec := PopUI.section(_popup_col, "Probleme")
 	if items.is_empty():
 		PopUI.note(sec, "Alles im Griff - weiter so!", UiTheme.GOOD)
 	for it: Array in items.slice(0, 4):
-		var h := HBoxContainer.new()
-		h.add_theme_constant_override("separation", 8)
-		sec.add_child(h)
-		PopUI.label(h, str(it[0]), 16, UiTheme.BAD, true, true)
-		var tile: Vector2i = it[2]
-		if tile.x >= 0:
-			_text_button(h, ">", _jump_log.bind(tile), "Hinspringen")
-		PopUI.note(sec, "-> " + str(it[1]))
+		_hint_item(sec, str(it[0]), str(it[1]), str(it[2]), UiTheme.BAD, it[3])
+	var stuck := _mayor_stuck()
+	if not stuck.is_empty():
+		var hk := PopUI.section(_popup_col, "Wo es hakt")
+		for it: Array in stuck.slice(0, 3):
+			_hint_item(hk, str(it[0]), str(it[1]), str(it[2]), UiTheme.TEXT, Vector2i(-1, -1))
 	if sim.hall_level <= 2:
 		var tasks := PopUI.section(_popup_col, "Aufgaben")
 		for t: Array in _mayor_tasks():
 			PopUI.row(tasks, str(t[0]), "erledigt" if bool(t[1]) else "offen", UiTheme.GOOD if bool(t[1]) else UiTheme.TEXT_DIM)
 
 
-## [Text, Tipp, Ort] nach Dringlichkeit.
+## Gestufter Tipp: Titel + Spielhinweis; der konkrete Schritt erst auf „Genauer?“ (Nutzer: nicht alles verraten).
+## Aufgedeckte Tipps bleiben offen, solange der Titel gleich bleibt (Popover wird monatlich neu gebaut).
+func _hint_item(parent: Control, title: String, hint: String, detail: String, col: Color, tile: Vector2i) -> void:
+	var h := HBoxContainer.new()
+	h.add_theme_constant_override("separation", 8)
+	parent.add_child(h)
+	PopUI.label(h, title, 16, col, true, true).size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	if tile.x >= 0:
+		_text_button(h, ">", _jump_log.bind(tile), "Hinspringen")
+	if hint != "":
+		PopUI.note(parent, hint)
+	if detail == "":
+		return
+	var d := PopUI.note(parent, "-> " + detail, UiTheme.GOOD)
+	d.visible = _hint_open.has(title)
+	if not d.visible:
+		var b := _text_button(h, "Genauer?", func() -> void:
+			_hint_open[title] = true
+			d.visible = true, "Konkreten Schritt zeigen")
+		b.pressed.connect(b.queue_free)
+
+
+## Wo es in der Stadt hakt: häufigste Wachstums-Blocker als [Titel, Hinweis, konkreter Schritt].
+func _mayor_stuck() -> Array:
+	var count := {}
+	for i in map.size * map.size:
+		if map.zone[i] == Config.Zone.NONE:
+			continue
+		for b: String in sim.growth_blockers(i):
+			for key: String in STUCK_HINTS:
+				if b.begins_with(key):
+					count[key] = int(count.get(key, 0)) + 1
+	var keys := count.keys()
+	keys.sort_custom(func(a: String, b: String) -> bool: return int(count[a]) > int(count[b]))
+	var out := []
+	for k: String in keys:
+		if int(count[k]) < 5:
+			continue
+		var e: Array = STUCK_HINTS[k]
+		out.append(["%s (%d Gebäude/Flächen)" % [e[0], int(count[k])], e[1], e[2]])
+	return out
+
+
+const STUCK_HINTS := {
+	"Baustoffe fehlen": ["Häuser warten auf Baustoffe", "Woher kommt das Material, das Häuser zum Wachsen brauchen?",
+		"Eigene Werke bauen bzw. ausbauen (Ziegelei, Glashütte, Stahlwerk) oder Zukauf freigeben"],
+	"Kein Strom": ["Gebäude ohne Strom", "Ein Teil der Stadt bleibt dunkel.", "Leitung zum Netz ziehen oder Kraftwerk bauen (Ansicht Strom, V)"],
+	"Arbeitsweg zu lang": ["Lange Arbeitswege", "Die Leute brauchen zu lange zur Arbeit.",
+		"Jobs näher ans Wohnen, Hauptstraße (zwei parallele Straßen), Bus oder Bahn (Ansicht Verkehr)"],
+	"Unzufrieden": ["Unzufriedene Bürger", "Manche Viertel fühlen sich vergessen.", "Zufriedenheit oben anklicken: dort steht, was am meisten fehlt"],
+	"Bodenwert zu niedrig": ["Viertel nicht attraktiv genug", "Für größere Häuser muss die Gegend schöner werden.",
+		"Parks, Dienste in Reichweite, weniger Verschmutzung und Stau (Ansicht Bodenwert)"],
+	"Keine Jobs erreichbar": ["Keine Arbeit in Reichweite", "Manche Bewohner kommen nicht zu einem Arbeitsplatz.",
+		"Gewerbe/Industrie ins selbe Straßennetz bauen"],
+	"Keine Einwohner erreichbar": ["Firmen ohne Mitarbeiter", "Manche Firmen erreicht niemand.", "Wohngebiet per Straße anbinden"],
+	"Keine Straße": ["Flächen ohne Straße", "Nicht jede Fläche ist erschlossen.", "Straße bis höchstens 3 Felder heranführen"],
+	"Kein Lager": ["Weit weg vom Lager", "Am Stadtrand dauert alles länger.", "Lagerhaus in die Nähe bauen"],
+}
+
+
+## Monatlich: neuer, konkreter Schritt zum nächsten Ziel -> Bürgermeister sagt ihn an (höchstens alle 6 Monate).
+func _goal_hint() -> void:
+	if mayor == null or sim.month == _goal_month:
+		return
+	_goal_month = sim.month
+	_goal_wait -= 1
+	var gs := mayor_goals()
+	if gs.is_empty():
+		return
+	var g: Array = gs[mini(1, gs.size() - 1)]          # erster konkreter Schritt (Eintrag 0 ist das Ziel selbst)
+	var txt := "%s - %s" % [g[0], g[1]]               # nur Hinweis, kein Lösungsweg
+	if txt != _goal_last and _goal_wait <= 0:
+		_goal_last = txt
+		_goal_wait = 6
+		mayor.say(txt, Vector2i(-1, -1), true)
+
+
+## Spielleiter: nächstes Ziel (Rathaus-Stufe) mit konkreten Schritten [Text, Tipp] – was fehlt und woher es kommt.
+func mayor_goals() -> Array:
+	var out := []
+	var nx := sim.hall_next()
+	if nx.is_empty():
+		if sim.institute_levels() > 0:
+			out.append(["Forschung vorantreiben", "Wissen kostet Geld und Gold.", "Forschungsfenster: Projekte starten, eigene Goldmine spart Zukauf"])
+		else:
+			out.append(["Höchste Rathaus-Stufe erreicht", "Jetzt lockt die Wissenschaft.", "Universität + Forschungsinstitut bauen"])
+		return out
+	if bool(nx["ok"]):
+		out.append(["Rathaus kann ausgebaut werden: %s" % nx["name"], "Alles beisammen!", "Rathaus-Fenster oben: \"Rathaus ausbauen\""])
+		return out
+	out.append(["Ziel: Rathaus Stufe %d (%s)" % [int(nx["level"]), nx["name"]], "Das Rathaus-Fenster zeigt, was noch fehlt.",
+		"es fehlen " + ", ".join(nx["missing"])])
+	if sim.population < int(nx["pop"]):
+		out.append(["Mehr Einwohner (%s fehlen)" % _fmt(int(nx["pop"]) - sim.population), "Die Stadt muss wachsen.",
+			"Wohngebiet nah an Gewerbe ausweisen, für Jobs sorgen; Info-Karte zeigt, was Häuser bremst"])
+	var mats: Dictionary = nx["mats"]
+	var growth_eats := false
+	for r: String in mats:
+		var have := float(sim.stock.get(r, 0.0))
+		if have >= float(mats[r]):
+			continue
+		var src: int = Config.MATERIAL_SOURCE.get(r, Config.Special.NONE)
+		var sname: String = Config.SPECIALS[src]["name"] if src != Config.Special.NONE else "Zukauf"
+		var count := 0
+		var low := 3
+		for a in map.size * map.size:
+			if map.anchor[a] == a and map.special[a] == src:
+				count += 1
+				low = mini(low, map.special_level(a))
+		var mname: String = Config.RESOURCES[r]["name"]
+		if count == 0:
+			var t := ToolController.TOOLS.keys().filter(func(k: int) -> bool: return ToolController.special_for(k) == src)
+			var lock := tools.locked_reason(t[0]) if not t.is_empty() else ""
+			out.append(["%s fehlt (%d / %d)" % [mname, int(have), int(mats[r])], "%s entsteht nicht von allein - wer stellt es her?" % mname,
+				lock if lock != "" else "%s bauen und per Straße anschließen" % sname])
+		else:
+			out.append(["Mehr %s (%d / %d)" % [mname, int(have), int(mats[r])], "%s kommt zu langsam nach." % mname,
+				"%s ausbauen oder einen weiteren bauen" % sname if low < 3 else "weiteren %s bauen" % sname])
+		if sim.population >= int(nx["pop"]) * 0.8 and not sim.hall_reserve:
+			growth_eats = true
+	if growth_eats:
+		out.append(["Das Lager füllt sich nicht", "Wer verbraucht das Material eigentlich?", "Rathaus-Fenster: \"Material zurücklegen\" einschalten"])
+	return out
+
+
+## [Text, Hinweis, konkreter Schritt, Ort] nach Dringlichkeit.
 func _mayor_problems() -> Array:
 	var out := []
 	for net: Dictionary in sim.power_nets:
 		if int(net["unserved"]) > 0:
 			var d: int = net["dark"]
-			out.append(["Strom fehlt: %d Gebäude ohne Strom" % int(net["unserved"]),
+			out.append(["Strom fehlt: %d Gebäude ohne Strom" % int(net["unserved"]), "Ein Teil der Stadt ist dunkel.",
 				"Kraftwerk bauen oder Leitung zum Netz ziehen" if int(net["plants"]) == 0 else "mehr Leistung (Kraftwerk/Speicher)",
 				Vector2i(d % map.size, d / map.size) if d >= 0 else Vector2i(-1, -1)])
 			break
 	if sim.money < 0.0:
-		out.append(["Kasse im Minus ($%s)" % _fmt(int(sim.money)), "Schulden kosten 1 % Zinsen/Monat - Steuern prüfen, teure Bauten meiden",
-			Vector2i(-1, -1)])
+		out.append(["Kasse im Minus ($%s)" % _fmt(int(sim.money)), "Schulden kosten Zinsen.",
+			"Steuern prüfen, teure Bauten und Zukauf meiden", Vector2i(-1, -1)])
 	if sim.population > 0 and sim.city_happiness < 0.5:
 		var rep := sim.happiness_report()
 		if not rep.is_empty() and float(rep[0][1]) < 0.0:
-			out.append(["Unzufriedenheit: %d %% (%s)" % [roundi(sim.city_happiness * 100.0), rep[0][0]],
-				str(rep[0][2]) if str(rep[0][2]) != "" else "Dienste, Parks, Steuern prüfen", Vector2i(-1, -1)])
+			out.append(["Unzufriedenheit: %d %%" % roundi(sim.city_happiness * 100.0), "Die Stimmung kippt - woran liegt es am meisten?",
+				"%s: %s" % [rep[0][0], str(rep[0][2]) if str(rep[0][2]) != "" else "Dienste, Parks, Steuern prüfen"], Vector2i(-1, -1)])
 	if sim.vacant_count() >= 5:
-		out.append(["Leerstand: %d Gebäude" % sim.vacant_count(), "Ursache beheben oder abreißen (Info-Karte nennt den Grund)",
-			Vector2i(-1, -1)])
+		out.append(["Leerstand: %d Gebäude" % sim.vacant_count(), "Häuser stehen leer.",
+			"Info-Karte eines leeren Hauses nennt den Grund", Vector2i(-1, -1)])
 	if sim.maint_short > 0.0:
-		out.append(["Instandhaltung unbezahlt", "Material fehlt und Geld für den Zukauf auch - eigene Werke bauen", Vector2i(-1, -1)])
-	if sim.unemployment > 0.1:
-		out.append(["Arbeitslosigkeit %d %%" % roundi(sim.unemployment * 100.0), "Gewerbe/Industrie ausweisen", Vector2i(-1, -1)])
+		out.append(["Instandhaltung unbezahlt", "Gebäude verfallen langsam.",
+			"Material fehlt: eigene Werke bauen oder Zukauf freigeben", Vector2i(-1, -1)])
+	if sim.unemployment > 0.1 and not sim.founding():        # Gründung: Arbeit am Rathaus/im Abbau zählt nicht als Job
+		out.append(["Arbeitslosigkeit %d %%" % roundi(sim.unemployment * 100.0), "Viele suchen Arbeit.", "Gewerbe/Industrie ausweisen",
+			Vector2i(-1, -1)])
 	if sim.institute_levels() > 0 and sim.research_current == "":
-		out.append(["Forschungsinstitut ohne Projekt", "Forschungsfenster oben: Projekt starten", Vector2i(-1, -1)])
-	var nx := sim.hall_next()
-	if not nx.is_empty():
-		out.append(["Rathaus Stufe %d (%s)%s" % [int(nx["level"]), nx["name"], ": bereit!" if bool(nx["ok"]) else ""],
-			"Rathaus-Fenster: ausbauen" if bool(nx["ok"]) else "es fehlen " + ", ".join(nx["missing"]), Vector2i(-1, -1)])
+		out.append(["Forschungsinstitut ohne Projekt", "Das Institut wartet auf Arbeit.", "Forschungsfenster oben: Projekt starten",
+			Vector2i(-1, -1)])
 	return out
 
 
@@ -1005,8 +1137,29 @@ func _fill_hall() -> void:
 			b.size_flags_horizontal = Control.SIZE_SHRINK_END
 		else:
 			PopUI.note(sec, "Es fehlen: " + ", ".join(nxt["missing"]), UiTheme.BAD)
+		# Rathaus-Reserve: Material der nächsten Stufe nicht fürs Wachsen/Bauen verbrauchen
+		var res := PopUI.section(_popup_col, "Material zurücklegen")
+		PopUI.note(res, "AN: Häuser, Instandhaltung, Werke und Bauen nehmen das Material für die nächste Stufe nicht aus dem Lager (Fehlendes wird zugekauft oder das Wachstum wartet). So sammelt sich der Vorrat fürs Rathaus.")
+		var tb := _text_button(res, "Zurücklegen: AN" if sim.hall_reserve else "Zurücklegen: AUS", _toggle_hall_reserve,
+			"Rathaus-Reserve umschalten")
+		tb.size_flags_horizontal = Control.SIZE_SHRINK_END
 		var unl := PopUI.section(_popup_col, "Neu mit Stufe %d" % int(nxt["level"]))
 		PopUI.note(unl, _hall_unlocks(int(nxt["level"])), UiTheme.TEXT)
+	# Zukauf-Freigaben (der Bürgermeister fragt bei Bedarf; hier abschaltbar)
+	var fr := PopUI.section(_popup_col, "Zukauf-Freigaben")
+	var any := false
+	for r: String in Config.RESOURCES:
+		if bool(sim.trade_allow.get(r, false)):
+			any = true
+			var h := HBoxContainer.new()
+			fr.add_child(h)
+			PopUI.label(h, Config.RESOURCES[r]["name"] + ": wird bei Bedarf zugekauft", 15, UiTheme.TEXT, false, true) \
+				.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			_text_button(h, "Aus", func() -> void:
+				sim.trade_allow.erase(r)
+				_fill_popup(), "Freigabe zurücknehmen")
+	if not any:
+		PopUI.note(fr, "Keine - der Bürgermeister fragt, wenn etwas fehlt." if sim.can_trade() else "Zukauf erst ab Stufe 2 (Dorf).")
 	var now := PopUI.section(_popup_col, "Freigeschaltet")
 	var parts := PackedStringArray()
 	for lv in range(1, sim.hall_level + 1):
@@ -1026,6 +1179,12 @@ func _hall_unlocks(lv: int) -> String:
 		if int(ToolController.HALL_LEVEL[t]) == lv:
 			names.append(str(ToolController.TOOLS[t]["name"]))
 	return ", ".join(names)
+
+
+func _toggle_hall_reserve() -> void:
+	sim.hall_reserve = not sim.hall_reserve
+	show_message("Material fürs Rathaus wird zurückgelegt" if sim.hall_reserve else "Rathaus-Reserve aus")
+	_fill_popup()
 
 
 func _upgrade_hall() -> void:
@@ -1067,6 +1226,64 @@ func _on_research_finished(id: String) -> void:
 		_breakthrough.reset_size()
 		_breakthrough.position = (_ui_size() - _breakthrough.size) * 0.5
 		_breakthrough.modulate.a = 1.0
+
+
+## Bürgermeister fragt nach Zukauf (Nutzer 1.11.: Zukauf ist eine bewusste Entscheidung). Karte über der Werkzeugleiste,
+## je Rohstoff Menge, wofür, Preis und Knöpfe Diesmal / Immer / Nein. Ohne Antwort fragt er in 6 Monaten wieder.
+func _on_trade_request(req: Dictionary) -> void:
+	if _trade_card != null:
+		_trade_card.queue_free()
+	_trade_card = _card(_root, 14, 12)
+	_trade_card.custom_minimum_size.x = PopUI.WIDTH + 80
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 6)
+	_trade_card.add_child(col)
+	PopUI.label(col, "DER BÜRGERMEISTER FRAGT", 14, PopUI.ACCENT, true)
+	PopUI.header(col, icons.get_icon("people"), "Zukauf freigeben?", "", UiTheme.TEXT,
+		"Ohne Zukauf warten Häuser, Werke stehen, Kraftwerke liefern weniger. Zukauf kostet 3x Grundpreis.")
+	var total := 0
+	var names := PackedStringArray()
+	var open_rows := [req.size()]          # Array: Lambdas fangen Zahlen als Kopie
+	for r: String in req:
+		var e: Dictionary = req[r]
+		total += int(e["cost"])
+		names.append("%d %s" % [int(e["amount"]), Config.RESOURCES[r]["name"]])
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 6)
+		col.add_child(row)
+		var info := VBoxContainer.new()
+		info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		row.add_child(info)
+		PopUI.label(info, "%d %s  ·  $%s" % [int(e["amount"]), Config.RESOURCES[r]["name"], _fmt(int(e["cost"]))], 16,
+			UiTheme.TEXT, true)
+		PopUI.label(info, "für " + str(e["uses"]), 13, UiTheme.TEXT_DIM, false, true)
+		for ch: Array in [["Diesmal", "once", "Nur diesen Monat zukaufen"], ["Immer", "always",
+				"Dauerhaft zukaufen, wenn es fehlt (im Rathaus-Fenster abschaltbar)"], ["Nein", "no", "Nicht zukaufen, 12 Monate nicht fragen"]]:
+			_text_button(row, str(ch[0]), func() -> void:
+				sim.answer_trade(r, str(ch[1]))
+				row.queue_free()
+				open_rows[0] -= 1
+				if open_rows[0] <= 0:
+					_close_trade_card(), str(ch[2]))
+	var btns := HBoxContainer.new()
+	btns.alignment = BoxContainer.ALIGNMENT_END
+	col.add_child(btns)
+	_text_button(btns, "Später", _close_trade_card, "Ohne Entscheidung schließen (fragt in 6 Monaten wieder)")
+	if mayor != null:
+		mayor.say("Uns fehlt Material: %s - zukaufen für $%s?" % [", ".join(names), _fmt(total)])
+	_trade_card.modulate.a = 0.0
+	await RenderingServer.frame_pre_draw
+	if is_instance_valid(_trade_card):
+		_trade_card.reset_size()
+		var ui := _ui_size()
+		_trade_card.position = Vector2((ui.x - _trade_card.size.x) * 0.5, ui.y - _trade_card.size.y - 160.0)
+		_trade_card.modulate.a = 1.0
+
+
+func _close_trade_card() -> void:
+	if _trade_card != null:
+		_trade_card.queue_free()
+		_trade_card = null
 
 
 func _close_breakthrough() -> void:
@@ -1736,6 +1953,7 @@ func _update_power_label() -> void:
 
 
 func _refresh_inner() -> void:
+	_goal_hint()
 	_money.text = "$ %s" % _fmt(int(sim.money))
 	_money.add_theme_color_override("font_color", UiTheme.BAD if sim.money < 0 else UiTheme.TEXT)
 	var delta := sim.last_income - sim.last_expense

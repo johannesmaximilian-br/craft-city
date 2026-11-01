@@ -84,6 +84,12 @@ const RESOURCES := {
 	"steel":  {"name": "Stahl",   "price": 8.0, "color": Color("6f7a86"), "good": true},
 	"concrete": {"name": "Beton", "price": 3.0, "color": Color("b9b6ad"), "good": true},   # Forschung "Beton"
 }
+# Woher kommt ein Rohstoff? (Bürgermeister-Hinweise, Bot) – Betrieb, der ihn liefert
+const MATERIAL_SOURCE := {
+	"wood": Special.LUMBER, "stone": Special.QUARRY, "clay": Special.PIT, "sand": Special.PIT, "coal": Special.MINE,
+	"iron": Special.MINE, "gold": Special.MINE, "planks": Special.SAWMILL, "bricks": Special.BRICKWORKS,
+	"glass": Special.GLASSWORKS, "steel": Special.STEELWORKS, "concrete": Special.CONCRETE,
+}
 const ORE_RESOURCE := ["", "coal", "iron", "gold", "clay", "sand", "stone"]   # Index = Ore
 const STOCK_BASE := 200            # Lagerkapazität je Rohstoff ohne Lagerhaus
 const STOCK_WAREHOUSE := 1000      # zusätzlich je Lagerhaus (je Ausbaustufe)
@@ -104,11 +110,11 @@ const MATERIAL_DEBT := 2000.0      # Material-Zukauf beim Wachsen darf die Kasse
 const EXPORT_FACTOR := 3.0         # Verkauf ebenso 3× Grundpreis (Nutzer 31.10.: Handel teuer, eigene Förderung lohnt)
 const IMPORT_FACTOR := 3.0         # Zukauf = 3× Exportpreis (bei 2× lohnten eigene Minen/Werke kaum: 4 % der Ausgaben)
 const MATERIAL_COST := {
-	Zone.RES: [{}, {}, {"planks": 4, "bricks": 4}, {"bricks": 8, "glass": 4, "steel": 3},
+	Zone.RES: [{}, {}, {"planks": 4, "bricks": 3}, {"bricks": 6, "glass": 4, "steel": 3},   # Ziegel -25 % (1.11., Bot: Engpass)
 		{"concrete": 14, "glass": 8, "steel": 6}],                                     # Stufe 4 = Hochhaus
-	Zone.COM: [{}, {}, {"planks": 3, "bricks": 3, "glass": 2}, {"bricks": 4, "glass": 8, "steel": 6},
+	Zone.COM: [{}, {}, {"planks": 3, "bricks": 2, "glass": 2}, {"bricks": 3, "glass": 8, "steel": 6},
 		{"concrete": 12, "glass": 14, "steel": 10}],                                    # Stufe 4 = Büroturm
-	Zone.IND: [{}, {}, {"planks": 4, "bricks": 4}, {"bricks": 6, "steel": 8}, {}],
+	Zone.IND: [{}, {}, {"planks": 4, "bricks": 3}, {"bricks": 5, "steel": 8}, {}],
 }
 # Baumaterial beim Bauen (aus dem Lager, Fehlendes wird sofort zum Zukaufpreis bezahlt). Je Tile bzw. je Gebäude.
 const BUILD_MATERIALS := {
@@ -283,7 +289,7 @@ const SPECIALS := {
 	Special.SAWMILL:    {"name": "Sägewerk", "size": 2, "cost": 1500, "upgrade": 1500, "upkeep": 6.0, "power": 0, "use": 2,
 		"process": {"in": {"wood": 10}, "out": {"planks": 10}}},
 	Special.BRICKWORKS: {"name": "Ziegelei", "size": 2, "cost": 1800, "upgrade": 1800, "upkeep": 7.0, "power": 0, "use": 3,
-		"process": {"in": {"clay": 10, "coal": 2}, "out": {"bricks": 10}, "fuel_alt": {"wood": 4, "eff": 0.7}},
+		"process": {"in": {"clay": 10, "coal": 2}, "out": {"bricks": 14}, "fuel_alt": {"wood": 4, "eff": 0.7}},   # 14 (vorher 10, 1.11.)
 		"pollution": [1.0, 3]},   # ohne Kohle: Holz-Brennofen mit 70 % Ausstoß (Dorf hat noch keine Mine)
 	Special.GLASSWORKS: {"name": "Glashütte", "size": 2, "cost": 2500, "upgrade": 2500, "upkeep": 9.0, "power": 0, "use": 4,
 		"process": {"in": {"sand": 10, "coal": 3}, "out": {"glass": 8}}, "pollution": [1.5, 4]},
@@ -310,36 +316,36 @@ const RESEARCH_BUDGET_STEPS := [0, 500, 1000, 2000, 5000, 10000]
 const RESEARCH_START_PER_POINT := 10.0   # Startpreis je Projekt = Punkte × 10 $ (z.B. Tiefbau 15.000 $)
 const SERVICE_UPKEEP_EARLY := 0.7     # Unterhalt von Dienstbauten auf Stufe 1 (günstiger Einstieg)
 const RESEARCH_MIN_ACADEMICS := 0.1  # Untergrenze des Akademiker-Faktors (ein Institut forscht immer ein wenig)
-# Projekte: group = Bereich im Forschungsfenster (aufklappbar), points = Forschungspunkte (×3 seit 23.10.: 1 Institut Stufe 1 + 1.000 $ ≈ 4 Jahre), gold = einmalig beim Start (fehlt es: Zukauf), requires = Vorgänger
+# Projekte: group = Bereich im Forschungsfenster (aufklappbar), points = Forschungspunkte (×3 seit 23.10.: 1 Institut Stufe 1 + 1.000 $ ≈ 4 Jahre), gold = einmalig beim Start (fehlt es: Zukauf; ×6 seit 31.10.: Gold ist die Forschungswährung, eine Mine Stufe 1 trägt normales Tempo), requires = Vorgänger
 const RESEARCH := {
 	"deep_mining": {"group": "Rohstoffe & Industrie", "name": "Tiefbau", "desc": "Minen, Steinbrüche und Gruben fördern 50 % mehr",
-		"points": 1500, "gold": 30, "requires": []},
+		"points": 1500, "gold": 180, "requires": []},
 	"efficient_build": {"group": "Rohstoffe & Industrie", "name": "Effiziente Bauweise", "desc": "25 % weniger Baumaterial beim Bauen und Wachsen",
-		"points": 1800, "gold": 20, "requires": []},
+		"points": 1800, "gold": 120, "requires": []},
 	"plant_filter": {"group": "Energie", "name": "Kraftwerksfilter", "desc": "Kohlekraftwerke verschmutzen halb so viel",
-		"points": 1500, "gold": 30, "requires": []},
+		"points": 1500, "gold": 180, "requires": []},
 	"solar": {"group": "Energie", "name": "Solarenergie", "desc": "Solarfeld bauen: 50 MW, aber nur tagsüber (nachts fehlt der Strom)",
-		"points": 1800, "gold": 30, "requires": []},
+		"points": 1800, "gold": 180, "requires": []},
 	"battery": {"group": "Energie", "name": "Batteriespeicher", "desc": "Batterie speichert Tagesüberschuss und liefert nachts bis 40 MW",
-		"points": 2100, "gold": 50, "requires": ["solar"]},
+		"points": 2100, "gold": 300, "requires": ["solar"]},
 	"hydro": {"group": "Energie", "name": "Wasserkraft", "desc": "Wasserkraftwerk an Fluss/See: 120 MW Tag und Nacht, sauber, aber teuer",
-		"points": 2400, "gold": 40, "requires": []},
+		"points": 2400, "gold": 240, "requires": []},
 	"pumped": {"group": "Energie", "name": "Pumpspeicher", "desc": "Pumpspeicher am Hang über Wasser: speichert 150 MW für die Nacht",
-		"points": 2700, "gold": 50, "requires": ["battery"]},
+		"points": 2700, "gold": 300, "requires": ["battery"]},
 	"salt": {"group": "Energie", "name": "Salzspeicher", "desc": "Flüssigsalz-Wärmespeicher (Carnot-Batterie): 300 MW für die Nacht, Kohlekraftwerke umrüstbar",
-		"points": 3600, "gold": 80, "requires": ["pumped"]},
+		"points": 3600, "gold": 480, "requires": ["pumped"]},
 	"concrete": {"group": "Stadt", "name": "Beton", "desc": "Betonwerk bauen: Stein + Sand -> Beton (Baustoff für Hochhäuser und Bürotürme)",
-		"points": 2400, "gold": 30, "requires": []},
+		"points": 2400, "gold": 180, "requires": []},
 	"highrise": {"group": "Stadt", "name": "Hochhäuser", "desc": "Wohnen Stufe 4: 200 Einwohner statt 80, ab 75 % Bodenwert, braucht Beton",
-		"points": 3000, "gold": 60, "requires": ["concrete"]},
+		"points": 3000, "gold": 360, "requires": ["concrete"]},
 	"offices": {"group": "Stadt", "name": "Bürotürme", "desc": "Gewerbe Stufe 4: 120 Jobs statt 50, an Kreuzungen ab 60 % Bodenwert, braucht Beton",
-		"points": 3000, "gold": 60, "requires": ["concrete"]},
+		"points": 3000, "gold": 360, "requires": ["concrete"]},
 	"hightech": {"group": "Stadt", "name": "Hightech-Industrie", "desc": "Eigenes Zonen-Werkzeug: Industrie mit 85 % weniger Verschmutzung und 60 % mehr Steuer, nur bei Akademikern (Uni)",
-		"points": 3600, "gold": 120, "requires": []},
+		"points": 3600, "gold": 720, "requires": []},
 	"traffic": {"group": "Stadt", "name": "Verkehrsleitsystem", "desc": "Ampeln und Leitsystem: 20 % weniger Stau in der ganzen Stadt",
-		"points": 2400, "gold": 40, "requires": []},
+		"points": 2400, "gold": 240, "requires": []},
 	"blast_furnace": {"group": "Rohstoffe & Industrie", "name": "Moderne Hochöfen", "desc": "Werke brauchen halb so viel Kohle und verschmutzen 40 % weniger",
-		"points": 2100, "gold": 40, "requires": ["deep_mining"]},
+		"points": 2100, "gold": 240, "requires": ["deep_mining"]},
 }
 const TECH_MINING := 1.5             # Faktor Förderung mit Tiefbau
 const TECH_BUILD := 0.75             # Faktor Baumaterial mit effizienter Bauweise
@@ -362,7 +368,9 @@ const SERVICES := {
 	"venue": ["Großkultur", 4000, 0.08],
 	"university": ["Hochschule", 6000, 0.04],
 }
-const SERVICE_HALL := {"police": 3, "fire": 3}   # Dorf (Stufe 2) erwartet noch keine Polizei/Feuerwehr (Bot 31.10.: unbezahlbar)
+# Erwartet erst ab Rathaus-Stufe (sonst unvermeidbare Unzufriedenheit: Bot 31.10./1.11.): Polizei/Feuerwehr im Dorf
+# unbezahlbar, Kultur/Großkultur/Hochschule erst ab Stufe 4/5 baubar. Schule/Krankenhaus (1.000 Einw.) passen zu Stufe 3.
+const SERVICE_HALL := {"police": 3, "fire": 3, "culture": 4, "venue": 5, "university": 5}
 const HAPPY_BASE := 0.55
 # Belegung / Leerstand
 const OCC_DROP := 12                    # Belegung sinkt je Monat bei Verfall (%-Punkte): kein Strom/Straße/Erreichbarkeit

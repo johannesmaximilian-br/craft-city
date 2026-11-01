@@ -20,6 +20,7 @@ static func needed(sim_data: Dictionary) -> bool:
 static func run(map: CityMap, sim: Simulation) -> Dictionary:
 	var level := level_for(map, sim)
 	sim.hall_level = level
+	sim.allow_all_trade()                 # Altstände kauften automatisch zu – so bleibt es (änderbar im Rathaus-Fenster)
 	map.construct.fill(0)                 # alles Gebaute ist fertig
 	var demolished := 0
 	var hall := -1

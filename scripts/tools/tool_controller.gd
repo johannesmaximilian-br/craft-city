@@ -666,7 +666,8 @@ func _apply(tiles: Array[Vector2i]) -> void:
 		message.emit(trade_why)
 		return
 	var import_price: float = sim.build_need(mats)[1]
-	if not sim.can_afford(total + import_price):
+	# Abriss geht immer (Kosten notfalls ins Minus): in Schulden muss man teure Gebäude loswerden können
+	if tool != Tool.BULLDOZE and not sim.can_afford(total + import_price):
 		if import_price > 0.0:
 			message.emit("Nicht genug Geld (benötigt $%d, davon Zukauf Baumaterial $%d)" % [total + int(import_price), int(import_price)])
 		else:

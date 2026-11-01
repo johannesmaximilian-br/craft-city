@@ -277,6 +277,21 @@ $G --path . -- --demo --cam=32,32,60 --screenshot=/pfad/bild.png          # Scre
   `_advance_construction()` (abschluss, vor `_recount`) zieht im Lager-Kreis 2, sonst 1 ab und meldet fertige Tiles einzeln;
   `_compute_store_cover()` → `store_cover`. Start der Bauzeit: `_grow_rows` (Stufe hoch) bzw. `ToolController._place_special`.
   Renderer: `StructureGenerator.scaffold` statt Gebäude.
+- **Zukauf-Freigabe (1.11.):** `sim.trade_allow` (gespeichert), `trade_once` (verfällt in `_ask_trade` am Monatsende),
+  `trade_declined` (12 Monate). Alle automatischen Käufe prüfen `can_buy(r)`: `_use_materials`, `_maintenance`, Kohle der
+  Werke in `_process_goods`, Kohle-/Biomassekraftwerke (sonst `fuel_short[a]` → `_compute_power` mindert die Leistung im
+  Folgemonat). Fehlendes über `_want(r, menge, verbraucher)` sammeln, `_ask_trade()` (nach `_budget`) emittiert
+  `trade_request` → `Hud._on_trade_request` (Karte) + `mayor.say`; Antwort `sim.answer_trade(r, once|always|no)`.
+  Werkzeug-Bauen (`use_build_materials`) und Forschungs-Gold kaufen weiter direkt (Entscheidung per Klick/Kostenblase).
+  `allow_all_trade()` für umgerechnete Altstände (`CityMigrate`) und Dev-Läufe (`DevTools.run`) – Determinismus der
+  Megacity unverändert. Neuer automatischer Verbrauch ⇒ `can_buy` + `_want` einbauen.
+- **Kassen-Warnung (1.11.):** `Simulation._warn_money()` nach `_budget` (Etappe „abschluss“): „low“ wenn Saldo < 0 und
+  Kasse < 6 Monate, „debt“ bei Minus (alle 12 Monate wieder), über `sim.message` → `Hud.notify` → Bürgermeister.
+  Zinsen ohne Deckel bleiben (Nutzer: Kredit/Zinsen später mit der Roadmap).
+- **Rathaus-Reserve (1.11.):** `sim.hall_reserve` (gespeichert); `reserved(r)` = Bedarf der nächsten Stufe, `avail(r)` =
+  Lager minus Reserve. Alle Verbraucher nehmen nur `avail` (nie direkt `stock`), nur `upgrade_hall` nimmt aus `stock`.
+- **Spielleiter-Hinweise:** `Hud.mayor_goals()` (Ziel + konkrete Schritte aus `Config.MATERIAL_SOURCE`: Betrieb fehlt /
+  ausbauen / weiteren bauen / Reserve einschalten), `_goal_hint()` monatlich → `mayor.say` bei neuem Schritt, max. alle 6 Monate.
 - **Progression über Rathaus-Stufen (Nutzer-Grundsatz 31.10.):** Jede neue Großfunktion (U-Bahn, Wasserleitungen,
   Flughafen, …) wird künftig an eine Rathaus-Stufe gebunden, deren Ausbau Material kostet – nicht nur an Einwohnerzahlen.
   Konzept Aufbau-Start: README → Roadmap.
@@ -347,6 +362,33 @@ $G --path . -- --demo --cam=32,32,60 --screenshot=/pfad/bild.png          # Scre
   Rohstoff-Verkauf zu 3× ist im Dorf eine starke Geldquelle (beobachten).
 - **Balance ist Zwischenstand (23.10.):** nach Einbau der Forschung neu prüfen (`--freshrun`, `--econreport`): Früh-Spiel
   zu leicht (Geld bremst nie, nur Nachfrage), Startkapital ggf. 15.000; Spät-Spiel braucht Forschung als Geld-/Gold-Senke.
+- **Bot-Umbau (1.11.):** nur noch für Neustarts gedacht (auf geladenen Großstädten ruiniert er die Stadt und ist sehr
+  langsam – dort Lese-Tests wie `--goldtest`). **Reproduzierbar:** `seed()` + `sim._rng` + `fire_dept._rng` aus dem Seed,
+  je Monat `seed(...)` – gleicher Seed = gleiches Ergebnis (Vorher/Nachher vergleichbar). Jahres-Diagnose `_diag()`
+  (Stufen je Zone, Top-Blocker, Lager), Ende: Gebäudezahlen, Gold. Verhalten: Raster 4×3 (`CW`/`CD`), Wohnen/Gewerbe nah
+  am Rathaus, Industrie als Ring außen mit `BUFFER` Block Abstand (`_next_cell`; festes Ost-Viertel ergab 40–60 Tiles
+  Arbeitsweg); Rohstoffe mit Ziel-Lagerstand (`_ensure(r, target)`: kleinsten Betrieb ausbauen, sonst weiteren bauen,
+  Rückgabe „fehlt Geld“ → `saving`, keine neuen Blöcke); Dienste erst ausbauen, neu nur wenn alle Stufe 3 (Nutzer: zu
+  viele Krankenhäuser); Parks bei „Bodenwert zu niedrig“, Bushaltestellen + Parallelstraßen (Hauptstraße) bei Stau;
+  unterversorgtes Netz erst mit Überschuss-Netz verbinden (`_link_to_surplus`), dann neu bauen (vorher 4× Überkapazität);
+  Bahnlinie bei Stau ab Stufe 4 (`_rail_line`: Wohn-Stau-Tile → Job-Schwerpunkt, Gleise über Land/Straßen, Bahnhöfe auf
+  Gleis ohne Straße), reich (`_spend_rich`): Dienste bis 90 %, Parks bis 80 % Zufriedenheit, Lager ausbauen. **Steuer
+  bleibt neutral** (Nutzer: gute Zufriedenheit muss über Planung gehen; Bot hebt nur bei knapper Kasse an).
+  Bot schaltet die Rathaus-Reserve ab 90 % der nötigen Einwohner ein und beantwortet Zukauf-Nachfragen (`_on_trade`:
+  Brennstoff „immer“ bei > 5.000 $, Baustoffe „diesmal“ nur wenn billig gegen die Kasse, sonst „nein“).
+  Stand 1.11. (3 Seeds × 80 J., mit Reserve + Freigabe): Stufe 4 nach 35–42 J., **Stufe 5 bei Seed 1 nach 64 J.**
+  (2044, 6.142 Einw.); Seed 2/3 hängen auf Stufe 4 (5.300/4.400 Einw.): **Ziegel bleiben der Engpass** (Lager 0,
+  „Baustoffe fehlen (Ziegel) – Zukauf nicht freigegeben“ ~300 Tiles), Holz geht in Holz-Brennöfen + Biomasse mit aus.
+  Zufriedenheit 76–85 % bei neutraler Steuer. **Danach (1.11.):** Ziegelei 14, Häuser −25 % Ziegel; Bot-**Sparmodus**
+  (`_austerity`, Kasse < 0 und Saldo negativ: überzählige Kraftwerke abreißen, Reserve aus, keine neuen Betriebe/
+  Kraftwerke), Biomasse höchstens 3. Gefunden: Pleiten kamen von überbautem Strom (7 Biomasse + 9 Wind, 907 $/Monat
+  Sonderbau-Unterhalt) + Zinseszins 1 %/Monat ohne Deckel (−46k → −582k in 19 J.) + **Abriss war bei negativer Kasse
+  gesperrt** (Spielfehler, jetzt in `_apply` ausgenommen). Stand: keine Pleiten, Stufe 5 bei 2/3 Seeds nach 50–56 J.
+  `--dragtest` im Kombilauf nach `--selftest` manchmal 0 Tiles
+  (Demo-Zufall belegt die Fläche), einzeln stabil.
+- **Gold (31.10.):** Forschungs-Gold ×6 (ganzer Baum ~4.000). Nutzerstand „2“ (Jahr ~3500): 5.200 Gold auf Lager aus
+  2 kleinen Minen (8 Gold/Monat) – über Jahrhunderte angespart, daher kein Maßstab. Synchron gerechnet kostet ein
+  Monat dieser 51k-Stadt ~21 s (im Spiel async) – lange `--goldtest`-Läufe dort vermeiden.
 - Nutzer-Spielstände analysieren: Datei nach Scratchpad **kopieren**, dann `--loadfile=<kopie>` (+ `--jamreport`, `--cartest`).
 
 Siehe README → Roadmap. Zusätzlich: Brand-Balance im echten Spiel beobachten (Brenndauer 10 s, Ausbreitung 25 %), Balance der Dienstkosten beobachten,

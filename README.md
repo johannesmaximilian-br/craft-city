@@ -89,6 +89,26 @@ Es gibt nur noch einen Spielmodus, den **Aufbau-Start** (Spielstart bzw. Menü �
   teuer in beide Richtungen:** Zukauf kostet 3× Grundpreis, Verkauf bringt 3× Grundpreis (`EXPORT_FACTOR`) – eigene
   Förderung lohnt sich, Holzfäller + Baumschule sind eine (langsame) Geldquelle. Behalten wird der Bedarf der nächsten Rathaus-Stufe + 50, mindestens ein Viertel der
   Lagerkapazität (`SELL_KEEP`, `SELL_EXTRA`). Vorher wurde nur verkauft, was nicht mehr ins Lager passte.
+- **Zukauf nur mit Freigabe** (1.11., Nutzer: bewusste Entscheidung): Fehlt Material (Häuser, Instandhaltung, Brennstoff
+  für Kraftwerke/Werke), fragt der **Bürgermeister** am Monatsende mit einer Karte: Menge, wofür, Preis (3× Grundpreis) und
+  **Diesmal** (nur diesen Monat) / **Immer** (Dauer-Freigabe) / **Nein** (12 Monate nicht fragen) / Später (fragt in 6 Monaten
+  wieder). Ohne Freigabe warten Häuser („Baustoffe fehlen – Zukauf nicht freigegeben“), Instandhaltung bleibt offen
+  (Verfall), Werke stehen, Kohle-/Biomassekraftwerke liefern im Folgemonat anteilig weniger Strom. Dauer-Freigaben stehen
+  im Rathaus-Fenster („Aus“). Bauen mit dem Werkzeug zeigt den Zukauf vorher in der Kostenblase (gilt als Entscheidung).
+  Umgerechnete Altstände haben alles freigegeben. Test `--tradetest`.
+- **Rathaus-Reserve** (1.11.): Rathaus-Fenster → „Material zurücklegen“. AN = Häuser, Instandhaltung, Werke und Bauen nehmen
+  das Material der nächsten Rathaus-Stufe nicht aus dem Lager (Fehlendes: Zukauf mit Freigabe, sonst warten). Ohne Reserve
+  verbrauchte das Wachstum in größeren Städten alle Ziegel – die 600 für Stufe 5 sammelten sich nie (Bot-Messung).
+- **Bürgermeister als Spielleiter** (1.11.): Berater-Fenster beginnt mit **„Nächstes Ziel“** – Rathaus-Stufe, was fehlt und
+  woher (z. B. „Ziegel fehlt: noch keine Ziegelei“, „Ziegelei ausbauen oder weitere bauen“, „Material zurücklegen
+  einschalten“). Neue Schritte sagt er per Sprechblase an (höchstens alle 6 Monate).
+- **Ziegel-Balance (1.11.):** Ziegelei 14 statt 10 Ziegel, Häuser brauchen ~25 % weniger Ziegel (Wohnen Stufe 2/3: 3/6,
+  Gewerbe 2/3, Industrie 3/5). Bot-Messung (3 Seeds × 80 J., neutrale Steuer): Stufe 5 bei 2 von 3 nach 50–56 Jahren.
+- **Kassen-Warnung** (1.11.): Ab Stufe 2 warnt der Bürgermeister, wenn die Kasse beim aktuellen Saldo nur noch unter
+  6 Monate reicht, und wenn sie ins Minus rutscht (mit Zinskosten; im Minus alle 12 Monate erneut). Schulden kosten
+  1 % Zinsen pro Monat mit Zinseszins – früh gegensteuern. Test `--moneytest`.
+- **Abriss geht immer** (1.11.), auch mit leerer Kasse – die Kosten gehen notfalls ins Minus. Vorher konnte man in
+  Schulden keine teuren Gebäude loswerden (Falle, im Bot-Lauf gefunden).
 - **Dorf (Stufe 2) bewusst entlastet** (31.10.): Abbau-Betriebe, Werke und Lager kosten 30 % (`VILLAGE_WORKS_COST`);
   Polizei und Feuerwehr werden erst ab Stufe 3 erwartet (`SERVICE_HALL`, vorher schon ab 300 Einw. – unbezahlbar).
 - **Kette ohne Zukauf:** Jede Rathaus-Stufe ist mit eigener Förderung erreichbar (Stufe 2: Holz/Stein, Stufe 3: Bretter
@@ -140,7 +160,7 @@ Dev-Werkzeuge liegen getrennt vom Spielcode in `scripts/dev/` und laufen nur mit
 
 - `dev_tools.gd` — wertet Flags aus: `--demo`, `--cam=x,z,dist`, `--ignite=x,z[,sek]` (Gebäude anzünden, Brand vorspulen, Kamera hin), `--ruin=x,z` (sofort abbrennen), `--overlay[=1..5]`, `--popup=view|happy`, `--menu`, `--flyout`, `--screenshot=pfad`, `--quit`
 - `demo_city.gd` — reproduzierbare Teststadt (Zonen, Strom, ÖPNV, 4-spurige Straße mit Verjüngung)
-- `dev_tests.gd` — `--selftest` (Timing, Speichern/Laden, Audio), `--dragtest` (echtes Maus-Ziehen), `--lanetest` (Rechtsverkehr auf Hauptstraßen), `--widetest` (Hauptstraßen-Erkennung), `--profile[=Sek,Tempo]` (Frame-Zeiten + Ruckler-Ursachen), `--gfx=0..2`, `--nowarmup`, `--servicetest`, `--tool=<name>`, `--traffictest` (Korridor: Straße/Parallelstraße/Hauptstraße/Bus/Bahn), `--pickcheck`, `--firetest` (Brand an der Wache gelöscht, ohne Wache abgebrannt + Ruine), `--bustest` (Vorstadt mit eigenem Straßennetz bekommt Busse), `--happytest` (Aufschlüsselung, Warnung bei Steuer hoch / Polizei weg), `--cheattest` (Geld-Cheat per Tastenereignis), `--greentest` (Grüngürtel gegen Verschmutzung, Terraforming reißt Straße ab), `--venuetest` (Stadion/Theater: Besucherverkehr, Kundschaft), `--zonetest` (Ladenzeile, Ballung, Nachbarschaft), `--taxtest` (Steuern je Zone, ÖPNV-Tarif), `--cartest` (Autos/Busse je Tarif, Diagnose ÖPNV, Bahnhofs-Auslastung), `--cardrift=Sek`, `--jamreport` (meistbelastete Straßen), `--loadfile=pfad` (Spielstand-Kopie laden, alte Stände werden umgerechnet; `--nomigrate` = ohne Umrechnung zum Vergleich), `--focus=x,z` (Kamera auf Tile), `--fronttest`, `--hover=x,z [--detail]`, `--notify`, `--hidehud`, `--fpstest`, `--mutetest`, `--savetest`, `--uiscale=f`, `--zoomtest`, `--rangetest`, `--appicon=pfad.png` (App-Icon rendern), `--splash[=brick|grass|stone]` (+ `--loadfile`, `--cam`, `--screenshot`: Startbild mit 3D-Block-Logo, Tilt-Shift), `--menu --asksave=slot`, `--gpumeasure=Sek,fps [--pause]`, `--popup=view|happy|log`, `--loadreport` (Auslastung der Dienste + Brände in 12 Monaten), `--powertest`, `--bigcity` (ganze Karte bebauen), `--buildtest` (Bau-Klick-Zeit, Pendler synchron/Hintergrund), `--restest`, `--processtest`, `--renewtest`, `--treereport`, `--researchtest`, `--resbuild`, `--freshrun=Jahre` (Neustart mit Startkapital: Startviertel + jährlicher Ausbau nach Kassenlage, Haushalt je Jahr, Wachstumsblocker), `--econreport` (Haushalt nach Posten, mit `--loadfile`)
+- `dev_tests.gd` — `--selftest` (Timing, Speichern/Laden, Audio), `--dragtest` (echtes Maus-Ziehen), `--lanetest` (Rechtsverkehr auf Hauptstraßen), `--widetest` (Hauptstraßen-Erkennung), `--profile[=Sek,Tempo]` (Frame-Zeiten + Ruckler-Ursachen), `--gfx=0..2`, `--nowarmup`, `--servicetest`, `--tool=<name>`, `--traffictest` (Korridor: Straße/Parallelstraße/Hauptstraße/Bus/Bahn), `--pickcheck`, `--firetest` (Brand an der Wache gelöscht, ohne Wache abgebrannt + Ruine), `--bustest` (Vorstadt mit eigenem Straßennetz bekommt Busse), `--happytest` (Aufschlüsselung, Warnung bei Steuer hoch / Polizei weg), `--cheattest` (Geld-Cheat per Tastenereignis), `--greentest` (Grüngürtel gegen Verschmutzung, Terraforming reißt Straße ab), `--venuetest` (Stadion/Theater: Besucherverkehr, Kundschaft), `--zonetest` (Ladenzeile, Ballung, Nachbarschaft), `--taxtest` (Steuern je Zone, ÖPNV-Tarif), `--cartest` (Autos/Busse je Tarif, Diagnose ÖPNV, Bahnhofs-Auslastung), `--cardrift=Sek`, `--jamreport` (meistbelastete Straßen), `--loadfile=pfad` (Spielstand-Kopie laden, alte Stände werden umgerechnet; `--nomigrate` = ohne Umrechnung zum Vergleich), `--focus=x,z` (Kamera auf Tile), `--fronttest`, `--hover=x,z [--detail]`, `--notify`, `--hidehud`, `--fpstest`, `--mutetest`, `--savetest`, `--uiscale=f`, `--zoomtest`, `--rangetest`, `--appicon=pfad.png` (App-Icon rendern), `--splash[=brick|grass|stone]` (+ `--loadfile`, `--cam`, `--screenshot`: Startbild mit 3D-Block-Logo, Tilt-Shift), `--menu --asksave=slot`, `--gpumeasure=Sek,fps [--pause]`, `--popup=view|happy|log`, `--loadreport` (Auslastung der Dienste + Brände in 12 Monaten), `--powertest`, `--bigcity` (ganze Karte bebauen), `--buildtest` (Bau-Klick-Zeit, Pendler synchron/Hintergrund), `--restest`, `--processtest`, `--renewtest`, `--treereport`, `--researchtest`, `--resbuild`, `--freshrun=Jahre` (Neustart mit Startkapital: Startviertel + jährlicher Ausbau nach Kassenlage, Haushalt je Jahr, Wachstumsblocker), `--econreport` (Haushalt nach Posten, mit `--loadfile`), `--goldtest=Jahre [--goldmine]` (mit `--loadfile`: Forschung der Reihe nach starten, Gold-Förderung/Wartezeit/Zukauf messen, Stadt bleibt unverändert)
 
 ```bash
 /Applications/Godot.app/Contents/MacOS/Godot --path . -- --demo --selftest --dragtest --traffictest --quit
@@ -244,7 +264,7 @@ Werte und Reichweiten: `scripts/config.gd` (Abschnitte *Standortregeln*, *Zonen-
 
 - Alle Abbau-Gebäude brauchen **Strom** (1–4 MW) und kosten Unterhalt. Ohne Wald/Vorkommen in Reichweite stehen sie still (Info-Karte nennt den Grund).
 - **Lieferweg**: Abbau-Gebäude und Werke liefern nur mit **Straße direkt am Gebäude**, die zum Lager führt (Netz mit Lagerhaus; ohne Lagerhaus das Straßennetz mit den meisten Einwohnern). Ohne Anschluss fördert ein Abbau-Gebäude in einen **eigenen Vorrat** (50 je Stufe, als Kistenstapel sichtbar) und steht still, wenn er voll ist; mit der Straße wird der Vorrat geliefert. Werke ohne Anschluss bekommen keine Rohstoffe. Warnung beim Wegfall, Info-Karte, **Ansicht Rohstoffe** färbt Gebäude grün/rot, Bau-Vorschau zeigt einen Rahmen grün (angeschlossen) / gelb (Straße, anderes Netz) / rot (keine Straße).
-- **Lager**: 200 je Rohstoff, + Lagerhäuser. Was nicht passt, wird **automatisch exportiert** (Holz 1, Stein/Sand 0,5, Ton 0,8, Kohle 1,5, Eisen 3, Gold 12 $ je Einheit) → Einnahme „Rohstoff-Export“.
+- **Lager**: 200 je Rohstoff, + Lagerhäuser. Verkauft wird ab Rathaus-Stufe 2 alles über der Reserve (siehe Spielmodi), sonst was nicht ins Lager passt – zu **3× Grundpreis** (Grundpreise: Holz 1, Stein/Sand 0,5, Ton 0,8, Kohle 1,5, Eisen 3, Gold 12 $ je Einheit; Zukauf ebenfalls 3×) → Einnahme „Rohstoff-Export“.
 - **Endlich, aber langlebig**: je Vorkommen-Tile 1.200–2.550 Einheiten. Typische Karte 128×128: ~950.000 Stein (≈ 500 Fels-Tiles), ~200.000 Kohle, ~100.000 Eisen, ~30.000–55.000 Gold, Sand/Ton praktisch unerschöpflich. Eine Mine an einer Ader hält bei Stufe 3 rund 40–50 Spieljahre. Nachschub siehe **Erneuerung**.
 - Sichtbar: Fels, Sand und Ton färben den Boden, Erzbrocken ragen aus dem Gras; **Ansicht Rohstoffe** (V) färbt alle Vorkommen (kräftig = voll, grau = erschöpft), die Ansicht-Liste zeigt die Restmengen. Mit einem Abbau-Werkzeug zeigt die Vorschau Vorkommen im Umkreis. HUD: Lager-Leiste (Tooltip: Förderung, Kapazität, Export).
 - Werkzeuge haben keine Taste (alle Buchstaben belegt) – nur über die Werkzeugleiste. Tests `--restest`, `--orecount`, Screenshot-Flag `--resbuild`.
@@ -254,7 +274,7 @@ Werte und Reichweiten: `scripts/config.gd` (Abschnitte *Standortregeln*, *Zonen-
 | Werk (Werkzeuggruppe Verarbeitung, 2×2, Strom) | Bedarf je Monat | Ergebnis | Verschmutzung |
 |---|---|---|---|
 | Sägewerk | 10 Holz | 10 Bretter | – |
-| Ziegelei | 10 Ton + 2 Kohle – ohne Kohle: 4 Holz bei 70 % Ausstoß | 10 Ziegel (7 mit Holz) | leicht |
+| Ziegelei | 10 Ton + 2 Kohle – ohne Kohle: 4 Holz bei 70 % Ausstoß | 14 Ziegel (~10 mit Holz; vorher 10, 1.11.) | leicht |
 | Glashütte | 10 Sand + 3 Kohle | 8 Glas | mittel |
 | Stahlwerk | 10 Eisen + 5 Kohle | 8 Stahl | stark |
 
@@ -346,16 +366,19 @@ Info-Karte: „Hochhaus/Büroturm · Stufe 4“, „Hightech-Industrie“; Wachs
 
 | Projekt | Punkte | Gold | Voraussetzung | Wirkung |
 |---|---|---|---|---|
-| Tiefbau | 1.500 | 30 | – | Minen, Steinbrüche, Gruben fördern 50 % mehr |
-| Effiziente Bauweise | 1.800 | 20 | – | 25 % weniger Baumaterial (Bauen, Ausbau, Wachsen) |
-| Kraftwerksfilter | 1.500 | 30 | – | Kohlekraftwerke verschmutzen halb so viel |
-| Moderne Hochöfen | 2.100 | 40 | Tiefbau | Werke brauchen halb so viel Kohle, 40 % weniger Verschmutzung |
-| Solarenergie | 1.800 | 30 | – | Solarfeld baubar (50 MW, nur tagsüber) |
-| Batteriespeicher | 2.100 | 50 | Solarenergie | Batterie baubar (liefert nachts bis 40 MW) |
-| Wasserkraft | 2.400 | 40 | – | Wasserkraftwerk baubar |
-| Pumpspeicher | 2.700 | 50 | Batteriespeicher | Pumpspeicher baubar |
-| Salzspeicher | 3.600 | 80 | Pumpspeicher | Salzspeicher baubar, Kohlekraftwerke umrüstbar |
+| Tiefbau | 1.500 | 180 | – | Minen, Steinbrüche, Gruben fördern 50 % mehr |
+| Effiziente Bauweise | 1.800 | 120 | – | 25 % weniger Baumaterial (Bauen, Ausbau, Wachsen) |
+| Kraftwerksfilter | 1.500 | 180 | – | Kohlekraftwerke verschmutzen halb so viel |
+| Moderne Hochöfen | 2.100 | 240 | Tiefbau | Werke brauchen halb so viel Kohle, 40 % weniger Verschmutzung |
+| Solarenergie | 1.800 | 180 | – | Solarfeld baubar (50 MW, nur tagsüber) |
+| Batteriespeicher | 2.100 | 300 | Solarenergie | Batterie baubar (liefert nachts bis 40 MW) |
+| Wasserkraft | 2.400 | 240 | – | Wasserkraftwerk baubar |
+| Pumpspeicher | 2.700 | 300 | Batteriespeicher | Pumpspeicher baubar |
+| Salzspeicher | 3.600 | 480 | Pumpspeicher | Salzspeicher baubar, Kohlekraftwerke umrüstbar |
 
+- **Gold ist die Forschungswährung** (31.10. ×6, vorher 20–120 je Projekt = ~7 % der Kosten): ganzer Baum ~4.000 Gold
+  (Karte hat 24.000–88.000). Normales Tempo braucht etwa eine eigene Goldmine Stufe 1, schnelles Forschen mehrere Minen
+  Stufe 3 + Prospektor – oder teuren Zukauf (36 $ je Gold). Gold fürs teuerste offene Projekt wird nicht automatisch verkauft.
 - **Dauer** (seit 23.10. ×3, Nutzer: „zu schnell“): 1 Institut Stufe 1 + 1.000 $/Monat ≈ 4 Jahre für Tiefbau; Institut Stufe 3 + 4.500 Akademiker + 3.000 $ ≈ 11 Monate. Jede Projektkarte zeigt die Dauer beim aktuellen und beim Höchstbudget.
 - **Durchbruch-Karte** bei Abschluss (Bildmitte): Wirkung in Zahlen für die eigene Stadt (z.B. „Förderung ~52 statt 30“), „Hinspringen“ zum betroffenen Gebäude.
 - **Sichtbar in der Welt:** Kohlekraftwerke und Werke rauchen (Schornsteinrauch, nur mit Strom) – ohne Forschung dunkel und dicht, mit Kraftwerksfilter/Modernen Hochöfen weiß, dünn und seltener. Industrie ab Stufe 2 raucht leicht (jedes dritte Gebäude, dünn, hellgrau), damit das Bild stimmig bleibt, ohne die Stadt zu verqualmen. Kraftwerksfilter setzt Filteraufsätze auf Schlot und Dach, Moderne Hochöfen Wäscher-Ringe und einen Elektroofen, Tiefbau einen zweiten Stahl-Förderturm mit Förderband (Mine) bzw. Förderband und Bagger (Steinbruch). Kostenblase: „-25 % Material (Effiziente Bauweise)“; Info-Karte betroffener Gebäude: Abschnitt „Forschung“.

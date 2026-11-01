@@ -45,6 +45,7 @@ static func run(game: Node) -> void:
 		return
 	# Tests/Demo bauen auf leerer Karte mit allem freigeschaltet (höchste Rathaus-Stufe); --buildstart startet echt
 	game.sim.hall_level = Config.HALL_LEVELS.size() - 1
+	game.sim.allow_all_trade()          # Tests/Demo kaufen wie früher automatisch zu
 	# Tests/Demo-Aufbau rechnen Pendler synchron (deterministisch, Ergebnis sofort lesbar)
 	game.sim.async_commute = false
 	# Automatische Läufe (Tests/Screenshots) nehmen keinen Tastaturfokus: sonst landen Tastendrücke
@@ -227,8 +228,14 @@ static func run(game: Node) -> void:
 		var hp := HumanPlayer.new()
 		hp.verbose = has("--verbose")
 		hp.run(game, int(hv[0]), int(hv[1]) if hv.size() > 1 else 1)
+	if value("--goldtest") != "":
+		await DevTests.goldtest(game, int(value("--goldtest")))
 	if has("--buildstart"):
 		await DevTests.buildstarttest(game)
+	if has("--moneytest"):
+		await DevTests.moneytest(game)
+	if has("--tradetest"):
+		await DevTests.tradetest(game)
 	if has("--mayortest"):
 		await DevTests.mayortest(game)
 	if has("--citytechtest"):

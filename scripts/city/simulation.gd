@@ -8,6 +8,7 @@ signal traffic_changed
 signal message(text: String)
 signal alert(text: String, tile: Vector2i)   # Meldung mit Ort (Klick/Tab springt hin)
 signal research_finished(id: String)          # Projekt abgeschlossen -> HUD zeigt Durchbruch-Karte
+signal trade_request(req: Dictionary)         # Bürgermeister fragt: Rohstoff -> {"amount", "cost", "uses"} (Zukauf freigeben?)
 
 const SECONDS_PER_MONTH := [0.0, 8.0, 4.0, 1.5]    # vorher 3/1,5/0,5: 40 Spieljahre waren 24 bzw. 4 Minuten
 const MONTH_NAMES := ["Jan", "Feb", "Mär", "Apr", "Mai", "Jun", "Jul", "Aug", "Sep", "Okt", "Nov", "Dez"]
@@ -96,8 +97,19 @@ var maint_recycled := 0.0           # davon von Recyclinghöfen zurückgeholt (E
 var maint_short := 0.0              # Anteil Instandhaltung, der mangels Geld ausblieb (0..1) -> Verfall
 var store_cover := PackedByteArray()   # Lager-Netz: 1 = Tile im Einzugskreis eines Lagers (Aufbau-Start)
 var _founding_left := 0.0           # Übergangs-Jobs nach der Gründung (s. founding_jobs)
+# Zukauf nur mit Freigabe (Nutzer 1.11.: bewusste Entscheidung, Bürgermeister fragt nach)
+var trade_allow := {}                # Rohstoff -> true: Dauer-Freigabe (gespeichert)
+var trade_once := {}                 # Rohstoff -> true: einmalig für den laufenden Monat
+var trade_declined := {}             # Rohstoff -> Monate, bis wieder gefragt wird
+var trade_wanted := {}               # dieser Monat: Rohstoff -> {"amount", "uses": {Verbraucher: true}} (fehlte, nicht gekauft)
+var fuel_short := {}                 # Kraftwerks-Anker -> Anteil ohne Brennstoff im letzten Monat (weniger Leistung)
+var _trade_asked := ""
+var _trade_ask_months := 0
+var hall_reserve := false            # Rathaus-Reserve: Material der nächsten Stufe wird nicht verbraucht (gespeichert)
 var hall_level := 1                 # Rathaus-Stufe 1..5 (Config.HALL_LEVELS)
 var interest_cost := 0.0            # Schuldzinsen im letzten Monat
+var _money_warned := ""              # zuletzt gegebene Kassen-Warnung ("low" / "debt"), leer = alles gut
+var _debt_months := 0
 var admin_cost := 0.0               # Verwaltungskosten im letzten Monat
 var build_imports := 0.0           # Sofort-Zukauf von Baumaterial beim Bauen (Summe seit Spielstart, nicht gespeichert)
 var planted := 0                    # Bäume, die Baumschulen im letzten Monat gepflanzt haben
@@ -191,7 +203,7 @@ func to_dict() -> Dictionary:
 	for a: int in local_buffer:
 		buffers[str(a)] = local_buffer[a]
 	return {"money": money, "month": month, "year": year, "tax": tax, "fare": fare, "congestion": congestion,
-		"stock": stock, "buffers": buffers, "game_mode": "build", "hall_level": hall_level,
+		"stock": stock, "buffers": buffers, "game_mode": "build", "hall_level": hall_level, "hall_reserve": hall_reserve, "trade_allow": trade_allow,
 		"research": {"done": research_done, "current": research_current, "progress": research_progress,
 			"budget": research_budget}}
 
@@ -209,6 +221,12 @@ func from_dict(d: Dictionary) -> void:
 		tax[Config.Zone.COM] = d["tax_rate"]
 	fare = d.get("fare", 1)
 	hall_level = clampi(int(d.get("hall_level", 1)), 1, Config.HALL_LEVELS.size() - 1)
+	hall_reserve = bool(d.get("hall_reserve", false))
+	trade_allow = (d.get("trade_allow", {}) as Dictionary).duplicate()
+	trade_once = {}
+	trade_declined = {}
+	trade_wanted = {}
+	fuel_short = {}
 	var rs: Dictionary = d.get("research", {})
 	research_done.clear()
 	for id: String in (rs.get("done", []) as Array):
@@ -381,6 +399,8 @@ func _tick_stage(stage: String) -> void:
 			_export_surplus()
 			_research()
 			_budget()
+			_warn_money()
+			_ask_trade()
 			month += 1
 			if month >= 12:
 				month = 0
@@ -1430,6 +1450,8 @@ func _compute_power() -> void:
 			if anchor[i] == i:
 				var pdef: Dictionary = Config.SPECIALS[special[i]]
 				var p: int = pdef["power"] if map.construct[i] == 0 else 0     # Kraftwerk im Bau liefert nichts
+				if fuel_short.has(i):
+					p = roundi(p * (1.0 - float(fuel_short[i])))              # ohne Brennstoff (kein Zukauf) weniger Leistung
 				capacity += p
 				if not pdef.has("solar"):
 					night += p
@@ -1738,10 +1760,14 @@ func growth_blockers(i: int) -> PackedStringArray:
 		out.append("Keine Nachfrage")
 	if lv < _max_level(i) and lv >= 1:
 		var need := material_need(map.zone[i], lv + 1)
-		if float(need[1]) > 0.0 and money < float(need[1]):
-			var names := PackedStringArray()
-			for r: String in need[0]:
-				names.append(Config.RESOURCES[r]["name"])
+		var names := PackedStringArray()
+		var locked := false
+		for r: String in need[0]:
+			names.append(Config.RESOURCES[r]["name"])
+			locked = locked or not can_buy(r)
+		if locked:
+			out.append("Baustoffe fehlen (%s) - Zukauf nicht freigegeben" % ", ".join(names))
+		elif float(need[1]) > 0.0 and money < float(need[1]):
 			out.append("Baustoffe fehlen (%s), Zukauf $%d zu teuer" % [", ".join(names), int(need[1])])
 	return out
 
@@ -2652,6 +2678,15 @@ func research_blocker(id: String) -> String:
 	return ""
 
 
+## Gold des teuersten noch nicht erforschten Projekts (Verkaufs-Reserve).
+func _open_research_gold() -> float:
+	var g := 0.0
+	for id: String in Config.RESEARCH:
+		if not tech(id) and research_current != id:
+			g = maxf(g, float(Config.RESEARCH[id]["gold"]))
+	return g
+
+
 static func research_start_cost(id: String) -> float:
 	return float(Config.RESEARCH[id]["points"]) * Config.RESEARCH_START_PER_POINT
 
@@ -2840,6 +2875,29 @@ func upgrade_hall() -> String:
 	return ""
 
 
+## Kassen-Warnung des Bürgermeisters (Nutzer 1.11.): früh, wenn das Geld bei aktuellem Saldo nur noch wenige Monate
+## reicht, und wenn die Kasse ins Minus rutscht (Zinseszins!). Im Minus alle 12 Monate erneut mit den Zinskosten.
+## Nur Hinweise, keine fertige Lösung.
+func _warn_money() -> void:
+	if hall_level < 2:
+		return                        # Gründung: keine Steuern, kein Unterhalt
+	var saldo := last_income - last_expense
+	if money < 0.0:
+		_debt_months += 1
+		if _money_warned != "debt" or _debt_months % 12 == 0:
+			_money_warned = "debt"
+			message.emit("Die Kasse ist im Minus ($%d) - Schulden kosten %d %% Zinsen pro Monat ($%d). Wohin fließt das Geld? (Haushalt oben anklicken)" % [
+				int(money), roundi(Config.DEBT_INTEREST * 100.0), int(interest_cost)])
+		return
+	_debt_months = 0
+	if saldo < 0.0 and money / -saldo < 6.0:
+		if _money_warned == "":
+			_money_warned = "low"
+			message.emit("Bei diesem Haushalt reicht die Kasse nur noch ~%d Monate - Ausgaben prüfen, bevor wir Schulden machen." % maxi(ceili(money / -saldo), 1))
+	elif saldo >= 0.0:
+		_money_warned = ""
+
+
 ## Zufriedenheits-Abzug durch die Wohnsteuer (negativ = Bonus bei Steuer unter neutral).
 func tax_happiness() -> float:
 	var d := float(tax[Config.Zone.RES]) - Config.TAX_NEUTRAL[Config.Zone.RES]
@@ -2859,11 +2917,85 @@ func build_need(mats: Dictionary) -> Array:
 	var missing := {}
 	var price := 0.0
 	for r: String in mats:
-		var short := float(mats[r]) - float(stock.get(r, 0.0))
+		var short := float(mats[r]) - avail(r)
 		if short > 0.0:
 			missing[r] = short
 			price += short * float(Config.RESOURCES[r]["price"]) * Config.IMPORT_FACTOR
 	return [missing, ceilf(price)]
+
+
+## Rathaus-Reserve: so viel von r ist für die nächste Rathaus-Stufe zurückgelegt (0 = Schalter aus / höchste Stufe).
+func reserved(r: String) -> float:
+	if not hall_reserve or hall_level + 1 >= Config.HALL_LEVELS.size():
+		return 0.0
+	return float((Config.HALL_LEVELS[hall_level + 1].get("mats", {}) as Dictionary).get(r, 0.0))
+
+
+## Darf r zugekauft werden? Handel ab Stufe 2 und Freigabe des Spielers (dauerhaft oder für diesen Monat).
+func can_buy(r: String) -> bool:
+	return can_trade() and (bool(trade_allow.get(r, false)) or bool(trade_once.get(r, false)))
+
+
+## Fehlenden Rohstoff merken (ohne Freigabe nicht gekauft) – am Monatsende fragt der Bürgermeister.
+func _want(r: String, amount: float, use: String) -> void:
+	if amount <= 0.0 or not can_trade():
+		return
+	var w: Dictionary = trade_wanted.get(r, {"amount": 0.0, "uses": {}})
+	w["amount"] = float(w["amount"]) + amount
+	(w["uses"] as Dictionary)[use] = true
+	trade_wanted[r] = w
+
+
+## Monatsende: einmalige Freigaben verfallen; neuer Bedarf ohne Freigabe -> Signal trade_request (höchstens bei
+## geänderter Liste oder alle 6 Monate, abgelehnte Rohstoffe 12 Monate nicht).
+func _ask_trade() -> void:
+	trade_once = {}
+	for r: String in trade_declined.keys():
+		trade_declined[r] = int(trade_declined[r]) - 1
+		if int(trade_declined[r]) <= 0:
+			trade_declined.erase(r)
+	var req := {}
+	for r: String in trade_wanted:
+		if trade_declined.has(r) or bool(trade_allow.get(r, false)):
+			continue
+		var w: Dictionary = trade_wanted[r]
+		var amount := ceilf(float(w["amount"]))
+		req[r] = {"amount": amount, "cost": ceilf(amount * float(Config.RESOURCES[r]["price"]) * Config.IMPORT_FACTOR),
+			"uses": ", ".join(PackedStringArray((w["uses"] as Dictionary).keys()))}
+	trade_wanted = {}
+	_trade_ask_months += 1
+	var key := ",".join(PackedStringArray(req.keys()))
+	if req.is_empty():
+		_trade_asked = ""
+		return
+	if key != _trade_asked or _trade_ask_months >= 6:
+		_trade_asked = key
+		_trade_ask_months = 0
+		trade_request.emit(req)
+
+
+## Alles dauerhaft freigeben (umgerechnete Altstände, Testläufe: Verhalten wie vor der Freigabe-Regel).
+func allow_all_trade() -> void:
+	for r: String in Config.RESOURCES:
+		trade_allow[r] = true
+
+
+## Antwort auf die Nachfrage: "once" (diesen Monat), "always" (Dauer-Freigabe), "no" (12 Monate nicht fragen).
+func answer_trade(r: String, choice: String) -> void:
+	match choice:
+		"once":
+			trade_once[r] = true
+		"always":
+			trade_allow[r] = true
+		"no":
+			trade_declined[r] = 12
+			trade_allow.erase(r)
+	stats_changed.emit()
+
+
+## Verbrauchbarer Lagerbestand (ohne Rathaus-Reserve).
+func avail(r: String) -> float:
+	return maxf(float(stock.get(r, 0.0)) - reserved(r), 0.0)
 
 
 ## Baumaterial verbrauchen: aus dem Lager, Rest sofort zukaufen (Geld wird direkt abgebucht). Rückgabe: Zukaufpreis.
@@ -2871,7 +3003,7 @@ func use_build_materials(mats: Dictionary) -> float:
 	var need := build_need(mats)
 	var missing: Dictionary = need[0]
 	for r: String in mats:
-		var take := minf(float(mats[r]), float(stock.get(r, 0.0)))
+		var take := minf(float(mats[r]), avail(r))
 		stock[r] = float(stock.get(r, 0.0)) - take
 		materials_used[r] = float(materials_used.get(r, 0.0)) + float(mats[r])
 	for r: String in missing:
@@ -2950,16 +3082,18 @@ func _maintenance() -> void:
 	var total_val := 0.0
 	for r: String in need:
 		var q := float(need[r]) * (1.0 - cover)
-		var take := minf(q, float(stock.get(r, 0.0)))
+		var take := minf(q, avail(r))
 		stock[r] = float(stock.get(r, 0.0)) - take
 		var miss := q - take
 		var price := miss * float(Config.RESOURCES[r]["price"]) * Config.IMPORT_FACTOR
 		total_val += q * float(Config.RESOURCES[r]["price"])
 		if miss > 0.0:
-			if money - _import_pending - price >= -Config.MATERIAL_DEBT:
+			if can_buy(r) and money - _import_pending - price >= -Config.MATERIAL_DEBT:
 				_buy(r, miss)
 			else:
 				unpaid_val += miss * float(Config.RESOURCES[r]["price"])
+				if not can_buy(r):
+					_want(r, miss, "Instandhaltung")
 		last_maint[r] = float(need[r])
 		materials_used[r] = float(materials_used.get(r, 0.0)) + q
 	maint_short = clampf(unpaid_val / total_val, 0.0, 1.0) if total_val > 0.0 else 0.0
@@ -3094,7 +3228,7 @@ func _process_goods() -> void:
 		var proc: Dictionary = def["process"]
 		var lv := map.special_level(a)
 		var eff := 1.0
-		if proc.has("fuel_alt") and float(stock.get("coal", 0.0)) < float(proc["in"]["coal"]) * lv * furnace:
+		if proc.has("fuel_alt") and avail("coal") < float(proc["in"]["coal"]) * lv * furnace:
 			# keine eigene Kohle: Ersatz-Brennstoff (weniger Ausstoß) statt Zukauf
 			var alt: Dictionary = proc["fuel_alt"]
 			var fin: Dictionary = (proc["in"] as Dictionary).duplicate()
@@ -3114,12 +3248,14 @@ func _process_goods() -> void:
 		var share := 1.0
 		var lacking := PackedStringArray()
 		for r: String in proc["in"]:
-			if r == "coal" and can_trade():
-				continue                    # Brennstoff: fehlende Kohle wird zugekauft (wie beim Kohlekraftwerk)
+			if r == "coal" and can_buy("coal"):
+				continue                    # Brennstoff: fehlende Kohle wird zugekauft (Freigabe), wie beim Kohlekraftwerk
 			var need := float(proc["in"][r]) * lv * (furnace if r == "coal" else 1.0)
-			var f := float(stock.get(r, 0.0)) / need
+			var f := avail(r) / need
 			if f < 1.0:
 				lacking.append(Config.RESOURCES[r]["name"])
+				if r == "coal":
+					_want("coal", need * (1.0 - f), def["name"])
 			share = minf(share, f)
 		share = clampf(share, 0.0, 1.0)
 		var used := {}
@@ -3127,7 +3263,7 @@ func _process_goods() -> void:
 		var bought := 0.0
 		for r: String in proc["in"]:
 			used[r] = float(proc["in"][r]) * lv * share * (furnace if r == "coal" else 1.0)
-			var take := minf(float(stock.get(r, 0.0)), float(used[r]))
+			var take := minf(avail(r), float(used[r]))
 			stock[r] = float(stock.get(r, 0.0)) - take
 			if take < float(used[r]):
 				bought = float(used[r]) - take
@@ -3142,20 +3278,30 @@ func _process_goods() -> void:
 		producer_info[a] = {"out": made, "in": used, "issue": issue}
 	for a in plants:
 		var need := float(Config.COAL_PLANT_USE)
-		var have := minf(float(stock.get("coal", 0.0)), need)
+		var have := minf(avail("coal"), need)
 		stock["coal"] = float(stock.get("coal", 0.0)) - have
 		coal_burned += have
+		fuel_short.erase(a)
 		if need - have > 0.0:
-			_buy("coal", need - have)
+			if can_buy("coal"):
+				_buy("coal", need - have)
+			else:
+				fuel_short[a] = (need - have) / need
+				_want("coal", need - have, "Kohlekraftwerk")
 		producer_info[a] = {"out": {}, "in": {"coal": need}, "issue": "" if have >= need else
 			"Kohle zugekauft: %d (eigene Mine spart Geld)" % int(need - have)}
 	# Biomasse verbrennt Holz (nach den Werken, also nach dem Sägewerk); fehlt es: Zukauf
 	for a in bio:
 		var need := float(Config.BIOMASS_WOOD_USE)
-		var have := minf(float(stock.get("wood", 0.0)), need)
+		var have := minf(avail("wood"), need)
 		stock["wood"] = float(stock.get("wood", 0.0)) - have
+		fuel_short.erase(a)
 		if need - have > 0.0:
-			_buy("wood", need - have)
+			if can_buy("wood"):
+				_buy("wood", need - have)
+			else:
+				fuel_short[a] = (need - have) / need
+				_want("wood", need - have, "Biomassekraftwerk")
 		producer_info[a] = {"out": {}, "in": {"wood": need}, "issue": "" if have >= need else
 			"Holz zugekauft: %d (Holzfäller + Baumschule sparen Geld)" % int(need - have)}
 
@@ -3170,6 +3316,8 @@ func _export_surplus() -> void:
 		if can_trade():
 			# Handel: Überschuss über der Reserve verkaufen (Reserve = Bedarf der nächsten Rathaus-Stufe + Puffer)
 			var need := float((nxt.get("mats", {}) as Dictionary).get(res, 0.0)) if not nxt.is_empty() else 0.0
+			if res == "gold" and _inst_levels > 0:
+				need = maxf(need, _open_research_gold())    # Gold fürs teuerste offene Projekt nicht verkaufen
 			keep = minf(cap, maxf(need + Config.SELL_EXTRA, cap * Config.SELL_KEEP))
 		var over := float(stock[res]) - keep
 		if over > 0.0:
@@ -3192,7 +3340,7 @@ func material_need(zn: int, lv: int) -> Array:
 	var missing := {}
 	var price := 0.0
 	for r: String in cost:
-		var short := float(cost[r]) - float(stock.get(r, 0.0))
+		var short := float(cost[r]) - avail(r)
 		if short > 0.0:
 			missing[r] = short
 			price += short * float(Config.RESOURCES[r]["price"]) * Config.IMPORT_FACTOR
@@ -3216,13 +3364,18 @@ func _use_materials(zn: int, lv: int) -> bool:
 	if not materials_on() or not Config.MATERIAL_COST.has(zn):
 		return true
 	var need := material_need(zn, lv)
-	if not (need[0] as Dictionary).is_empty() and not can_trade():
-		return false                  # Aufbau-Start vor Rathaus-Stufe 2: kein Zukauf, nur eigenes Material
+	var blocked := false
+	for r: String in (need[0] as Dictionary):
+		if not can_buy(r):
+			_want(r, float(need[0][r]), "Häuser")
+			blocked = true
+	if blocked:
+		return false                  # kein Zukauf ohne Freigabe (vor Stufe 2 gar keiner)
 	if float(need[1]) > 0.0 and money - _import_pending - float(need[1]) < -Config.MATERIAL_DEBT:
 		return false
 	var cost := growth_materials(zn, lv)
 	for r: String in cost:
-		var take := minf(float(cost[r]), float(stock.get(r, 0.0)))
+		var take := minf(float(cost[r]), avail(r))
 		stock[r] = float(stock.get(r, 0.0)) - take
 		materials_used[r] = float(materials_used.get(r, 0.0)) + float(cost[r])
 		if float(cost[r]) - take > 0.0:

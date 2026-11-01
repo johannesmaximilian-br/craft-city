@@ -2315,3 +2315,116 @@ static func workertest(game: Node, cam: bool) -> void:
 			break
 	print("workertest Figuren unterwegs %d (gerade aktiv %d), Zustände %s, %.1f s" % [seen.size(), workers.active_count(),
 		states, (Time.get_ticks_usec() - t0) / 1e6])
+
+
+## Gold als Forschungswährung (--goldtest=Jahre, mit --loadfile=<Kopie einer Stadt mit Institut>): Stadt bleibt unverändert,
+## Projekte starten der Reihe nach; fehlt Gold, wird gewartet, bis der Zukauf höchstens ein Viertel der Kasse kostet.
+## Misst Förderung, Wartezeit, Zukauf, Tempo. --goldmine setzt zusätzlich eine Goldmine (Stufe 1) ans nächste Vorkommen.
+static func goldtest(game: Node, years: int) -> void:
+	var map: CityMap = game.map
+	var sim: Simulation = game.sim
+	if DevTools.has("--goldmine"):
+		var hp := HumanPlayer.new()
+		hp.game = game
+		hp.map = map
+		hp.sim = sim
+		hp.tools = game.tools
+		hp.c = map.size / 2
+		var p := hp._place_at(ToolController.Tool.MINE, hp._near_ore(Config.Ore.GOLD))
+		print("goldtest Goldmine bei %s" % p)
+	var t0 := Time.get_ticks_msec()
+	sim.tick_month()
+	var gm := 0
+	var glv := 0
+	for a in map.size * map.size:
+		if map.anchor[a] == a and map.special[a] == Config.Special.MINE:
+			var info: Dictionary = sim.producer_info.get(a, {})
+			if float((info.get("out", {}) as Dictionary).get("gold", 0.0)) > 0.0:
+				gm += 1
+				glv += map.special_level(a)
+	print("goldtest 1 Monat = %d ms, Institutsstufen %d, Akademiker-Faktor %.2f, Budget $%d, Punkte/Monat %.0f, Gold im Lager %d, Gold-Förderung %.0f/Monat aus %d Minen (Stufen %d), Gold-Verkauf %d/Monat" % [
+		Time.get_ticks_msec() - t0, sim.institute_levels(), sim.academic_factor(), int(sim.research_budget), sim.research_points(),
+		int(sim.stock.get("gold", 0.0)), float(sim.production.get("gold", 0.0)), gm, glv, int(float(sim.exported.get("gold", 0.0)))])
+	if sim.research_budget <= 0.0:
+		sim.research_budget = 2000.0
+	var mined := 0.0
+	var bought := 0.0
+	var wait := 0
+	var started := 0
+	var order: Array = Config.RESEARCH.keys()
+	for m in years * 12:
+		sim.tick_month()
+		mined += float(sim.production.get("gold", 0.0))
+		if sim.research_current == "":
+			for id: String in order:
+				if sim.research_blocker(id) != "":
+					continue
+				var g := float(Config.RESEARCH[id]["gold"])
+				var gshort := maxf(g - float(sim.stock.get("gold", 0.0)), 0.0)
+				if gshort > 0.0 and gshort * float(Config.RESOURCES["gold"]["price"]) * Config.IMPORT_FACTOR > sim.money * 0.25:
+					wait += 1
+					break
+				if sim.start_research(id) == "":
+					bought += gshort
+					started += 1
+					print("goldtest %s: %s gestartet (Gold %d, zugekauft %d, Lager danach %d)" % [sim.date_string(),
+						Config.RESEARCH[id]["name"], int(g), int(gshort), int(sim.stock.get("gold", 0.0))])
+				break
+	print("goldtest Ergebnis %d J.: erforscht %d/%d (gestartet %d), Gold gefördert %d (%.0f/J.), zugekauft %d, Wartezeit %d Monate, Punkte/Monat %.0f, Kasse $%d" % [
+		years, sim.research_done.size(), Config.RESEARCH.size(), started, int(mined), mined / years, int(bought), wait,
+		sim.research_points(), int(sim.money)])
+
+
+
+## Zukauf nur mit Freigabe: fehlender Bedarf -> Nachfrage (Signal), "Diesmal" gilt einen Monat, "Immer" dauerhaft,
+## "Nein" pausiert die Nachfrage 12 Monate.
+static func tradetest(game: Node) -> void:
+	var sim: Simulation = game.sim
+	game._new_city()
+	sim.hall_level = 2
+	var asked := []
+	sim.trade_request.connect(func(req: Dictionary) -> void: asked.append(req))
+	print("tradetest ohne Freigabe: can_buy(Ziegel) %s" % sim.can_buy("bricks"))
+	sim._want("bricks", 40.0, "Häuser")
+	sim._ask_trade()
+	print("tradetest Nachfrage: %s" % [asked])
+	sim.answer_trade("bricks", "once")
+	print("tradetest Diesmal: can_buy %s" % sim.can_buy("bricks"))
+	sim._ask_trade()
+	print("tradetest nach Monatsende: can_buy %s (erwartet false)" % sim.can_buy("bricks"))
+	sim.answer_trade("coal", "always")
+	sim._ask_trade()
+	print("tradetest Immer Kohle: can_buy %s (erwartet true)" % sim.can_buy("coal"))
+	asked.clear()
+	sim.answer_trade("glass", "no")
+	sim._want("glass", 5.0, "Häuser")
+	sim._ask_trade()
+	print("tradetest Nein Glas -> keine Nachfrage: %s" % asked.is_empty())
+
+
+
+## Kassen-Warnung des Bürgermeisters: knappe Kasse (wenige Monate), Minus mit Zinsen, Entwarnung bei positivem Saldo.
+static func moneytest(game: Node) -> void:
+	var sim: Simulation = game.sim
+	game._new_city()
+	sim.hall_level = 2
+	var msgs: Array[String] = []
+	sim.message.connect(func(t: String) -> void: msgs.append(t))
+	sim.money = 500.0
+	sim.last_income = 100.0
+	sim.last_expense = 300.0
+	sim._warn_money()
+	sim._warn_money()                 # zweimal: nur eine Warnung
+	print("moneytest knapp: %d Meldung(en): %s" % [msgs.size(), msgs])
+	msgs.clear()
+	sim.money = -2000.0
+	sim.interest_cost = 20.0
+	sim._warn_money()
+	print("moneytest Minus: %s" % [msgs])
+	msgs.clear()
+	sim.money = 3000.0
+	sim.last_income = 400.0
+	sim._warn_money()
+	sim.last_income = 100.0
+	sim._warn_money()
+	print("moneytest nach Entwarnung erneut knapp: %d Meldung(en)" % msgs.size())
